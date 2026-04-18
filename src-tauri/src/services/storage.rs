@@ -190,27 +190,34 @@ impl Storage {
     pub fn get_live_channels(&self, category: Option<String>) -> SqliteResult<Vec<LiveChannel>> {
         let conn = self.conn.lock().unwrap();
 
-        let query = match &category {
-            Some(_) => {
+        if let Some(cat) = category {
+            let mut stmt = conn.prepare(
                 "SELECT lc.id, lc.subscription_id, lc.name, lc.logo, lc.url, lc.category
                  FROM live_channels lc
                  INNER JOIN subscriptions s ON lc.subscription_id = s.id
                  WHERE s.enabled = 1 AND lc.category = ?1
                  ORDER BY lc.name"
-            }
-            None => {
+            )?;
+            let rows = stmt.query_map([cat], |row| {
+                Ok(LiveChannel {
+                    id: row.get(0)?,
+                    subscription_id: row.get(1)?,
+                    name: row.get(2)?,
+                    logo: row.get(3)?,
+                    url: row.get(4)?,
+                    category: row.get(5)?,
+                })
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare(
                 "SELECT lc.id, lc.subscription_id, lc.name, lc.logo, lc.url, lc.category
                  FROM live_channels lc
                  INNER JOIN subscriptions s ON lc.subscription_id = s.id
                  WHERE s.enabled = 1
                  ORDER BY lc.name"
-            }
-        };
-
-        let mut stmt = conn.prepare(query)?;
-
-        let channels = if let Some(cat) = category {
-            stmt.query_map([cat], |row| {
+            )?;
+            let rows = stmt.query_map([], |row| {
                 Ok(LiveChannel {
                     id: row.get(0)?,
                     subscription_id: row.get(1)?,
@@ -219,21 +226,9 @@ impl Storage {
                     url: row.get(4)?,
                     category: row.get(5)?,
                 })
-            })?
-        } else {
-            stmt.query_map([], |row| {
-                Ok(LiveChannel {
-                    id: row.get(0)?,
-                    subscription_id: row.get(1)?,
-                    name: row.get(2)?,
-                    logo: row.get(3)?,
-                    url: row.get(4)?,
-                    category: row.get(5)?,
-                })
-            })?
-        };
-
-        channels.collect()
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_live_categories(&self) -> SqliteResult<Vec<String>> {
@@ -280,29 +275,37 @@ impl Storage {
         let page_size = 50;
         let offset = page * page_size;
 
-        let query = match &vtype {
-            Some(_) => {
+        if let Some(t) = vtype {
+            let mut stmt = conn.prepare(
                 "SELECT v.id, v.subscription_id, v.name, v.vtype, v.poster, v.description, v.episodes
                  FROM vod_items v
                  INNER JOIN subscriptions s ON v.subscription_id = s.id
                  WHERE s.enabled = 1 AND v.vtype = ?1
                  ORDER BY v.name
                  LIMIT ?2 OFFSET ?3"
-            }
-            None => {
+            )?;
+            let rows = stmt.query_map(rusqlite::params![t, page_size, offset], |row| {
+                Ok(VodItem {
+                    id: row.get(0)?,
+                    subscription_id: row.get(1)?,
+                    name: row.get(2)?,
+                    vtype: row.get(3)?,
+                    poster: row.get(4)?,
+                    description: row.get(5)?,
+                    episodes: row.get(6)?,
+                })
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare(
                 "SELECT v.id, v.subscription_id, v.name, v.vtype, v.poster, v.description, v.episodes
                  FROM vod_items v
                  INNER JOIN subscriptions s ON v.subscription_id = s.id
                  WHERE s.enabled = 1
                  ORDER BY v.name
                  LIMIT ?1 OFFSET ?2"
-            }
-        };
-
-        let mut stmt = conn.prepare(query)?;
-
-        let items = if let Some(t) = vtype {
-            stmt.query_map(rusqlite::params![t, page_size, offset], |row| {
+            )?;
+            let rows = stmt.query_map(rusqlite::params![page_size, offset], |row| {
                 Ok(VodItem {
                     id: row.get(0)?,
                     subscription_id: row.get(1)?,
@@ -312,22 +315,9 @@ impl Storage {
                     description: row.get(5)?,
                     episodes: row.get(6)?,
                 })
-            })?
-        } else {
-            stmt.query_map(rusqlite::params![page_size, offset], |row| {
-                Ok(VodItem {
-                    id: row.get(0)?,
-                    subscription_id: row.get(1)?,
-                    name: row.get(2)?,
-                    vtype: row.get(3)?,
-                    poster: row.get(4)?,
-                    description: row.get(5)?,
-                    episodes: row.get(6)?,
-                })
-            })?
-        };
-
-        items.collect()
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_vod_detail(&self, id: i64) -> SqliteResult<VodItem> {

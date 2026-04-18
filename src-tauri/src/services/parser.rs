@@ -1,6 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SubscriptionJson {
     #[serde(rename = "lives")]
     pub lives: Option<Vec<LiveChannelJson>>,
@@ -8,7 +8,7 @@ pub struct SubscriptionJson {
     pub vods: Option<Vec<VodItemJson>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LiveChannelJson {
     pub name: String,
     pub logo: Option<String>,
@@ -16,7 +16,7 @@ pub struct LiveChannelJson {
     pub category: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct VodItemJson {
     pub name: String,
     #[serde(rename = "type")]
@@ -26,7 +26,7 @@ pub struct VodItemJson {
     pub episodes: Option<Vec<EpisodeJson>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct EpisodeJson {
     pub name: String,
     pub url: String,
