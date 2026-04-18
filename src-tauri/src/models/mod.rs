@@ -1,2 +1,47 @@
-// Models module placeholder
-// Will be populated in subsequent tasks
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subscription {
+    pub id: i64,
+    pub name: String,
+    pub url: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveChannel {
+    pub id: i64,
+    pub subscription_id: i64,
+    pub name: String,
+    pub logo: Option<String>,
+    pub url: String,
+    pub category: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VodItem {
+    pub id: i64,
+    pub subscription_id: i64,
+    pub name: String,
+    pub vtype: String,
+    pub poster: Option<String>,
+    pub description: Option<String>,
+    pub episodes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayHistory {
+    pub id: i64,
+    pub item_type: String,
+    pub item_id: i64,
+    pub progress: f64,
+    pub last_played: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewSubscription {
+    pub name: String,
+    pub url: String,
+}

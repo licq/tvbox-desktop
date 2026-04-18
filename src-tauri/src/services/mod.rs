@@ -1,2 +1,5 @@
-// Services module placeholder
-// Will be populated in subsequent tasks
+pub mod storage;
+pub mod parser;
+
+pub use storage::Storage;
+pub use parser::Parser;
