@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useLiveStore } from '@/stores/live'
-import { useVodStore } from '@/stores/vod'
 import { usePlayerStore } from '@/stores/player'
 
+const router = useRouter()
 const liveStore = useLiveStore()
-const vodStore = useVodStore()
 const playerStore = usePlayerStore()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -18,11 +18,11 @@ const fullscreen = ref(false)
 let progressUpdateInterval: number | null = null
 
 // Parse URL params
-const params = new URLSearchParams(window.location.search)
+const params = new URLSearchParams(globalThis.location.search)
 const episodeUrl = params.get('episode')
 
 // Get type and id from path
-const pathParts = window.location.pathname.split('/')
+const pathParts = globalThis.location.pathname.split('/')
 const type = pathParts[2] // 'live' or 'vod'
 const id = parseInt(pathParts[3])
 
@@ -45,7 +45,7 @@ onMounted(async () => {
     }).catch(console.error)
   }
 
-  progressUpdateInterval = window.setInterval(() => {
+  progressUpdateInterval = globalThis.setInterval(() => {
     if (videoRef.value) {
       currentTime.value = videoRef.value.currentTime
       duration.value = videoRef.value.duration || 0
@@ -55,7 +55,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (progressUpdateInterval) {
-    clearInterval(progressUpdateInterval)
+    globalThis.clearInterval(progressUpdateInterval)
   }
   // Save play history
   if (type === 'vod' && duration.value > 0) {
@@ -169,7 +169,7 @@ function formatTime(seconds: number): string {
     <div class="p-4">
       <button
         class="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition mb-4"
-        @click="window.history.back()"
+        @click="router.back()"
       >
         ← 返回
       </button>

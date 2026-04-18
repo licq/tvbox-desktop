@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useLiveStore } from '@/stores/live'
 import { useVodStore } from '@/stores/vod'
 import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import type { LiveChannel, VodItem } from '@/types'
 
+const router = useRouter()
 const liveStore = useLiveStore()
 const vodStore = useVodStore()
 
@@ -20,11 +21,11 @@ onMounted(async () => {
 })
 
 function handlePlayChannel(channel: LiveChannel) {
-  window.location.href = `/player/live/${channel.id}`
+  router.push(`/player/live/${channel.id}`)
 }
 
 function handleVodClick(item: VodItem) {
-  window.location.href = `/vod/${item.id}`
+  router.push(`/vod/${item.id}`)
 }
 </script>
 

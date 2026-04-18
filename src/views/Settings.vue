@@ -1,5 +1,7 @@
 <script setup lang="ts">
-// Settings page placeholder
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 </script>
 
 <template>
@@ -7,7 +9,7 @@
     <header class="mb-6">
       <button
         class="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition mb-4"
-        @click="window.history.back()"
+        @click="router.back()"
       >
         ← 返回
       </button>

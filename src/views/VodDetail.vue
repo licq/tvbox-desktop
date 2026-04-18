@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useVodStore } from '@/stores/vod'
 import type { Episode } from '@/types'
 
+const router = useRouter()
 const vodStore = useVodStore()
 
 // Get id from URL
-const pathParts = window.location.pathname.split('/')
+const pathParts = globalThis.location.pathname.split('/')
 const id = parseInt(pathParts[pathParts.length - 1])
 
 onMounted(() => {
@@ -14,7 +16,7 @@ onMounted(() => {
 })
 
 function handlePlay(episode: Episode) {
-  window.location.href = `/player/vod/${id}?episode=${encodeURIComponent(episode.url)}`
+  router.push(`/player/vod/${id}?episode=${encodeURIComponent(episode.url)}`)
 }
 </script>
 
@@ -23,7 +25,7 @@ function handlePlay(episode: Episode) {
     <header class="mb-6">
       <button
         class="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition mb-4"
-        @click="window.history.back()"
+        @click="router.back()"
       >
         ← 返回
       </button>
