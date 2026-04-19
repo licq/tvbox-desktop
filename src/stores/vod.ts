@@ -1,7 +1,25 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { VodItem } from '@/types'
+import type { VodItem, Episode } from '@/types'
+
+// Backend returns episodes as JSON string, parse it to Episode[]
+function parseEpisodes(episodes: string | Episode[]): Episode[] {
+  if (!episodes) return []
+  if (Array.isArray(episodes)) return episodes
+  try {
+    return JSON.parse(episodes) as Episode[]
+  } catch {
+    return []
+  }
+}
+
+function parseVodItem(item: any): VodItem {
+  return {
+    ...item,
+    episodes: parseEpisodes(item.episodes)
+  }
+}
 
 export const useVodStore = defineStore('vod', () => {
   const items = ref<VodItem[]>([])
@@ -13,7 +31,8 @@ export const useVodStore = defineStore('vod', () => {
     loading.value = true
     error.value = null
     try {
-      items.value = await invoke<VodItem[]>('get_vod_items', { vtype: type || null, page: 0 })
+      const rawItems = await invoke<any[]>('get_vod_items', { vtype: type || null, page: 0 })
+      items.value = rawItems.map(parseVodItem)
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -25,7 +44,8 @@ export const useVodStore = defineStore('vod', () => {
     loading.value = true
     error.value = null
     try {
-      currentItem.value = await invoke<VodItem>('get_vod_detail', { id })
+      const rawItem = await invoke<any>('get_vod_detail', { id })
+      currentItem.value = parseVodItem(rawItem)
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -37,7 +57,8 @@ export const useVodStore = defineStore('vod', () => {
     loading.value = true
     error.value = null
     try {
-      items.value = await invoke<VodItem[]>('search_vod', { keyword })
+      const rawItems = await invoke<any[]>('search_vod', { keyword })
+      items.value = rawItems.map(parseVodItem)
     } catch (e) {
       error.value = String(e)
     } finally {

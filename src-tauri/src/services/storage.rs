@@ -533,6 +533,9 @@ impl Storage {
 
         let rows = stmt.query_map([], |row| {
             let sources_str: String = row.get(3)?;
+            let name: String = row.get(0)?;
+            let category: Option<String> = row.get(2)?;
+
             let sources: Vec<ChannelSource> = sources_str
                 .split(',')
                 .filter_map(|s| {
@@ -548,11 +551,14 @@ impl Storage {
                 })
                 .collect();
 
+            // Generate deterministic ID from name + category
+            let id = generate_channel_id(&name, category.as_deref());
+
             Ok(MergedLiveChannel {
-                id: 0, // Will be assigned by frontend
-                name: row.get(0)?,
+                id,
+                name,
                 logo: row.get(1)?,
-                category: row.get(2)?,
+                category,
                 sources,
             })
         })?;
@@ -574,6 +580,9 @@ impl Storage {
 
         let rows = stmt.query_map([category], |row| {
             let sources_str: String = row.get(3)?;
+            let name: String = row.get(0)?;
+            let category_str: Option<String> = row.get(2)?;
+
             let sources: Vec<ChannelSource> = sources_str
                 .split(',')
                 .filter_map(|s| {
@@ -589,16 +598,32 @@ impl Storage {
                 })
                 .collect();
 
+            let id = generate_channel_id(&name, category_str.as_deref());
+
             Ok(MergedLiveChannel {
-                id: 0,
-                name: row.get(0)?,
+                id,
+                name,
                 logo: row.get(1)?,
-                category: row.get(2)?,
+                category: category_str,
                 sources,
             })
         })?;
         rows.collect()
     }
+}
+
+/// Generate a deterministic ID from channel name and category
+/// Uses FNV hash for simplicity and speed
+fn generate_channel_id(name: &str, category: Option<&str>) -> i64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    name.hash(&mut hasher);
+    if let Some(cat) = category {
+        cat.hash(&mut hasher);
+    }
+    hasher.finish() as i64
 }
 
 impl Clone for Storage {
