@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import type { LiveChannel } from '@/types'
 
-defineProps<{
+const props = defineProps<{
   channel: LiveChannel
+  sourceUrl?: string
 }>()
 
-defineEmits<{
-  play: [channel: LiveChannel]
+const emit = defineEmits<{
+  play: [channel: LiveChannel, sourceUrl?: string]
 }>()
+
+function handleClick() {
+  emit('play', props.channel, props.sourceUrl)
+}
 </script>
 
 <template>
   <div
     class="channel-card bg-gray-800 rounded-lg p-4 cursor-pointer hover:bg-gray-700 transition-colors"
-    @click="$emit('play', channel)"
+    @click="handleClick"
   >
     <img
       v-if="channel.logo"
