@@ -56,3 +56,18 @@ pub struct DoubanHot {
     pub rank: i32,
     pub updated_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelSource {
+    pub url: String,
+    pub subscription_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergedLiveChannel {
+    pub id: i64,
+    pub name: String,
+    pub logo: Option<String>,
+    pub category: Option<String>,
+    pub sources: Vec<ChannelSource>,
+}
