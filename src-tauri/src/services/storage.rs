@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::models::{LiveChannel, Subscription, VodItem, PlayHistory, DoubanHot};
+use crate::models::{LiveChannel, Subscription, VodItem, PlayHistory, DoubanHot, ChannelSource, MergedLiveChannel};
 
 pub struct Storage {
     conn: Arc<Mutex<Connection>>,
@@ -515,6 +515,89 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM douban_hot", [])?;
         Ok(())
+    }
+
+    pub fn get_merged_live_channels(&self) -> SqliteResult<Vec<MergedLiveChannel>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get all channels grouped by name+category
+        let mut stmt = conn.prepare(
+            "SELECT lc.name, lc.logo, lc.category,
+                    GROUP_CONCAT(lc.url || '|' || lc.subscription_id) as sources
+             FROM live_channels lc
+             INNER JOIN subscriptions s ON lc.subscription_id = s.id
+             WHERE s.enabled = 1
+             GROUP BY lc.name, lc.category
+             ORDER BY lc.category, lc.name"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let sources_str: String = row.get(3)?;
+            let sources: Vec<ChannelSource> = sources_str
+                .split(',')
+                .filter_map(|s| {
+                    let parts: Vec<&str> = s.split('|').collect();
+                    if parts.len() == 2 {
+                        Some(ChannelSource {
+                            url: parts[0].to_string(),
+                            subscription_id: parts[1].parse().unwrap_or(0),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            Ok(MergedLiveChannel {
+                id: 0, // Will be assigned by frontend
+                name: row.get(0)?,
+                logo: row.get(1)?,
+                category: row.get(2)?,
+                sources,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_merged_live_channels_by_category(&self, category: &str) -> SqliteResult<Vec<MergedLiveChannel>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT lc.name, lc.logo, lc.category,
+                    GROUP_CONCAT(lc.url || '|' || lc.subscription_id) as sources
+             FROM live_channels lc
+             INNER JOIN subscriptions s ON lc.subscription_id = s.id
+             WHERE s.enabled = 1 AND lc.category = ?1
+             GROUP BY lc.name, lc.category
+             ORDER BY lc.name"
+        )?;
+
+        let rows = stmt.query_map([category], |row| {
+            let sources_str: String = row.get(3)?;
+            let sources: Vec<ChannelSource> = sources_str
+                .split(',')
+                .filter_map(|s| {
+                    let parts: Vec<&str> = s.split('|').collect();
+                    if parts.len() == 2 {
+                        Some(ChannelSource {
+                            url: parts[0].to_string(),
+                            subscription_id: parts[1].parse().unwrap_or(0),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            Ok(MergedLiveChannel {
+                id: 0,
+                name: row.get(0)?,
+                logo: row.get(1)?,
+                category: row.get(2)?,
+                sources,
+            })
+        })?;
+        rows.collect()
     }
 }
 
