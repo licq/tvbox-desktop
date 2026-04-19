@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::models::{LiveChannel, Subscription, VodItem, PlayHistory};
+use crate::models::{LiveChannel, Subscription, VodItem, PlayHistory, DoubanHot};
 
 pub struct Storage {
     conn: Arc<Mutex<Connection>>,
@@ -98,6 +98,24 @@ impl Storage {
         )?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_play_history_item ON play_history(item_type, item_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS douban_hot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                year INTEGER,
+                poster TEXT,
+                rating REAL,
+                rank INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_douban_name ON douban_hot(name)",
             [],
         )?;
 
@@ -460,6 +478,43 @@ impl Storage {
         })?;
 
         history.collect()
+    }
+
+    pub fn get_douban_hot(&self) -> SqliteResult<Vec<DoubanHot>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, year, poster, rating, rank, updated_at FROM douban_hot ORDER BY rank LIMIT 100"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(DoubanHot {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                year: row.get(2)?,
+                poster: row.get(3)?,
+                rating: row.get(4)?,
+                rank: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn upsert_douban_hot(&self, items: &[DoubanHot]) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        for item in items {
+            conn.execute(
+                "INSERT OR REPLACE INTO douban_hot (name, year, poster, rating, rank, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![item.name, item.year, item.poster, item.rating, item.rank, item.updated_at],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn clear_douban_hot(&self) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM douban_hot", [])?;
+        Ok(())
     }
 }
 
