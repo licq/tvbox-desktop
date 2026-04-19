@@ -31,7 +31,7 @@ onMounted(async () => {
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(c => c.id === id)
     if (channel) {
-      playerStore.currentUrl = channel.url
+      playerStore.currentUrl = channel.sources[0]?.url
     }
   } else if (type === 'vod' && episodeUrl) {
     playerStore.currentUrl = decodeURIComponent(episodeUrl)

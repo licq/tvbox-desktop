@@ -7,13 +7,31 @@ export interface Subscription {
   updated_at?: string;
 }
 
+export interface ChannelSource {
+  url: string;
+  subscription_id: number;
+}
+
 export interface LiveChannel {
   id: number;
-  subscription_id: number;
   name: string;
   logo?: string;
-  url: string;
-  category?: string;
+  category: string;
+  sources: ChannelSource[];
+}
+
+export interface LiveChannelGroup {
+  category: string;
+  channels: LiveChannel[];
+}
+
+export interface DoubanHotItem {
+  id: number;
+  name: string;
+  year?: number;
+  poster?: string;
+  rating?: number;
+  rank: number;
 }
 
 export interface VodItem {
