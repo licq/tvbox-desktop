@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { LiveChannel } from '@/types'
+import type { LiveChannel, LiveChannelGroup } from '@/types'
 
 export const useLiveStore = defineStore('live', () => {
   const channels = ref<LiveChannel[]>([])
+  const groups = ref<LiveChannelGroup[]>([])
   const categories = ref<string[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -21,6 +22,18 @@ export const useLiveStore = defineStore('live', () => {
     }
   }
 
+  async function fetchGroups() {
+    loading.value = true
+    error.value = null
+    try {
+      groups.value = await invoke<LiveChannelGroup[]>('get_live_channel_groups')
+    } catch (e) {
+      error.value = String(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function fetchCategories() {
     try {
       categories.value = await invoke<string[]>('get_live_categories')
@@ -29,12 +42,5 @@ export const useLiveStore = defineStore('live', () => {
     }
   }
 
-  return {
-    channels,
-    categories,
-    loading,
-    error,
-    fetchChannels,
-    fetchCategories
-  }
+  return { channels, groups, categories, loading, error, fetchChannels, fetchGroups, fetchCategories }
 })
