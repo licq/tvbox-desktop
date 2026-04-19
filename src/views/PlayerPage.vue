@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { open } from '@tauri-apps/plugin-shell'
+import Hls from 'hls.js'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
+import type { ChannelSource } from '@/types'
 
 const router = useRouter()
 const liveStore = useLiveStore()
@@ -14,7 +17,15 @@ const currentTime = ref(0)
 const duration = ref(0)
 const volume = ref(1)
 const fullscreen = ref(false)
+const errorMsg = ref('')
 
+// Multi-source state
+const sources = ref<ChannelSource[]>([])
+const currentSourceIndex = ref(0)
+
+const currentSource = computed(() => sources.value[currentSourceIndex.value])
+
+let hlsInstance: Hls | null = null
 let progressUpdateInterval: number | null = null
 
 // Parse URL params
@@ -30,19 +41,20 @@ onMounted(async () => {
   if (type === 'live') {
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(c => c.id === id)
-    if (channel) {
-      playerStore.currentUrl = channel.sources[0]?.url
+    if (channel && channel.sources.length > 0) {
+      sources.value = channel.sources
+      currentSourceIndex.value = 0
+      playSource(channel.sources[0].url)
     }
   } else if (type === 'vod' && episodeUrl) {
-    playerStore.currentUrl = decodeURIComponent(episodeUrl)
+    const url = decodeURIComponent(episodeUrl)
+    sources.value = [{ url, subscription_id: 0 }]
+    currentSourceIndex.value = 0
+    playSource(url)
   }
 
-  if (videoRef.value && playerStore.currentUrl) {
-    videoRef.value.src = playerStore.currentUrl
+  if (videoRef.value) {
     videoRef.value.volume = volume.value
-    videoRef.value.play().then(() => {
-      playing.value = true
-    }).catch(console.error)
   }
 
   progressUpdateInterval = globalThis.setInterval(() => {
@@ -56,6 +68,10 @@ onMounted(async () => {
 onUnmounted(() => {
   if (progressUpdateInterval) {
     globalThis.clearInterval(progressUpdateInterval)
+  }
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
   }
   // Save play history
   if (type === 'vod' && duration.value > 0) {
@@ -106,6 +122,80 @@ function formatTime(seconds: number): string {
   }
   return `${m}:${s.toString().padStart(2, '0')}`
 }
+
+function isDrpyProtocol(url: string): boolean {
+  return url.startsWith('drpy://')
+}
+
+function switchToSource(index: number) {
+  if (index >= 0 && index < sources.value.length) {
+    currentSourceIndex.value = index
+    playSource(sources.value[index].url)
+  }
+}
+
+async function playSource(url: string) {
+  errorMsg.value = ''
+  if (isDrpyProtocol(url)) {
+    await open(url)
+    return
+  }
+  initHlsPlayer(url)
+}
+
+function initHlsPlayer(url: string) {
+  if (!videoRef.value) return
+
+  // Clean up existing HLS instance
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+
+  // Check if URL is HLS (.m3u8)
+  if (url.includes('.m3u8')) {
+    if (Hls.isSupported()) {
+      const hls = new Hls()
+      hlsInstance = hls
+      hls.loadSource(url)
+      hls.attachMedia(videoRef.value)
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          console.error('HLS fatal error:', data)
+          // Try next source
+          if (currentSourceIndex.value < sources.value.length - 1) {
+            switchToSource(currentSourceIndex.value + 1)
+          } else {
+            errorMsg.value = '所有源均不可用'
+          }
+        }
+      })
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        videoRef.value?.play().then(() => {
+          playing.value = true
+        }).catch(console.error)
+      })
+
+      return hls
+    } else if (videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari native HLS support
+      videoRef.value.src = url
+      videoRef.value.play().then(() => {
+        playing.value = true
+      }).catch(console.error)
+      return null
+    }
+  }
+
+  // Regular video source
+  videoRef.value.src = url
+  videoRef.value.play().then(() => {
+    playing.value = true
+  }).catch(console.error)
+  return null
+}
 </script>
 
 <template>
@@ -115,6 +205,7 @@ function formatTime(seconds: number): string {
       <video
         ref="videoRef"
         class="w-full aspect-video bg-black"
+        :title="currentSource?.url || ''"
         @click="togglePlay"
       ></video>
 
@@ -155,6 +246,20 @@ function formatTime(seconds: number): string {
               />
             </div>
           </div>
+
+          <!-- Source selector -->
+          <div v-if="sources.length > 1" class="source-selector flex items-center gap-2">
+            <span class="text-sm">{{ currentSourceIndex + 1 }}/{{ sources.length }}</span>
+            <button
+              v-for="(_, i) in sources"
+              :key="i"
+              :class="['px-2 py-1 text-xs rounded', i === currentSourceIndex ? 'bg-primary' : 'bg-gray-700']"
+              @click="switchToSource(i)"
+            >
+              源{{ i + 1 }}
+            </button>
+          </div>
+
           <button
             class="px-4 py-2 bg-white/20 rounded hover:bg-white/30 transition"
             @click="toggleFullscreen"
@@ -162,6 +267,11 @@ function formatTime(seconds: number): string {
             ⛶
           </button>
         </div>
+      </div>
+
+      <!-- Error message -->
+      <div v-if="errorMsg" class="absolute inset-0 flex items-center justify-center bg-black/60">
+        <span class="text-red-400 text-lg">{{ errorMsg }}</span>
       </div>
     </div>
 
