@@ -1,0 +1,11 @@
+# Git worktrees
+.worktrees/
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# OS files
+.DS_Store
