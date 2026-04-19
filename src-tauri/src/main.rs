@@ -15,11 +15,15 @@ fn main() {
             tvbox_lib::commands::subscription::toggle_subscription,
             tvbox_lib::commands::live::get_live_channels,
             tvbox_lib::commands::live::get_live_categories,
+            tvbox_lib::commands::live::get_live_channel_groups,
             tvbox_lib::commands::vod::get_vod_items,
             tvbox_lib::commands::vod::get_vod_detail,
             tvbox_lib::commands::vod::search_vod,
             tvbox_lib::commands::player::save_play_history,
             tvbox_lib::commands::player::get_play_history,
+            tvbox_lib::commands::douban::get_douban_hot,
+            tvbox_lib::commands::douban::fetch_douban_hot,
+            tvbox_lib::commands::douban::get_matched_hot_list,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
