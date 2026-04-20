@@ -5,10 +5,15 @@ pub struct Subscription {
     pub id: i64,
     pub name: String,
     pub url: String,
+    pub kind: String,
     pub enabled: bool,
+    pub last_refreshed_at: Option<String>,
+    pub last_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
+
+pub type SourceSubscription = Subscription;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveChannel {
@@ -44,6 +49,21 @@ pub struct PlayHistory {
 pub struct NewSubscription {
     pub name: String,
     pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceSite {
+    pub id: i64,
+    pub subscription_id: i64,
+    pub site_key: String,
+    pub site_name: String,
+    pub api: Option<String>,
+    pub ext: Option<String>,
+    pub searchable: bool,
+    pub quick_search: bool,
+    pub filterable: bool,
+    pub source_type: String,
+    pub raw_json: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

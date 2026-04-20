@@ -3,7 +3,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::models::{LiveChannel, Subscription, VodItem, PlayHistory, DoubanHot, ChannelSource, MergedLiveChannel};
+use crate::models::{
+    ChannelSource, DoubanHot, LiveChannel, MergedLiveChannel, PlayHistory, Subscription, VodItem,
+};
+use crate::services::tvbox::{
+    TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
+};
 
 pub struct Storage {
     conn: Arc<Mutex<Connection>>,
@@ -11,12 +16,12 @@ pub struct Storage {
 
 impl Storage {
     pub fn new(app_data_dir: PathBuf) -> SqliteResult<Self> {
-        std::fs::create_dir_all(&app_data_dir).map_err(|e| {
-            rusqlite::Error::InvalidPath(format!("无法创建目录: {}", e).into())
-        })?;
+        std::fs::create_dir_all(&app_data_dir)
+            .map_err(|e| rusqlite::Error::InvalidPath(format!("无法创建目录: {}", e).into()))?;
 
         let db_path = app_data_dir.join("tvbox.db");
         let conn = Connection::open(db_path)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
 
         let storage = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -37,6 +42,78 @@ impl Storage {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "ALTER TABLE subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'simple_json'",
+            [],
+        )
+        .ok();
+        conn.execute(
+            "ALTER TABLE subscriptions ADD COLUMN last_refreshed_at TEXT",
+            [],
+        )
+        .ok();
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN last_error TEXT", [])
+            .ok();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscription_id INTEGER NOT NULL,
+                config_kind TEXT NOT NULL,
+                raw_content TEXT NOT NULL,
+                parsed_at TEXT NOT NULL,
+                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_sites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscription_id INTEGER NOT NULL,
+                site_key TEXT NOT NULL,
+                site_name TEXT NOT NULL,
+                api TEXT,
+                ext TEXT,
+                searchable INTEGER NOT NULL DEFAULT 1,
+                quick_search INTEGER NOT NULL DEFAULT 0,
+                filterable INTEGER NOT NULL DEFAULT 0,
+                source_type TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_parses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscription_id INTEGER NOT NULL,
+                parse_name TEXT NOT NULL,
+                parse_url TEXT NOT NULL,
+                source_type INTEGER,
+                header_json TEXT,
+                raw_json TEXT NOT NULL,
+                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_lives (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscription_id INTEGER NOT NULL,
+                group_name TEXT,
+                channel_name TEXT NOT NULL,
+                raw_url TEXT NOT NULL,
+                normalized_url TEXT,
+                source_type INTEGER,
+                raw_json TEXT NOT NULL,
+                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
             )",
             [],
         )?;
@@ -122,6 +199,114 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_subscription_refresh_state(
+        &self,
+        id: i64,
+        kind: &str,
+        refreshed_at: &str,
+        last_error: Option<&str>,
+    ) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE subscriptions
+             SET kind = ?1, last_refreshed_at = ?2, last_error = ?3, updated_at = ?2
+             WHERE id = ?4",
+            rusqlite::params![kind, refreshed_at, last_error, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_subscription_refresh_failure(
+        &self,
+        id: i64,
+        kind: &str,
+        last_error: &str,
+    ) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono_now();
+        conn.execute(
+            "UPDATE subscriptions
+             SET kind = ?1, last_error = ?2, updated_at = ?3
+             WHERE id = ?4",
+            rusqlite::params![kind, last_error, now, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn replace_source_config(
+        &self,
+        subscription_id: i64,
+        config_kind: &str,
+        raw_content: &str,
+        parsed_at: &str,
+    ) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM source_configs WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.execute(
+            "INSERT INTO source_configs (subscription_id, config_kind, raw_content, parsed_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![subscription_id, config_kind, raw_content, parsed_at],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn clear_source_config_cache(&self, subscription_id: i64) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM source_configs WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.execute(
+            "DELETE FROM source_sites WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.execute(
+            "DELETE FROM source_parses WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.execute(
+            "DELETE FROM source_lives WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn replace_tvbox_source_records(
+        &self,
+        subscription_id: i64,
+        parsed: &TvboxConfigRecords,
+    ) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        tx.execute(
+            "DELETE FROM source_sites WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.execute(
+            "DELETE FROM source_parses WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        tx.execute(
+            "DELETE FROM source_lives WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+
+        insert_tvbox_sites(&tx, subscription_id, &parsed.sites)?;
+        insert_tvbox_parses(&tx, subscription_id, &parsed.parses)?;
+        insert_tvbox_lives(&tx, subscription_id, &parsed.lives)?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn add_subscription(&self, name: &str, url: &str) -> SqliteResult<Subscription> {
         let conn = self.conn.lock().unwrap();
         let now = chrono_now();
@@ -137,7 +322,10 @@ impl Storage {
             id,
             name: name.to_string(),
             url: url.to_string(),
+            kind: "simple_json".to_string(),
             enabled: true,
+            last_refreshed_at: None,
+            last_error: None,
             created_at: now.clone(),
             updated_at: now,
         })
@@ -147,16 +335,20 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
 
         conn.query_row(
-            "SELECT id, name, url, enabled, created_at, updated_at FROM subscriptions WHERE id = ?1",
+            "SELECT id, name, url, kind, enabled, last_refreshed_at, last_error, created_at, updated_at
+             FROM subscriptions WHERE id = ?1",
             [id],
             |row| {
                 Ok(Subscription {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     url: row.get(2)?,
-                    enabled: row.get::<_, i32>(3)? != 0,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    kind: row.get(3)?,
+                    enabled: row.get::<_, i32>(4)? != 0,
+                    last_refreshed_at: row.get(5)?,
+                    last_error: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             },
         )
@@ -166,7 +358,8 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, name, url, enabled, created_at, updated_at FROM subscriptions ORDER BY id DESC",
+            "SELECT id, name, url, kind, enabled, last_refreshed_at, last_error, created_at, updated_at
+             FROM subscriptions ORDER BY id DESC",
         )?;
 
         let subscriptions = stmt.query_map([], |row| {
@@ -174,9 +367,12 @@ impl Storage {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 url: row.get(2)?,
-                enabled: row.get::<_, i32>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+                kind: row.get(3)?,
+                enabled: row.get::<_, i32>(4)? != 0,
+                last_refreshed_at: row.get(5)?,
+                last_error: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
             })
         })?;
 
@@ -184,12 +380,21 @@ impl Storage {
     }
 
     pub fn delete_subscription(&self, id: i64) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
 
-        conn.execute("DELETE FROM live_channels WHERE subscription_id = ?1", [id])?;
-        conn.execute("DELETE FROM vod_items WHERE subscription_id = ?1", [id])?;
-        conn.execute("DELETE FROM subscriptions WHERE id = ?1", [id])?;
+        tx.execute(
+            "DELETE FROM source_configs WHERE subscription_id = ?1",
+            [id],
+        )?;
+        tx.execute("DELETE FROM source_sites WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM source_parses WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM source_lives WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM live_channels WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM vod_items WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM subscriptions WHERE id = ?1", [id])?;
 
+        tx.commit()?;
         Ok(())
     }
 
@@ -214,7 +419,7 @@ impl Storage {
                  FROM live_channels lc
                  INNER JOIN subscriptions s ON lc.subscription_id = s.id
                  WHERE s.enabled = 1 AND lc.category = ?1
-                 ORDER BY lc.name"
+                 ORDER BY lc.name",
             )?;
             let rows = stmt.query_map([cat], |row| {
                 Ok(LiveChannel {
@@ -233,7 +438,7 @@ impl Storage {
                  FROM live_channels lc
                  INNER JOIN subscriptions s ON lc.subscription_id = s.id
                  WHERE s.enabled = 1
-                 ORDER BY lc.name"
+                 ORDER BY lc.name",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok(LiveChannel {
@@ -413,16 +618,30 @@ impl Storage {
         Ok(())
     }
 
-    pub fn refresh_subscription(&self, id: i64, lives: Vec<(String, Option<String>, String, Option<String>)>, vods: Vec<(String, String, Option<String>, Option<String>, String)>) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+    pub fn refresh_subscription(
+        &self,
+        id: i64,
+        lives: Vec<(String, Option<String>, String, Option<String>)>,
+        vods: Vec<(String, String, Option<String>, Option<String>, String)>,
+    ) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let refreshed_at = chrono_now();
 
         // Clear old data
-        conn.execute("DELETE FROM live_channels WHERE subscription_id = ?1", [id])?;
-        conn.execute("DELETE FROM vod_items WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM live_channels WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM vod_items WHERE subscription_id = ?1", [id])?;
+        tx.execute(
+            "DELETE FROM source_configs WHERE subscription_id = ?1",
+            [id],
+        )?;
+        tx.execute("DELETE FROM source_sites WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM source_parses WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM source_lives WHERE subscription_id = ?1", [id])?;
 
         // Insert new live channels
         for (name, logo, url, category) in lives {
-            conn.execute(
+            tx.execute(
                 "INSERT INTO live_channels (subscription_id, name, logo, url, category) VALUES (?1, ?2, ?3, ?4, ?5)",
                 rusqlite::params![id, name, logo, url, category],
             )?;
@@ -430,23 +649,70 @@ impl Storage {
 
         // Insert new vod items
         for (name, vtype, poster, description, episodes) in vods {
-            conn.execute(
+            tx.execute(
                 "INSERT INTO vod_items (subscription_id, name, vtype, poster, description, episodes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![id, name, vtype, poster, description, episodes],
             )?;
         }
 
-        // Update subscription timestamp
-        let now = chrono_now();
-        conn.execute(
-            "UPDATE subscriptions SET updated_at = ?1 WHERE id = ?2",
-            rusqlite::params![now, id],
+        tx.execute(
+            "UPDATE subscriptions
+             SET kind = 'simple_json', last_refreshed_at = ?1, last_error = NULL, updated_at = ?1
+             WHERE id = ?2",
+            rusqlite::params![refreshed_at, id],
         )?;
 
+        tx.commit()?;
         Ok(())
     }
 
-    pub fn save_play_history(&self, item_type: &str, item_id: i64, progress: f64) -> SqliteResult<()> {
+    pub fn refresh_tvbox_subscription(
+        &self,
+        id: i64,
+        raw_content: &str,
+        parsed: &TvboxConfigRecords,
+    ) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let refreshed_at = chrono_now();
+
+        tx.execute("DELETE FROM live_channels WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM vod_items WHERE subscription_id = ?1", [id])?;
+        tx.execute(
+            "DELETE FROM source_configs WHERE subscription_id = ?1",
+            [id],
+        )?;
+        tx.execute("DELETE FROM source_sites WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM source_parses WHERE subscription_id = ?1", [id])?;
+        tx.execute("DELETE FROM source_lives WHERE subscription_id = ?1", [id])?;
+
+        tx.execute(
+            "INSERT INTO source_configs (subscription_id, config_kind, raw_content, parsed_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![id, "tvbox_config", raw_content, refreshed_at],
+        )?;
+
+        insert_tvbox_sites(&tx, id, &parsed.sites)?;
+        insert_tvbox_parses(&tx, id, &parsed.parses)?;
+        insert_tvbox_lives(&tx, id, &parsed.lives)?;
+
+        tx.execute(
+            "UPDATE subscriptions
+             SET kind = 'tvbox_config', last_refreshed_at = ?1, last_error = NULL, updated_at = ?1
+             WHERE id = ?2",
+            rusqlite::params![refreshed_at, id],
+        )?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn save_play_history(
+        &self,
+        item_type: &str,
+        item_id: i64,
+        progress: f64,
+    ) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono_now();
 
@@ -505,7 +771,14 @@ impl Storage {
             conn.execute(
                 "INSERT OR REPLACE INTO douban_hot (name, year, poster, rating, rank, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![item.name, item.year, item.poster, item.rating, item.rank, item.updated_at],
+                rusqlite::params![
+                    item.name,
+                    item.year,
+                    item.poster,
+                    item.rating,
+                    item.rank,
+                    item.updated_at
+                ],
             )?;
         }
         Ok(())
@@ -528,7 +801,7 @@ impl Storage {
              INNER JOIN subscriptions s ON lc.subscription_id = s.id
              WHERE s.enabled = 1
              GROUP BY lc.name, lc.category
-             ORDER BY lc.category, lc.name"
+             ORDER BY lc.category, lc.name",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -565,7 +838,10 @@ impl Storage {
         rows.collect()
     }
 
-    pub fn get_merged_live_channels_by_category(&self, category: &str) -> SqliteResult<Vec<MergedLiveChannel>> {
+    pub fn get_merged_live_channels_by_category(
+        &self,
+        category: &str,
+    ) -> SqliteResult<Vec<MergedLiveChannel>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
@@ -575,7 +851,7 @@ impl Storage {
              INNER JOIN subscriptions s ON lc.subscription_id = s.id
              WHERE s.enabled = 1 AND lc.category = ?1
              GROUP BY lc.name, lc.category
-             ORDER BY lc.name"
+             ORDER BY lc.name",
         )?;
 
         let rows = stmt.query_map([category], |row| {
@@ -687,4 +963,112 @@ fn chrono_now() -> String {
 
 fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+fn insert_tvbox_sites(
+    tx: &rusqlite::Transaction<'_>,
+    subscription_id: i64,
+    sites: &[TvboxSiteRecord],
+) -> SqliteResult<()> {
+    for site in sites {
+        tx.execute(
+            "INSERT INTO source_sites (
+                subscription_id, site_key, site_name, api, ext,
+                searchable, quick_search, filterable, source_type, raw_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                subscription_id,
+                site.site_key,
+                site.site_name,
+                site.api,
+                site.ext,
+                site.searchable as i32,
+                site.quick_search as i32,
+                site.filterable as i32,
+                site.source_type,
+                site.raw_json
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_tvbox_parses(
+    tx: &rusqlite::Transaction<'_>,
+    subscription_id: i64,
+    parses: &[TvboxParseRecord],
+) -> SqliteResult<()> {
+    for parse in parses {
+        tx.execute(
+            "INSERT INTO source_parses (
+                subscription_id, parse_name, parse_url, source_type, header_json, raw_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                subscription_id,
+                parse.name,
+                parse.url,
+                parse.source_type,
+                parse.header_json,
+                parse.raw_json
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_tvbox_lives(
+    tx: &rusqlite::Transaction<'_>,
+    subscription_id: i64,
+    lives: &[TvboxLiveRecord],
+) -> SqliteResult<()> {
+    for live in lives {
+        tx.execute(
+            "INSERT INTO source_lives (
+                subscription_id, group_name, channel_name, raw_url, normalized_url, source_type, raw_json
+             ) VALUES (?1, NULL, ?2, ?3, ?3, ?4, ?5)",
+            rusqlite::params![
+                subscription_id,
+                live.name,
+                live.url,
+                live.source_type,
+                live.raw_json
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Storage;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn records_refresh_failure_without_overwriting_last_success_timestamp() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("demo", "https://example.com/sub.json")
+            .expect("subscription should be inserted");
+
+        storage
+            .record_subscription_refresh_failure(subscription.id, "simple_json", "payload invalid")
+            .expect("failure state should be recorded");
+
+        let refreshed = storage
+            .get_subscription(subscription.id)
+            .expect("subscription should load");
+
+        assert_eq!(refreshed.kind, "simple_json");
+        assert_eq!(refreshed.last_error.as_deref(), Some("payload invalid"));
+        assert_eq!(refreshed.last_refreshed_at, None);
+    }
+
+    fn unique_test_dir() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should advance")
+            .as_nanos();
+        std::env::temp_dir().join(format!("tvbox-storage-test-{}", nanos))
+    }
 }
