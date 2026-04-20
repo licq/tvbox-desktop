@@ -23,6 +23,7 @@ fn main() {
             tvbox_lib::commands::vod::get_catalog_detail,
             tvbox_lib::commands::player::save_play_history,
             tvbox_lib::commands::player::get_play_history,
+            tvbox_lib::commands::player::resolve_playback,
             tvbox_lib::commands::douban::get_douban_hot,
             tvbox_lib::commands::douban::fetch_douban_hot,
             tvbox_lib::commands::douban::get_matched_hot_list,

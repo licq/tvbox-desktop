@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
@@ -148,4 +149,21 @@ pub struct CatalogEpisodeGroup {
 pub struct CatalogDetail {
     pub item: CatalogDetailItem,
     pub episode_groups: Vec<CatalogEpisodeGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackCandidate {
+    pub url: String,
+    pub label: String,
+    pub kind: String,
+    pub headers: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedPlayback {
+    pub status: String,
+    pub candidates: Vec<PlaybackCandidate>,
+    pub error_message: Option<String>,
 }
