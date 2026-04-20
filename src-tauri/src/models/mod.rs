@@ -91,3 +91,61 @@ pub struct MergedLiveChannel {
     pub category: Option<String>,
     pub sources: Vec<ChannelSource>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveChannelGroupItem {
+    pub name: String,
+    pub source_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveChannelGroup {
+    pub category: String,
+    pub channels: Vec<LiveChannelGroupItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomeCatalogItem {
+    pub id: i64,
+    pub title: String,
+    pub item_type: String,
+    pub poster: Option<String>,
+    pub progress: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomePayload {
+    pub continue_watching: Vec<HomeCatalogItem>,
+    pub latest_updates: Vec<HomeCatalogItem>,
+    pub featured: Vec<HomeCatalogItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogDetailItem {
+    pub id: i64,
+    pub title: String,
+    pub item_type: String,
+    pub poster: Option<String>,
+    pub summary: Option<String>,
+    pub detail_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogEpisode {
+    pub id: i64,
+    pub episode_label: String,
+    pub play_url: String,
+    pub order_index: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogEpisodeGroup {
+    pub source_name: String,
+    pub episodes: Vec<CatalogEpisode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogDetail {
+    pub item: CatalogDetailItem,
+    pub episode_groups: Vec<CatalogEpisodeGroup>,
+}

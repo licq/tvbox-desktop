@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    ChannelSource, DoubanHot, LiveChannel, MergedLiveChannel, PlayHistory, Subscription, VodItem,
+    CatalogDetail, CatalogDetailItem, CatalogEpisode, CatalogEpisodeGroup, ChannelSource,
+    DoubanHot, HomeCatalogItem, HomePayload, LiveChannel, LiveChannelGroup, LiveChannelGroupItem,
+    MergedLiveChannel, PlayHistory, Subscription, VodItem,
 };
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
@@ -132,6 +134,38 @@ impl Storage {
         )?;
 
         conn.execute(
+            "CREATE TABLE IF NOT EXISTS catalog_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscription_id INTEGER NOT NULL,
+                site_id INTEGER,
+                source_item_key TEXT,
+                title TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                poster TEXT,
+                summary TEXT,
+                detail_json TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS catalog_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                catalog_item_id INTEGER NOT NULL,
+                source_name TEXT,
+                season_label TEXT,
+                episode_label TEXT NOT NULL,
+                play_url TEXT NOT NULL,
+                order_index INTEGER NOT NULL DEFAULT 0,
+                extra_json TEXT,
+                FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS vod_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 subscription_id INTEGER NOT NULL,
@@ -171,6 +205,18 @@ impl Storage {
         )?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_vod_items_type ON vod_items(vtype)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_catalog_items_subscription ON catalog_items(subscription_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_catalog_items_updated_at ON catalog_items(updated_at DESC)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_catalog_episodes_item ON catalog_episodes(catalog_item_id)",
             [],
         )?;
         conn.execute(
@@ -415,11 +461,17 @@ impl Storage {
 
         if let Some(cat) = category {
             let mut stmt = conn.prepare(
-                "SELECT lc.id, lc.subscription_id, lc.name, lc.logo, lc.url, lc.category
-                 FROM live_channels lc
-                 INNER JOIN subscriptions s ON lc.subscription_id = s.id
-                 WHERE s.enabled = 1 AND lc.category = ?1
-                 ORDER BY lc.name",
+                "SELECT sl.id,
+                        sl.subscription_id,
+                        sl.channel_name,
+                        NULL as logo,
+                        sl.raw_url,
+                        COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') AS category
+                 FROM source_lives sl
+                 INNER JOIN subscriptions s ON sl.subscription_id = s.id
+                 WHERE s.enabled = 1
+                   AND COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') = ?1
+                 ORDER BY sl.channel_name, sl.id",
             )?;
             let rows = stmt.query_map([cat], |row| {
                 Ok(LiveChannel {
@@ -434,11 +486,16 @@ impl Storage {
             rows.collect()
         } else {
             let mut stmt = conn.prepare(
-                "SELECT lc.id, lc.subscription_id, lc.name, lc.logo, lc.url, lc.category
-                 FROM live_channels lc
-                 INNER JOIN subscriptions s ON lc.subscription_id = s.id
+                "SELECT sl.id,
+                        sl.subscription_id,
+                        sl.channel_name,
+                        NULL as logo,
+                        sl.raw_url,
+                        COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') AS category
+                 FROM source_lives sl
+                 INNER JOIN subscriptions s ON sl.subscription_id = s.id
                  WHERE s.enabled = 1
-                 ORDER BY lc.name",
+                 ORDER BY category, sl.channel_name, sl.id",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok(LiveChannel {
@@ -458,14 +515,50 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT DISTINCT lc.category FROM live_channels lc
-             INNER JOIN subscriptions s ON lc.subscription_id = s.id
-             WHERE s.enabled = 1 AND lc.category IS NOT NULL AND lc.category != ''
-             ORDER BY lc.category",
+            "SELECT DISTINCT COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') AS category
+             FROM source_lives sl
+             INNER JOIN subscriptions s ON sl.subscription_id = s.id
+             WHERE s.enabled = 1
+             ORDER BY category",
         )?;
 
         let categories = stmt.query_map([], |row| row.get(0))?;
         categories.collect()
+    }
+
+    pub fn get_live_channel_groups(&self) -> SqliteResult<Vec<LiveChannelGroup>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(NULLIF(TRIM(group_name), ''), '其他') AS category,
+                    channel_name,
+                    COUNT(*) AS source_count
+             FROM source_lives sl
+             INNER JOIN subscriptions s ON sl.subscription_id = s.id
+             WHERE s.enabled = 1
+             GROUP BY category, channel_name
+             ORDER BY category, channel_name",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                LiveChannelGroupItem {
+                    name: row.get(1)?,
+                    source_count: row.get(2)?,
+                },
+            ))
+        })?;
+
+        let mut grouped = std::collections::BTreeMap::<String, Vec<LiveChannelGroupItem>>::new();
+        for row in rows {
+            let (category, channel) = row?;
+            grouped.entry(category).or_default().push(channel);
+        }
+
+        Ok(grouped
+            .into_iter()
+            .map(|(category, channels)| LiveChannelGroup { category, channels })
+            .collect())
     }
 
     pub fn clear_channels_for_subscription(&self, subscription_id: i64) -> SqliteResult<()> {
@@ -564,6 +657,99 @@ impl Storage {
         )
     }
 
+    pub fn get_library_home(&self) -> SqliteResult<HomePayload> {
+        let conn = self.conn.lock().unwrap();
+
+        let continue_watching = Vec::new();
+        let latest_updates = query_home_catalog_items(
+            &conn,
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+             FROM catalog_items ci
+             INNER JOIN subscriptions s ON ci.subscription_id = s.id
+             WHERE s.enabled = 1
+             ORDER BY ci.updated_at DESC, ci.id DESC
+             LIMIT 12",
+            [],
+        )?;
+        let featured = query_home_catalog_items(
+            &conn,
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+             FROM catalog_items ci
+             INNER JOIN subscriptions s ON ci.subscription_id = s.id
+             WHERE s.enabled = 1
+             ORDER BY ci.id DESC
+             LIMIT 12",
+            [],
+        )?;
+
+        Ok(HomePayload {
+            continue_watching,
+            latest_updates,
+            featured,
+        })
+    }
+
+    pub fn get_catalog_detail(&self, item_id: i64) -> SqliteResult<CatalogDetail> {
+        let conn = self.conn.lock().unwrap();
+
+        let item = conn.query_row(
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, ci.summary, ci.detail_json
+             FROM catalog_items ci
+             INNER JOIN subscriptions s ON ci.subscription_id = s.id
+             WHERE s.enabled = 1 AND ci.id = ?1",
+            [item_id],
+            |row| {
+                Ok(CatalogDetailItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    item_type: row.get(2)?,
+                    poster: row.get(3)?,
+                    summary: row.get(4)?,
+                    detail_json: row.get(5)?,
+                })
+            },
+        )?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id,
+                    COALESCE(NULLIF(TRIM(source_name), ''), '默认来源') AS source_name,
+                    episode_label,
+                    play_url,
+                    order_index
+             FROM catalog_episodes
+             WHERE catalog_item_id = ?1
+             ORDER BY source_name, order_index, id",
+        )?;
+        let rows = stmt.query_map([item_id], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                CatalogEpisode {
+                    id: row.get(0)?,
+                    episode_label: row.get(2)?,
+                    play_url: row.get(3)?,
+                    order_index: row.get(4)?,
+                },
+            ))
+        })?;
+
+        let mut grouped = std::collections::BTreeMap::<String, Vec<CatalogEpisode>>::new();
+        for row in rows {
+            let (source_name, episode) = row?;
+            grouped.entry(source_name).or_default().push(episode);
+        }
+
+        Ok(CatalogDetail {
+            item,
+            episode_groups: grouped
+                .into_iter()
+                .map(|(source_name, episodes)| CatalogEpisodeGroup {
+                    source_name,
+                    episodes,
+                })
+                .collect(),
+        })
+    }
+
     pub fn search_vod(&self, keyword: &str) -> SqliteResult<Vec<VodItem>> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{}%", keyword);
@@ -641,9 +827,16 @@ impl Storage {
 
         // Insert new live channels
         for (name, logo, url, category) in lives {
+            let group_name = category.clone();
             tx.execute(
                 "INSERT INTO live_channels (subscription_id, name, logo, url, category) VALUES (?1, ?2, ?3, ?4, ?5)",
                 rusqlite::params![id, name, logo, url, category],
+            )?;
+            tx.execute(
+                "INSERT INTO source_lives (
+                    subscription_id, group_name, channel_name, raw_url, normalized_url, source_type, raw_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
+                rusqlite::params![id, group_name, name, url, url, "{}"],
             )?;
         }
 
@@ -792,50 +985,7 @@ impl Storage {
 
     pub fn get_merged_live_channels(&self) -> SqliteResult<Vec<MergedLiveChannel>> {
         let conn = self.conn.lock().unwrap();
-
-        // Get all channels grouped by name+category
-        let mut stmt = conn.prepare(
-            "SELECT lc.name, lc.logo, lc.category,
-                    GROUP_CONCAT(lc.url || '|' || lc.subscription_id) as sources
-             FROM live_channels lc
-             INNER JOIN subscriptions s ON lc.subscription_id = s.id
-             WHERE s.enabled = 1
-             GROUP BY lc.name, lc.category
-             ORDER BY lc.category, lc.name",
-        )?;
-
-        let rows = stmt.query_map([], |row| {
-            let sources_str: String = row.get(3)?;
-            let name: String = row.get(0)?;
-            let category: Option<String> = row.get(2)?;
-
-            let sources: Vec<ChannelSource> = sources_str
-                .split(',')
-                .filter_map(|s| {
-                    let parts: Vec<&str> = s.split('|').collect();
-                    if parts.len() == 2 {
-                        Some(ChannelSource {
-                            url: parts[0].to_string(),
-                            subscription_id: parts[1].parse().unwrap_or(0),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            // Generate deterministic ID from name + category
-            let id = generate_channel_id(&name, category.as_deref());
-
-            Ok(MergedLiveChannel {
-                id,
-                name,
-                logo: row.get(1)?,
-                category,
-                sources,
-            })
-        })?;
-        rows.collect()
+        query_merged_live_channels(&conn, None)
     }
 
     pub fn get_merged_live_channels_by_category(
@@ -843,49 +993,88 @@ impl Storage {
         category: &str,
     ) -> SqliteResult<Vec<MergedLiveChannel>> {
         let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn.prepare(
-            "SELECT lc.name, lc.logo, lc.category,
-                    GROUP_CONCAT(lc.url || '|' || lc.subscription_id) as sources
-             FROM live_channels lc
-             INNER JOIN subscriptions s ON lc.subscription_id = s.id
-             WHERE s.enabled = 1 AND lc.category = ?1
-             GROUP BY lc.name, lc.category
-             ORDER BY lc.name",
-        )?;
-
-        let rows = stmt.query_map([category], |row| {
-            let sources_str: String = row.get(3)?;
-            let name: String = row.get(0)?;
-            let category_str: Option<String> = row.get(2)?;
-
-            let sources: Vec<ChannelSource> = sources_str
-                .split(',')
-                .filter_map(|s| {
-                    let parts: Vec<&str> = s.split('|').collect();
-                    if parts.len() == 2 {
-                        Some(ChannelSource {
-                            url: parts[0].to_string(),
-                            subscription_id: parts[1].parse().unwrap_or(0),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            let id = generate_channel_id(&name, category_str.as_deref());
-
-            Ok(MergedLiveChannel {
-                id,
-                name,
-                logo: row.get(1)?,
-                category: category_str,
-                sources,
-            })
-        })?;
-        rows.collect()
+        query_merged_live_channels(&conn, Some(category))
     }
+}
+
+fn query_home_catalog_items(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> SqliteResult<Vec<HomeCatalogItem>> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(params, |row| {
+        Ok(HomeCatalogItem {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            item_type: row.get(2)?,
+            poster: row.get(3)?,
+            progress: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+fn query_merged_live_channels(
+    conn: &Connection,
+    category: Option<&str>,
+) -> SqliteResult<Vec<MergedLiveChannel>> {
+    let sql = if category.is_some() {
+        "SELECT sl.channel_name,
+                COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') AS category,
+                GROUP_CONCAT(sl.raw_url || '|' || sl.subscription_id) AS sources
+         FROM source_lives sl
+         INNER JOIN subscriptions s ON sl.subscription_id = s.id
+         WHERE s.enabled = 1
+           AND COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') = ?1
+         GROUP BY sl.channel_name, category
+         ORDER BY sl.channel_name"
+    } else {
+        "SELECT sl.channel_name,
+                COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') AS category,
+                GROUP_CONCAT(sl.raw_url || '|' || sl.subscription_id) AS sources
+         FROM source_lives sl
+         INNER JOIN subscriptions s ON sl.subscription_id = s.id
+         WHERE s.enabled = 1
+         GROUP BY sl.channel_name, category
+         ORDER BY category, sl.channel_name"
+    };
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = match category {
+        Some(category) => stmt.query_map([category], map_merged_live_channel_row)?,
+        None => stmt.query_map([], map_merged_live_channel_row)?,
+    };
+    rows.collect()
+}
+
+fn map_merged_live_channel_row(row: &rusqlite::Row<'_>) -> SqliteResult<MergedLiveChannel> {
+    let sources_str: String = row.get(2)?;
+    let name: String = row.get(0)?;
+    let category = Some(row.get::<_, String>(1)?);
+
+    let sources = sources_str
+        .split(',')
+        .filter_map(|source| {
+            let parts: Vec<&str> = source.split('|').collect();
+            if parts.len() == 2 {
+                Some(ChannelSource {
+                    url: parts[0].to_string(),
+                    subscription_id: parts[1].parse().unwrap_or(0),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(MergedLiveChannel {
+        id: generate_channel_id(&name, category.as_deref()),
+        name,
+        logo: None,
+        category,
+        sources,
+    })
 }
 
 /// Generate a deterministic ID from channel name and category
@@ -1062,6 +1251,203 @@ mod tests {
         assert_eq!(refreshed.kind, "simple_json");
         assert_eq!(refreshed.last_error.as_deref(), Some("payload invalid"));
         assert_eq!(refreshed.last_refreshed_at, None);
+    }
+
+    #[test]
+    fn groups_live_channels_and_returns_source_counts() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-1",
+            "https://a.example/live.m3u8",
+        );
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-1",
+            "https://b.example/live.m3u8",
+        );
+        seed_live_source(
+            &storage,
+            subscription.id,
+            None,
+            "测试频道",
+            "https://c.example/live.m3u8",
+        );
+
+        let groups = storage
+            .get_live_channel_groups()
+            .expect("live groups should query");
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].category, "其他");
+        assert_eq!(groups[0].channels[0].name, "测试频道");
+        assert_eq!(groups[0].channels[0].source_count, 1);
+        assert_eq!(groups[1].category, "央视频道");
+        assert_eq!(groups[1].channels[0].name, "CCTV-1");
+        assert_eq!(groups[1].channels[0].source_count, 2);
+    }
+
+    #[test]
+    fn live_category_and_drill_down_queries_use_source_lives() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("卫视频道"),
+            "湖南卫视",
+            "https://a.example/hnws.m3u8",
+        );
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("卫视频道"),
+            "湖南卫视",
+            "https://b.example/hnws.m3u8",
+        );
+
+        let categories = storage
+            .get_live_categories()
+            .expect("live categories should query");
+        let channels = storage
+            .get_merged_live_channels_by_category("卫视频道")
+            .expect("live drill-down should query");
+
+        assert_eq!(categories, vec!["卫视频道"]);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "湖南卫视");
+        assert_eq!(channels[0].category.as_deref(), Some("卫视频道"));
+        assert_eq!(channels[0].sources.len(), 2);
+    }
+
+    #[test]
+    fn library_home_returns_empty_continue_watching_for_now() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_catalog_item(&storage, subscription.id, 101, "示例影片", "movie");
+        storage
+            .save_play_history("vod", 101, 0.5)
+            .expect("legacy play history should insert");
+
+        let home = storage
+            .get_library_home()
+            .expect("library home should query");
+
+        assert!(home.continue_watching.is_empty());
+        assert_eq!(home.latest_updates.len(), 1);
+        assert_eq!(home.featured.len(), 1);
+    }
+
+    #[test]
+    fn simple_json_refresh_keeps_source_lives_in_sync() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("demo", "https://example.com/sub.json")
+            .expect("subscription should be inserted");
+
+        storage
+            .refresh_subscription(
+                subscription.id,
+                vec![
+                    (
+                        "CCTV-1".to_string(),
+                        None,
+                        "https://a.example/cctv1.m3u8".to_string(),
+                        Some("央视频道".to_string()),
+                    ),
+                    (
+                        "CCTV-1".to_string(),
+                        None,
+                        "https://b.example/cctv1.m3u8".to_string(),
+                        Some("央视频道".to_string()),
+                    ),
+                    (
+                        "测试频道".to_string(),
+                        None,
+                        "https://c.example/test.m3u8".to_string(),
+                        None,
+                    ),
+                ],
+                Vec::new(),
+            )
+            .expect("simple_json refresh should succeed");
+
+        let categories = storage
+            .get_live_categories()
+            .expect("live categories should query");
+        let grouped = storage
+            .get_live_channel_groups()
+            .expect("live groups should query");
+        let channels = storage
+            .get_merged_live_channels_by_category("央视频道")
+            .expect("live drill-down should query");
+
+        assert_eq!(categories, vec!["其他", "央视频道"]);
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].category, "其他");
+        assert_eq!(grouped[0].channels[0].name, "测试频道");
+        assert_eq!(grouped[1].category, "央视频道");
+        assert_eq!(grouped[1].channels[0].name, "CCTV-1");
+        assert_eq!(grouped[1].channels[0].source_count, 2);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "CCTV-1");
+        assert_eq!(channels[0].sources.len(), 2);
+    }
+
+    fn seed_live_source(
+        storage: &Storage,
+        subscription_id: i64,
+        group_name: Option<&str>,
+        channel_name: &str,
+        raw_url: &str,
+    ) {
+        let conn = storage.conn.lock().expect("storage lock should succeed");
+        conn.execute(
+            "INSERT INTO source_lives (
+                subscription_id, group_name, channel_name, raw_url, normalized_url, source_type, raw_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                subscription_id,
+                group_name,
+                channel_name,
+                raw_url,
+                raw_url,
+                Option::<i64>::None,
+                "{}"
+            ],
+        )
+        .expect("source live should insert");
+    }
+
+    fn seed_catalog_item(
+        storage: &Storage,
+        subscription_id: i64,
+        id: i64,
+        title: &str,
+        item_type: &str,
+    ) {
+        let conn = storage.conn.lock().expect("storage lock should succeed");
+        conn.execute(
+            "INSERT INTO catalog_items (
+                id, subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
+             ) VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, NULL, '2026-04-20 00:00:00')",
+            rusqlite::params![id, subscription_id, title, item_type],
+        )
+        .expect("catalog item should insert");
     }
 
     fn unique_test_dir() -> PathBuf {
