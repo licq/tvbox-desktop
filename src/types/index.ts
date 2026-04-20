@@ -56,3 +56,69 @@ export interface PlayHistory {
   progress: number;
   last_played: string;
 }
+
+export type SourceKind = 'simple_json' | 'tvbox_config';
+
+export interface SourceSubscription {
+  id: number;
+  name: string;
+  url: string;
+  kind: SourceKind;
+  enabled: boolean;
+  last_refreshed_at?: string;
+  last_error?: string | null;
+}
+
+export type CatalogItemType = 'movie' | 'tv' | 'variety' | 'anime';
+
+export interface CatalogCard {
+  id: number;
+  title: string;
+  item_type: CatalogItemType;
+  poster?: string;
+  progress?: number;
+  source_badge?: string;
+  update_badge?: string;
+}
+
+interface CatalogCardInputBase {
+  id: number;
+  title: string;
+  poster?: string;
+  progress?: number;
+  source_badge?: string;
+  sourceBadge?: string;
+  update_badge?: string;
+  updateBadge?: string;
+}
+
+export type CatalogCardInput =
+  | (CatalogCardInputBase & { item_type: CatalogItemType; itemType?: CatalogItemType })
+  | (CatalogCardInputBase & { item_type?: CatalogItemType; itemType: CatalogItemType });
+
+export interface HomePayload {
+  continue_watching: CatalogCard[];
+  latest_updates: CatalogCard[];
+  featured: CatalogCard[];
+}
+
+export interface HomePayloadInput {
+  continue_watching?: CatalogCardInput[];
+  continueWatching?: CatalogCardInput[];
+  latest_updates?: CatalogCardInput[];
+  latestUpdates?: CatalogCardInput[];
+  featured?: CatalogCardInput[];
+}
+
+export interface PlaybackCandidate {
+  url: string;
+  label: string;
+  kind: 'hls' | 'http' | 'external';
+  headers?: Record<string, string>;
+}
+
+export interface ResolvedPlayback {
+  status: 'ready' | 'failed' | 'external_required';
+  candidates: PlaybackCandidate[];
+  errorMessage?: string;
+}
