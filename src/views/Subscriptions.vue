@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useSubscriptionStore } from '@/stores/subscription'
-import type { Subscription } from '@/types'
+import type { SourceSubscription } from '@/types'
 
 const subStore = useSubscriptionStore()
 
@@ -30,7 +30,7 @@ async function handleAdd() {
   }
 }
 
-async function handleRefresh(sub: Subscription) {
+async function handleRefresh(sub: SourceSubscription) {
   refreshing.value = sub.id
   try {
     await subStore.refreshSubscription(sub.id)
@@ -42,7 +42,7 @@ async function handleRefresh(sub: Subscription) {
   }
 }
 
-async function handleToggle(sub: Subscription) {
+async function handleToggle(sub: SourceSubscription) {
   try {
     await subStore.toggleSubscription(sub.id, !sub.enabled)
   } catch (e) {
@@ -50,7 +50,7 @@ async function handleToggle(sub: Subscription) {
   }
 }
 
-async function handleDelete(sub: Subscription) {
+async function handleDelete(sub: SourceSubscription) {
   if (!confirm(`确定删除订阅 "${sub.name}" 吗？`)) return
   try {
     await subStore.deleteSubscription(sub.id)
@@ -62,8 +62,13 @@ async function handleDelete(sub: Subscription) {
 
 <template>
   <div class="subscriptions-page min-h-screen bg-gray-900 text-white p-4">
-    <header class="mb-6 flex items-center justify-between">
-      <h1 class="text-2xl font-bold">📡 订阅管理</h1>
+    <header class="mb-6 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <RouterLink to="/library/live" class="px-3 py-2 bg-gray-700 rounded hover:bg-gray-600 transition">
+          ← 返回主页
+        </RouterLink>
+        <h1 class="text-2xl font-bold">📡 订阅管理</h1>
+      </div>
       <button
         class="px-4 py-2 bg-primary rounded hover:bg-blue-600 transition"
         @click="showAddForm = !showAddForm"

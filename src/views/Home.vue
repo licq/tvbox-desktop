@@ -109,9 +109,13 @@ async function hydrateSources() {
     // Keep rendering with whatever cache exists.
   }
 
-  await Promise.allSettled(
-    enabledSubscriptions.value.map(subscription => subStore.refreshSubscription(subscription.id, false))
-  )
+  for (const subscription of enabledSubscriptions.value) {
+    try {
+      await subStore.refreshSubscription(subscription.id, false)
+    } catch {
+      // Continue refreshing other subscriptions even if one fails.
+    }
+  }
   try {
     await subStore.fetchSubscriptions()
   } catch {
@@ -498,7 +502,7 @@ function toggleChannelExpansion(category: string) {
               <div class="surface-muted rounded-[1.4rem] p-4">
                 <div class="text-[11px] uppercase tracking-[0.24em] text-white/36">Failures</div>
                 <div class="mt-2 text-3xl font-semibold text-white">
-                  {{ subStore.subscriptions.filter(sub => sub.last_error).length }}
+                  {{ subStore.subscriptions.filter(sub => sub.enabled && sub.last_error).length }}
                 </div>
               </div>
             </div>
@@ -517,10 +521,14 @@ function toggleChannelExpansion(category: string) {
                   <div
                     :class="[
                       'rounded-full px-2 py-1 text-[10px] uppercase tracking-[0.2em]',
-                      subscription.last_error ? 'bg-red-500/15 text-red-200' : 'bg-emerald-500/15 text-emerald-200'
+                      !subscription.enabled
+                        ? 'bg-white/10 text-white/60'
+                        : subscription.last_error
+                          ? 'bg-red-500/15 text-red-200'
+                          : 'bg-emerald-500/15 text-emerald-200'
                     ]"
                   >
-                    {{ subscription.last_error ? '异常' : '正常' }}
+                    {{ !subscription.enabled ? '停用' : (subscription.last_error ? '异常' : '正常') }}
                   </div>
                 </div>
                 <div class="mt-2 text-[11px] uppercase tracking-[0.22em] text-white/32">{{ subscription.kind }}</div>
