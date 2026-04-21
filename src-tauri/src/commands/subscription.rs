@@ -55,14 +55,15 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
         subscription.name,
         subscription.url
     );
-    let response_text = match fetch_subscription_content(&subscription.url).await {
-        Ok(response_text) => response_text,
+    let fetched = match fetch_subscription_content(&subscription.url).await {
+        Ok(fetched) => fetched,
         Err(e) => {
             let error = format!("网络请求失败: {}", e);
             persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
             return Err(error);
         }
     };
+    let response_text = fetched.body.clone();
     log::info!("响应长度: {}", response_text.len());
 
     // Parse JSON
@@ -108,8 +109,9 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
             let parsed = match Parser::parse_subscription(&response_text) {
                 Ok(parsed) => parsed,
                 Err(e) => {
-                    persist_refresh_failure(storage.clone(), id, &fallback_kind, &e).await?;
-                    return Err(e);
+                    let error = enrich_simple_parse_error(&e, &fetched);
+                    persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
+                    return Err(error);
                 }
             };
             log::info!(
@@ -165,23 +167,50 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
     Ok(())
 }
 
-async fn fetch_subscription_content(url: &str) -> Result<String, reqwest::Error> {
+#[derive(Clone)]
+struct FetchedContent {
+    body: String,
+    final_url: String,
+    status: u16,
+    content_type: Option<String>,
+}
+
+async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest::Error> {
     let primary = fetch_text_no_proxy(url).await?;
-    if looks_like_json(&primary) {
+    if looks_like_json(&primary.body) {
         return Ok(primary);
     }
 
-    for candidate_url in extract_candidate_urls(&primary) {
+    if let Some(fragment) = extract_json_object_fragment(&primary.body) {
+        return Ok(FetchedContent {
+            body: fragment,
+            final_url: primary.final_url,
+            status: primary.status,
+            content_type: primary.content_type,
+        });
+    }
+
+    for candidate_url in extract_candidate_urls(&primary.body) {
         if candidate_url == url {
             continue;
         }
 
         match fetch_text_no_proxy(&candidate_url).await {
-            Ok(candidate_body) if looks_like_json(&candidate_body) => {
+            Ok(candidate_body) if looks_like_json(&candidate_body.body) => {
                 log::info!("入口返回非 JSON，已自动跟进候选配置地址: {}", candidate_url);
                 return Ok(candidate_body);
             }
-            Ok(_) => {}
+            Ok(candidate_body) => {
+                if let Some(fragment) = extract_json_object_fragment(&candidate_body.body) {
+                    log::info!("候选地址返回页面，已提取嵌入 JSON: {}", candidate_url);
+                    return Ok(FetchedContent {
+                        body: fragment,
+                        final_url: candidate_body.final_url,
+                        status: candidate_body.status,
+                        content_type: candidate_body.content_type,
+                    });
+                }
+            }
             Err(e) => {
                 log::warn!("尝试候选配置地址失败: {} ({})", candidate_url, e);
             }
@@ -191,9 +220,24 @@ async fn fetch_subscription_content(url: &str) -> Result<String, reqwest::Error>
     Ok(primary)
 }
 
-async fn fetch_text_no_proxy(url: &str) -> Result<String, reqwest::Error> {
+async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error> {
     let client = reqwest::Client::builder().no_proxy().build()?;
-    client.get(url).send().await?.text().await
+    let response = client.get(url).send().await?;
+    let final_url = response.url().to_string();
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let body = response.text().await?;
+
+    Ok(FetchedContent {
+        body,
+        final_url,
+        status,
+        content_type,
+    })
 }
 
 fn looks_like_json(content: &str) -> bool {
@@ -202,7 +246,15 @@ fn looks_like_json(content: &str) -> bool {
 }
 
 fn extract_candidate_urls(content: &str) -> Vec<String> {
-    let mut urls: Vec<String> = content
+    let trimmed = content.trim();
+    let mut urls: Vec<String> = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        vec![trimmed.to_string()]
+    } else {
+        Vec::new()
+    };
+
+    let normalized = content.replace("\\/", "/");
+    let mut extracted: Vec<String> = normalized
         .split(|ch: char| {
             ch.is_whitespace()
                 || matches!(ch, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}')
@@ -218,6 +270,7 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
             }
         })
         .collect();
+    urls.append(&mut extracted);
 
     urls.sort_by_key(|url| {
         let lower = url.to_ascii_lowercase();
@@ -234,9 +287,47 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
     urls
 }
 
+fn extract_json_object_fragment(content: &str) -> Option<String> {
+    let start = content.find('{')?;
+    let end = content.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+
+    let fragment = content[start..=end].trim();
+    if looks_like_json(fragment) && fragment.contains(':') {
+        Some(fragment.to_string())
+    } else {
+        None
+    }
+}
+
+fn enrich_simple_parse_error(base_error: &str, fetched: &FetchedContent) -> String {
+    if !base_error.starts_with("JSON解析失败") {
+        return base_error.to_string();
+    }
+
+    let preview: String = fetched
+        .body
+        .chars()
+        .take(160)
+        .collect::<String>()
+        .replace('\n', " ")
+        .replace('\r', " ");
+
+    format!(
+        "{} | 响应状态={} | 类型={} | 最终地址={} | 内容预览={}",
+        base_error,
+        fetched.status,
+        fetched.content_type.as_deref().unwrap_or("unknown"),
+        fetched.final_url,
+        preview
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_candidate_urls, looks_like_json};
+    use super::{extract_candidate_urls, extract_json_object_fragment, looks_like_json};
 
     #[test]
     fn detects_json_like_payload() {
@@ -253,6 +344,20 @@ mod tests {
         "#;
         let urls = extract_candidate_urls(html);
         assert_eq!(urls.first().map(String::as_str), Some("https://example.com/config.json"));
+    }
+
+    #[test]
+    fn extracts_escaped_urls() {
+        let html = r#"var data = "https:\/\/example.com\/config.json";"#;
+        let urls = extract_candidate_urls(html);
+        assert_eq!(urls.first().map(String::as_str), Some("https://example.com/config.json"));
+    }
+
+    #[test]
+    fn extracts_embedded_json_fragment() {
+        let html = r#"<html><script>window.cfg={"sites":[],"lives":[]};</script></html>"#;
+        let fragment = extract_json_object_fragment(html).expect("fragment expected");
+        assert!(fragment.contains("\"sites\""));
     }
 }
 
