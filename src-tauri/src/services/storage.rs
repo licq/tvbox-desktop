@@ -470,6 +470,7 @@ impl Storage {
                  FROM source_lives sl
                  INNER JOIN subscriptions s ON sl.subscription_id = s.id
                  WHERE s.enabled = 1
+                   AND COALESCE(NULLIF(TRIM(s.last_error), ''), '') = ''
                    AND COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') = ?1
                  ORDER BY sl.channel_name, sl.id",
             )?;
@@ -495,6 +496,7 @@ impl Storage {
                  FROM source_lives sl
                  INNER JOIN subscriptions s ON sl.subscription_id = s.id
                  WHERE s.enabled = 1
+                   AND COALESCE(NULLIF(TRIM(s.last_error), ''), '') = ''
                  ORDER BY category, sl.channel_name, sl.id",
             )?;
             let rows = stmt.query_map([], |row| {
@@ -519,6 +521,7 @@ impl Storage {
              FROM source_lives sl
              INNER JOIN subscriptions s ON sl.subscription_id = s.id
              WHERE s.enabled = 1
+               AND COALESCE(NULLIF(TRIM(s.last_error), ''), '') = ''
              ORDER BY category",
         )?;
 
@@ -535,6 +538,7 @@ impl Storage {
              FROM source_lives sl
              INNER JOIN subscriptions s ON sl.subscription_id = s.id
              WHERE s.enabled = 1
+               AND COALESCE(NULLIF(TRIM(s.last_error), ''), '') = ''
              GROUP BY category, channel_name
              ORDER BY category, channel_name",
         )?;
@@ -1026,6 +1030,7 @@ fn query_merged_live_channels(
          FROM source_lives sl
          INNER JOIN subscriptions s ON sl.subscription_id = s.id
          WHERE s.enabled = 1
+           AND COALESCE(NULLIF(TRIM(s.last_error), ''), '') = ''
            AND COALESCE(NULLIF(TRIM(sl.group_name), ''), '其他') = ?1
          GROUP BY sl.channel_name, category
          ORDER BY sl.channel_name"
@@ -1036,6 +1041,7 @@ fn query_merged_live_channels(
          FROM source_lives sl
          INNER JOIN subscriptions s ON sl.subscription_id = s.id
          WHERE s.enabled = 1
+           AND COALESCE(NULLIF(TRIM(s.last_error), ''), '') = ''
          GROUP BY sl.channel_name, category
          ORDER BY category, sl.channel_name"
     };
@@ -1330,6 +1336,44 @@ mod tests {
         assert_eq!(channels[0].name, "湖南卫视");
         assert_eq!(channels[0].category.as_deref(), Some("卫视频道"));
         assert_eq!(channels[0].sources.len(), 2);
+    }
+
+    #[test]
+    fn live_queries_hide_subscriptions_with_refresh_errors() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-1",
+            "https://a.example/live.m3u8",
+        );
+        storage
+            .record_subscription_refresh_failure(subscription.id, "tvbox_config", "upstream blocked")
+            .expect("failure state should record");
+
+        assert!(
+            storage
+                .get_live_categories()
+                .expect("live categories should query")
+                .is_empty()
+        );
+        assert!(
+            storage
+                .get_live_channel_groups()
+                .expect("live groups should query")
+                .is_empty()
+        );
+        assert!(
+            storage
+                .get_merged_live_channels()
+                .expect("merged live channels should query")
+                .is_empty()
+        );
     }
 
     #[test]

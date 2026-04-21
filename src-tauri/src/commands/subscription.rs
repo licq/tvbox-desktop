@@ -69,6 +69,10 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
     };
     let response_text = fetched.body.clone();
     log::info!("响应长度: {}", response_text.len());
+    if let Some(block_reason) = detect_upstream_blocked(&fetched) {
+        persist_refresh_failure(storage.clone(), id, &fallback_kind, &block_reason).await?;
+        return Err(block_reason);
+    }
 
     // Parse JSON
     log::info!(
@@ -182,6 +186,12 @@ struct FetchedContent {
     is_image_payload: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClipboardCandidate {
+    label: String,
+    url: String,
+}
+
 async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest::Error> {
     let mut queue = VecDeque::from([(url.to_string(), 0usize)]);
     let mut visited = HashSet::new();
@@ -260,8 +270,14 @@ fn discover_candidate_urls(
         urls.extend(build_probe_urls(original_url, &fetched.final_url));
     }
 
-    urls.extend(extract_clipboard_urls(&fetched.body));
-    urls.extend(extract_candidate_urls(&fetched.body));
+    let clipboard_candidates = extract_clipboard_candidates(&fetched.body);
+    let preferred_clipboard_urls = filter_preferred_clipboard_urls(original_url, &clipboard_candidates);
+    if !preferred_clipboard_urls.is_empty() {
+        urls.extend(preferred_clipboard_urls);
+    } else {
+        urls.extend(clipboard_candidates.into_iter().map(|candidate| candidate.url));
+        urls.extend(extract_candidate_urls(&fetched.body));
+    }
 
     urls.retain(|url| url != candidate_url && url != &fetched.final_url);
     urls.sort_by_key(|url| candidate_priority(url));
@@ -379,12 +395,60 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
     urls
 }
 
-fn extract_clipboard_urls(content: &str) -> Vec<String> {
-    let regex = regex::Regex::new(r#"data-clipboard-text="([^"]+)""#).unwrap();
+fn extract_clipboard_candidates(content: &str) -> Vec<ClipboardCandidate> {
+    let regex = regex::Regex::new(
+        r#"data-clipboard-text="([^"]+)"[^>]*>\s*<span>([^<]+)</span>"#,
+    )
+    .unwrap();
     regex
         .captures_iter(content)
-        .filter_map(|capture| capture.get(1).map(|value| html_escape_decode(value.as_str())))
+        .filter_map(|capture| {
+            let url = capture.get(1).map(|value| html_escape_decode(value.as_str()))?;
+            let label = capture
+                .get(2)
+                .map(|value| html_escape_decode(value.as_str().trim()))
+                .unwrap_or_default();
+            Some(ClipboardCandidate { label, url })
+        })
         .collect()
+}
+
+fn filter_preferred_clipboard_urls(
+    original_url: &str,
+    candidates: &[ClipboardCandidate],
+) -> Vec<String> {
+    let brand_tokens = extract_brand_tokens(original_url);
+    if brand_tokens.is_empty() {
+        return Vec::new();
+    }
+
+    let mut preferred_urls = Vec::new();
+    for candidate in candidates {
+        let haystack = format!("{} {}", candidate.label, candidate.url);
+        if brand_tokens.iter().any(|token| haystack.contains(token)) {
+            preferred_urls.push(candidate.url.clone());
+        }
+    }
+
+    preferred_urls.sort_by_key(|url| candidate_priority(url));
+    preferred_urls.dedup();
+    preferred_urls
+}
+
+fn extract_brand_tokens(original_url: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    for segment in original_url
+        .split(|ch: char| matches!(ch, '/' | ':' | '.' | '?' | '&' | '=' | '-'))
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+    {
+        if segment.chars().any(|ch| !ch.is_ascii()) {
+            tokens.push(segment.to_string());
+        }
+    }
+    tokens.sort();
+    tokens.dedup();
+    tokens
 }
 
 fn html_escape_decode(content: &str) -> String {
@@ -455,6 +519,23 @@ fn enrich_simple_parse_error(base_error: &str, fetched: &FetchedContent) -> Stri
         fetched.body_hex_preview,
         preview
     )
+}
+
+fn detect_upstream_blocked(fetched: &FetchedContent) -> Option<String> {
+    let body = fetched.body.trim();
+    let blocked = fetched.status == 423
+        || body.contains("The Repository has been blocked")
+        || body.contains("Not Found Project");
+    if !blocked {
+        return None;
+    }
+
+    Some(format!(
+        "上游源不可用: 响应状态={} 最终地址={} 内容预览={}",
+        fetched.status,
+        fetched.final_url,
+        body.chars().take(120).collect::<String>().replace('\n', " ")
+    ))
 }
 
 fn decode_response_body(bytes: &[u8], content_type: Option<&str>, content_encoding: Option<&str>) -> String {
@@ -591,8 +672,9 @@ mod tests {
 
     use super::{
         build_probe_urls, candidate_priority, decode_common_percent_encoding,
-        extract_candidate_urls, extract_clipboard_urls, extract_json_object_fragment,
-        fetch_subscription_content, is_image_bytes, looks_like_json,
+        detect_upstream_blocked, extract_candidate_urls, extract_clipboard_candidates,
+        extract_json_object_fragment, extract_brand_tokens, fetch_subscription_content,
+        filter_preferred_clipboard_urls, is_image_bytes, looks_like_json,
     };
 
     #[test]
@@ -634,10 +716,45 @@ mod tests {
     }
 
     #[test]
-    fn extracts_clipboard_urls() {
-        let html = r#"<div data-clipboard-text="http://www.饭太硬.net/tv"></div>"#;
-        let urls = extract_clipboard_urls(html);
-        assert_eq!(urls, vec!["http://www.饭太硬.net/tv"]);
+    fn extracts_clipboard_candidates_with_labels() {
+        let html = r#"<div class="inner copy-btn" data-clipboard-text="http://www.饭太硬.net/tv"><span>饭太硬备用</span></div>"#;
+        let candidates = extract_clipboard_candidates(html);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].label, "饭太硬备用");
+        assert_eq!(candidates[0].url, "http://www.饭太硬.net/tv");
+    }
+
+    #[test]
+    fn extracts_brand_tokens_from_unicode_source_url() {
+        let tokens = extract_brand_tokens("http://www.饭太硬.net/tv");
+        assert_eq!(tokens, vec!["饭太硬"]);
+    }
+
+    #[test]
+    fn prefers_matching_brand_clipboard_candidates() {
+        let candidates = vec![
+            super::ClipboardCandidate {
+                label: "饭太硬".to_string(),
+                url: "http://www.饭太硬.com/tv".to_string(),
+            },
+            super::ClipboardCandidate {
+                label: "巧技".to_string(),
+                url: "http://cdn.qiaoji8.com/tvbox.json".to_string(),
+            },
+            super::ClipboardCandidate {
+                label: "饭太硬备用".to_string(),
+                url: "https://gitee.com/xxoooo/fan/raw/master/in.bmp".to_string(),
+            },
+        ];
+
+        let preferred = filter_preferred_clipboard_urls("http://www.饭太硬.net/tv", &candidates);
+        assert_eq!(
+            preferred,
+            vec![
+                "http://www.饭太硬.com/tv".to_string(),
+                "https://gitee.com/xxoooo/fan/raw/master/in.bmp".to_string(),
+            ]
+        );
     }
 
     #[test]
@@ -645,6 +762,23 @@ mod tests {
         assert!(is_image_bytes(&[0xff, 0xd8, 0xff, 0xe0]));
         assert!(is_image_bytes(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a]));
         assert!(!is_image_bytes(b"{\"sites\":[]}"));
+    }
+
+    #[test]
+    fn detects_blocked_upstream_payloads() {
+        let fetched = super::FetchedContent {
+            body: "[session-1e40c19b] Route error: The Repository has been blocked.".to_string(),
+            final_url: "https://gitee.com/xxoooo/fan/raw/master/in.bmp".to_string(),
+            status: 423,
+            content_type: Some("text/plain".to_string()),
+            content_encoding: None,
+            body_hex_preview: String::new(),
+            is_image_payload: false,
+        };
+
+        let error = detect_upstream_blocked(&fetched).expect("blocked upstream should be detected");
+        assert!(error.contains("上游源不可用"));
+        assert!(error.contains("423"));
     }
 
     #[test]
@@ -669,6 +803,20 @@ mod tests {
         let fetched = fetch_subscription_content("http://www.饭太硬.net/tv")
             .await
             .expect("network fetch should succeed");
+        println!(
+            "final_url={} status={} preview={}",
+            fetched.final_url,
+            fetched.status,
+            fetched.body.chars().take(200).collect::<String>().replace('\n', " ")
+        );
+        assert_ne!(fetched.final_url, "http://cdn.qiaoji8.com/tvbox.json");
+
+        if let Some(error) = detect_upstream_blocked(&fetched) {
+            assert!(error.contains("上游源不可用"));
+            assert!(fetched.final_url.contains("gitee.com/xxoooo/fan/raw/master/in.bmp"));
+            return;
+        }
+
         assert!(
             looks_like_json(&fetched.body),
             "expected JSON-like payload, got preview: {}",
