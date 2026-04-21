@@ -1,5 +1,4 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
-use crate::services::zxzj::extract_player_url as extract_zxzj_player_url;
 use regex::Regex;
 
 pub struct PlaybackResolver;
@@ -24,7 +23,7 @@ impl PlaybackResolver {
             return resolve_xb6v_play_page(input).await;
         }
         if looks_like_zxzj_play_page(input) {
-            return resolve_zxzj_play_page(input).await;
+            return Ok(ready_with_candidate(input.to_string(), "embed"));
         }
 
         Ok(ready_with_candidate(input.to_string(), detect_kind(input)))
@@ -88,20 +87,6 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
         candidates: vec![],
         error_message: Some("未能从播放页提取实际视频地址".to_string()),
     })
-}
-
-async fn resolve_zxzj_play_page(input: &str) -> Result<ResolvedPlayback, String> {
-    let client = build_client()?;
-    let body = fetch_text(&client, input).await?;
-    let Some(source_url) = extract_zxzj_player_url(&body) else {
-        return Ok(ResolvedPlayback {
-            status: "failed".to_string(),
-            candidates: vec![],
-            error_message: Some("未能从在线之家播放页提取实际视频地址".to_string()),
-        });
-    };
-
-    Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)))
 }
 
 fn build_client() -> Result<reqwest::Client, String> {
@@ -216,6 +201,19 @@ mod tests {
             "https://www.zxzjhd.com/vodplay/4627-1-1.html"
         ));
         assert_eq!(detect_kind("https://video.example.com/index.m3u8"), "hls");
+    }
+
+    #[tokio::test]
+    async fn treats_zxzj_play_page_as_embed_candidate() {
+        let resolved = PlaybackResolver::resolve("https://www.zxzjhd.com/vodplay/4627-1-1.html")
+            .await
+            .unwrap();
+        assert_eq!(resolved.status, "ready");
+        assert_eq!(resolved.candidates[0].kind, "embed");
+        assert_eq!(
+            resolved.candidates[0].url,
+            "https://www.zxzjhd.com/vodplay/4627-1-1.html"
+        );
     }
 
     #[test]

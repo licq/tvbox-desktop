@@ -16,7 +16,7 @@ const playbackStore = usePlaybackStore()
 type PlayerSource = {
   url: string
   label: string
-  kind: 'hls' | 'http' | 'external'
+  kind: 'hls' | 'http' | 'external' | 'embed'
 }
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -31,6 +31,7 @@ const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
+const isEmbedSource = computed(() => currentSource.value?.kind === 'embed')
 const mode = computed(() => String(route.params.mode ?? 'live'))
 const itemId = computed(() => Number(route.params.id))
 const episodeUrl = computed(() => {
@@ -159,6 +160,19 @@ function isDrpyProtocol(url: string) {
   return url.startsWith('drpy://')
 }
 
+function resetVideoElement() {
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+  if (videoRef.value) {
+    videoRef.value.pause()
+    videoRef.value.removeAttribute('src')
+    videoRef.value.load()
+  }
+  playing.value = false
+}
+
 async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
   currentSourceIndex.value = index
@@ -170,18 +184,15 @@ async function playSource(source: PlayerSource) {
   const url = source.url
 
   if (isDrpyProtocol(url) || source.kind === 'external') {
-    if (hlsInstance) {
-      hlsInstance.destroy()
-      hlsInstance = null
-    }
-    if (videoRef.value) {
-      videoRef.value.pause()
-      videoRef.value.removeAttribute('src')
-      videoRef.value.load()
-    }
-    playing.value = false
+    resetVideoElement()
     errorMsg.value = source.kind === 'external' ? '该线路需要外部工具处理，已尝试交给系统打开' : '该地址需要外部解析，已尝试交给系统处理'
     await open(url)
+    return
+  }
+
+  if (source.kind === 'embed') {
+    resetVideoElement()
+    errorMsg.value = ''
     return
   }
 
@@ -265,11 +276,19 @@ function initHlsPlayer(url: string) {
         <section class="surface-panel overflow-hidden rounded-[2rem]">
           <div class="relative">
             <video
+              v-show="!isEmbedSource"
               ref="videoRef"
               class="aspect-video w-full bg-black"
               :title="currentSource?.url || ''"
               @click="togglePlay"
             ></video>
+            <iframe
+              v-if="isEmbedSource && currentSource"
+              class="aspect-video w-full bg-black"
+              :src="currentSource.url"
+              allow="autoplay; fullscreen"
+              referrerpolicy="no-referrer"
+            ></iframe>
 
             <div class="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent"></div>
             <div class="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/85 via-black/40 to-transparent"></div>

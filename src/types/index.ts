@@ -139,7 +139,7 @@ export interface CatalogDetail {
 export interface PlaybackCandidate {
   url: string;
   label: string;
-  kind: 'hls' | 'http' | 'external';
+  kind: 'hls' | 'http' | 'external' | 'embed';
   headers?: Record<string, string>;
 }
 
