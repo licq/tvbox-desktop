@@ -1,4 +1,4 @@
-use crate::models::{CatalogDetail, HomePayload, VodItem};
+use crate::models::{CatalogDetail, HomeCatalogItem, HomePayload, VodItem};
 use crate::AppState;
 use tauri::State;
 
@@ -43,6 +43,22 @@ pub async fn get_library_home(state: State<'_, AppState>) -> Result<HomePayload,
     tokio::task::spawn_blocking(move || storage.get_library_home().map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_catalog_items(
+    item_type: Option<String>,
+    keyword: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<HomeCatalogItem>, String> {
+    let storage = state.storage.clone();
+    tokio::task::spawn_blocking(move || {
+        storage
+            .get_catalog_items(item_type, keyword)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

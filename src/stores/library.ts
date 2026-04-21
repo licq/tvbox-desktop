@@ -31,6 +31,7 @@ export const useLibraryStore = defineStore('library', () => {
   const continueWatching = ref<CatalogCard[]>([])
   const latestUpdates = ref<CatalogCard[]>([])
   const featured = ref<CatalogCard[]>([])
+  const catalogItems = ref<CatalogCard[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -54,5 +55,32 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
-  return { continueWatching, latestUpdates, featured, loading, error, applyHomePayload, fetchHome }
+  async function fetchCatalog(itemType?: string, keyword?: string) {
+    loading.value = true
+    error.value = null
+    try {
+      const payload = await invoke<CatalogCardInput[]>('get_catalog_items', {
+        itemType: itemType || null,
+        keyword: keyword || null
+      })
+      catalogItems.value = normalizeCards(payload)
+    } catch (e) {
+      error.value = String(e)
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return {
+    continueWatching,
+    latestUpdates,
+    featured,
+    catalogItems,
+    loading,
+    error,
+    applyHomePayload,
+    fetchHome,
+    fetchCatalog
+  }
 })

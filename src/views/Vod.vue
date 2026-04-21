@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useVodStore } from '@/stores/vod'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
-import type { VodItem } from '@/types'
+import type { CatalogCard, VodItem } from '@/types'
 
 const vodStore = useVodStore()
 const selectedType = ref<string | null>(null)
@@ -11,7 +11,7 @@ const selectedType = ref<string | null>(null)
 const types = [
   { label: '全部', value: null },
   { label: '电影', value: 'movie' },
-  { label: '电视剧', value: 'tv' },
+  { label: '电视剧', value: 'series' },
   { label: '综艺', value: 'variety' },
   { label: '动漫', value: 'anime' }
 ]
@@ -33,7 +33,7 @@ function handleTypeChange(type: string | null) {
   vodStore.fetchItems(type || undefined)
 }
 
-function handleVodClick(item: VodItem) {
+function handleVodClick(item: VodItem | CatalogCard) {
   window.location.href = `/vod/${item.id}`
 }
 </script>

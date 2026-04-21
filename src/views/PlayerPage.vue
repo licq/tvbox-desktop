@@ -5,12 +5,19 @@ import { open } from '@tauri-apps/plugin-shell'
 import Hls from 'hls.js'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
-import type { ChannelSource } from '@/types'
+import { usePlaybackStore } from '@/stores/playback'
 
 const route = useRoute()
 const router = useRouter()
 const liveStore = useLiveStore()
 const playerStore = usePlayerStore()
+const playbackStore = usePlaybackStore()
+
+type PlayerSource = {
+  url: string
+  label: string
+  kind: 'hls' | 'http' | 'external'
+}
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const playing = ref(false)
@@ -20,7 +27,7 @@ const volume = ref(1)
 const fullscreen = ref(false)
 const errorMsg = ref('')
 
-const sources = ref<ChannelSource[]>([])
+const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
@@ -30,7 +37,7 @@ const episodeUrl = computed(() => {
   const value = route.query.episode
   return typeof value === 'string' ? value : null
 })
-const sourceLabel = computed(() => `线路 ${currentSourceIndex.value + 1}`)
+const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
 
 let hlsInstance: Hls | null = null
 let progressUpdateInterval: number | null = null
@@ -40,17 +47,34 @@ onMounted(async () => {
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(channel => channel.id === itemId.value)
     if (channel && channel.sources.length > 0) {
-      sources.value = channel.sources
+      sources.value = channel.sources.map((source, index) => ({
+        url: source.url,
+        label: `直播线路 ${index + 1}`,
+        kind: source.url.includes('.m3u8') ? 'hls' : 'http'
+      }))
       currentSourceIndex.value = 0
-      await playSource(channel.sources[0].url)
+      await playSource(sources.value[0])
     } else {
       errorMsg.value = '当前频道没有可用线路'
     }
   } else if (mode.value === 'vod' && episodeUrl.value) {
     const url = decodeURIComponent(episodeUrl.value)
-    sources.value = [{ url, subscription_id: 0 }]
+    const resolved = await playbackStore.resolve(url)
+    sources.value = resolved.candidates.map(candidate => ({
+      url: candidate.url,
+      label: candidate.label,
+      kind: candidate.kind
+    }))
     currentSourceIndex.value = 0
-    await playSource(url)
+
+    if (resolved.status === 'ready' && sources.value.length > 0) {
+      await playSource(sources.value[0])
+    } else if (resolved.status === 'external_required' && sources.value.length > 0) {
+      errorMsg.value = resolved.errorMessage ?? '当前资源需要外部处理'
+      await playSource(sources.value[0])
+    } else {
+      errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+    }
   } else {
     errorMsg.value = '缺少播放地址'
   }
@@ -138,13 +162,14 @@ function isDrpyProtocol(url: string) {
 async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
   currentSourceIndex.value = index
-  await playSource(sources.value[index].url)
+  await playSource(sources.value[index])
 }
 
-async function playSource(url: string) {
+async function playSource(source: PlayerSource) {
   errorMsg.value = ''
+  const url = source.url
 
-  if (isDrpyProtocol(url)) {
+  if (isDrpyProtocol(url) || source.kind === 'external') {
     if (hlsInstance) {
       hlsInstance.destroy()
       hlsInstance = null
@@ -155,7 +180,7 @@ async function playSource(url: string) {
       videoRef.value.load()
     }
     playing.value = false
-    errorMsg.value = '该地址需要外部解析，已尝试交给系统处理'
+    errorMsg.value = source.kind === 'external' ? '该线路需要外部工具处理，已尝试交给系统打开' : '该地址需要外部解析，已尝试交给系统处理'
     await open(url)
     return
   }

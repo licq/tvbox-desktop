@@ -20,6 +20,7 @@ fn main() {
             tvbox_lib::commands::vod::get_vod_detail,
             tvbox_lib::commands::vod::search_vod,
             tvbox_lib::commands::vod::get_library_home,
+            tvbox_lib::commands::vod::get_catalog_items,
             tvbox_lib::commands::vod::get_catalog_detail,
             tvbox_lib::commands::player::save_play_history,
             tvbox_lib::commands::player::get_play_history,

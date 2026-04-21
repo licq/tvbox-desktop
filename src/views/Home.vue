@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLiveStore } from '@/stores/live'
-import { useVodStore } from '@/stores/vod'
 import { useDoubanStore, type MatchedHotItem } from '@/stores/douban'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useLibraryStore } from '@/stores/library'
@@ -17,7 +16,6 @@ type HomeTabKey = 'live' | 'hot' | CatalogItemType
 const route = useRoute()
 const router = useRouter()
 const liveStore = useLiveStore()
-const vodStore = useVodStore()
 const doubanStore = useDoubanStore()
 const subStore = useSubscriptionStore()
 const libraryStore = useLibraryStore()
@@ -26,7 +24,7 @@ const tabs: { key: HomeTabKey; label: string; eyebrow: string }[] = [
   { key: 'live', label: '直播调度台', eyebrow: 'Live' },
   { key: 'hot', label: '热映观察', eyebrow: 'Hot' },
   { key: 'movie', label: '电影片库', eyebrow: 'Movie' },
-  { key: 'tv', label: '剧集片库', eyebrow: 'Series' },
+  { key: 'series', label: '剧集片库', eyebrow: 'Series' },
   { key: 'variety', label: '综艺片库', eyebrow: 'Shows' },
   { key: 'anime', label: '动漫片库', eyebrow: 'Anime' }
 ]
@@ -94,8 +92,8 @@ const filteredGroups = computed(() => {
 })
 
 const displayedVodItems = computed(() => {
-  if (showAllVod.value) return vodStore.items
-  return vodStore.items.slice(0, 18)
+  if (showAllVod.value) return libraryStore.catalogItems
+  return libraryStore.catalogItems.slice(0, 18)
 })
 
 const spotlightCards = computed(() => libraryStore.featured.slice(0, 4))
@@ -146,7 +144,7 @@ watch(
     showAllVod.value = false
 
     if (nextTab !== 'live' && nextTab !== 'hot') {
-      await vodStore.fetchItems(nextTab)
+      await libraryStore.fetchCatalog(nextTab)
     }
   },
   { immediate: true }
@@ -162,13 +160,15 @@ function handleLiveSearch(keyword: string) {
 
 function handleVodSearch(keyword: string) {
   if (keyword) {
-    void vodStore.search(keyword)
+    if (activeTab.value !== 'live' && activeTab.value !== 'hot') {
+      void libraryStore.fetchCatalog(activeTab.value, keyword)
+    }
     return
   }
 
   showAllVod.value = false
   if (activeTab.value !== 'live' && activeTab.value !== 'hot') {
-    void vodStore.fetchItems(activeTab.value)
+    void libraryStore.fetchCatalog(activeTab.value)
   }
 }
 
@@ -176,7 +176,7 @@ function handlePlayChannel(channel: LiveChannel, _sourceUrl?: string) {
   router.push(`/player/live/${channel.id}`)
 }
 
-function handleVodClick(item: VodItem) {
+function handleVodClick(item: CatalogCard | VodItem) {
   router.push(`/detail/${item.id}`)
 }
 
@@ -458,14 +458,14 @@ function toggleChannelExpansion(category: string) {
                 <div class="section-title">{{ formatTypeLabel(activeTab) }}</div>
                 <p class="mt-2 text-sm text-white/52">保留目录浏览，但把第一屏留给海报和快速进入，不再用密集小按钮压缩信息。</p>
               </div>
-              <div class="text-xs uppercase tracking-[0.24em] text-white/35">{{ vodStore.items.length }} items</div>
+              <div class="text-xs uppercase tracking-[0.24em] text-white/35">{{ libraryStore.catalogItems.length }} items</div>
             </div>
 
-            <div v-if="vodStore.loading" class="flex min-h-[240px] items-center justify-center">
+            <div v-if="libraryStore.loading" class="flex min-h-[240px] items-center justify-center">
               <LoadingSpinner />
             </div>
 
-            <div v-else-if="vodStore.items.length === 0" class="mt-6 text-sm text-white/45">
+            <div v-else-if="libraryStore.catalogItems.length === 0" class="mt-6 text-sm text-white/45">
               暂无{{ formatTypeLabel(activeTab) }}，先检查订阅源是否成功刷新。
             </div>
 
@@ -479,7 +479,7 @@ function toggleChannelExpansion(category: string) {
                 />
               </div>
 
-              <div v-if="vodStore.items.length > 18 && !showAllVod" class="mt-8 flex justify-center">
+              <div v-if="libraryStore.catalogItems.length > 18 && !showAllVod" class="mt-8 flex justify-center">
                 <button
                   class="action-button action-button-secondary"
                   @click="showAllVod = true"

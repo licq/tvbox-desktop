@@ -694,6 +694,60 @@ impl Storage {
         })
     }
 
+    pub fn get_catalog_items(
+        &self,
+        item_type: Option<String>,
+        keyword: Option<String>,
+    ) -> SqliteResult<Vec<HomeCatalogItem>> {
+        let conn = self.conn.lock().unwrap();
+        match (item_type, keyword) {
+            (Some(item_type), Some(keyword)) => query_home_catalog_items(
+                &conn,
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                 FROM catalog_items ci
+                 INNER JOIN subscriptions s ON ci.subscription_id = s.id
+                 WHERE s.enabled = 1
+                   AND ci.item_type = ?1
+                   AND ci.title LIKE ?2
+                 ORDER BY ci.updated_at DESC, ci.id DESC
+                 LIMIT 72",
+                rusqlite::params![item_type, format!("%{}%", keyword)],
+            ),
+            (Some(item_type), None) => query_home_catalog_items(
+                &conn,
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                 FROM catalog_items ci
+                 INNER JOIN subscriptions s ON ci.subscription_id = s.id
+                 WHERE s.enabled = 1
+                   AND ci.item_type = ?1
+                 ORDER BY ci.updated_at DESC, ci.id DESC
+                 LIMIT 72",
+                [item_type],
+            ),
+            (None, Some(keyword)) => query_home_catalog_items(
+                &conn,
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                 FROM catalog_items ci
+                 INNER JOIN subscriptions s ON ci.subscription_id = s.id
+                 WHERE s.enabled = 1
+                   AND ci.title LIKE ?1
+                 ORDER BY ci.updated_at DESC, ci.id DESC
+                 LIMIT 72",
+                [format!("%{}%", keyword)],
+            ),
+            (None, None) => query_home_catalog_items(
+                &conn,
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                 FROM catalog_items ci
+                 INNER JOIN subscriptions s ON ci.subscription_id = s.id
+                 WHERE s.enabled = 1
+                 ORDER BY ci.updated_at DESC, ci.id DESC
+                 LIMIT 72",
+                [],
+            ),
+        }
+    }
+
     pub fn get_catalog_detail(&self, item_id: i64) -> SqliteResult<CatalogDetail> {
         let conn = self.conn.lock().unwrap();
 

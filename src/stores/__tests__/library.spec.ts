@@ -7,7 +7,7 @@ describe('library store', () => {
     setActivePinia(createPinia())
     const store = useLibraryStore()
 
-    const firstContinueWatching = { id: 7, title: '继续看', item_type: 'tv' as const, progress: 42 }
+    const firstContinueWatching = { id: 7, title: '继续看', item_type: 'series' as const, progress: 42 }
     const firstLatestUpdate = { id: 8, title: '最新更新', item_type: 'movie' as const }
     const firstFeatured = { id: 9, title: '推荐内容', item_type: 'anime' as const }
 
@@ -30,7 +30,7 @@ describe('library store', () => {
     expect(store.featured[0].title).toBe('推荐内容')
 
     store.applyHomePayload({
-      continue_watching: [{ id: 10, title: '新内容', item_type: 'tv' }],
+      continue_watching: [{ id: 10, title: '新内容', item_type: 'series' }],
       latest_updates: [],
       featured: []
     })
@@ -42,12 +42,12 @@ describe('library store', () => {
 
     store.applyHomePayload({
       continueWatching: [{ id: 11, title: '旧字段兼容', itemType: 'movie' }],
-      latestUpdates: [{ id: 12, title: '旧字段最新', itemType: 'tv' }],
+      latestUpdates: [{ id: 12, title: '旧字段最新', itemType: 'series' }],
       featured: [{ id: 13, title: '旧字段精选', itemType: 'anime' }]
     })
 
     expect(store.continueWatching[0].item_type).toBe('movie')
-    expect(store.latestUpdates[0].item_type).toBe('tv')
+    expect(store.latestUpdates[0].item_type).toBe('series')
     expect(store.featured[0].item_type).toBe('anime')
   })
 

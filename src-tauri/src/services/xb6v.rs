@@ -178,7 +178,6 @@ fn parse_detail_page(
     let title_regex = Regex::new(r#"<title>([^<]+)</title>"#).unwrap();
     let meta_regex = Regex::new(r#"<meta\s+name="description"\s+content="([^"]+)""#).unwrap();
     let poster_regex = Regex::new(r#"https?://[^"'<> ]+\.(?:jpg|jpeg|png)"#).unwrap();
-    let link_regex = Regex::new(r#"(magnet:\?[^"'<> ]+|ed2k://[^"'<> ]+|thunder://[^"'<> ]+)"#).unwrap();
 
     let title = title_regex
         .captures(html)
@@ -197,8 +196,75 @@ fn parse_detail_page(
         .map(|m| m.as_str().to_string())
         .find(|url| url.contains("66tutup.com") || url.contains("xb6v"));
 
+    let episodes = parse_play_episodes(detail_url, html);
+
+    Some(ScrapedCatalogItem {
+        source_item_key: detail_url.to_string(),
+        title,
+        item_type: entry.item_type.clone(),
+        poster,
+        summary,
+        detail_json: Some(format!(r#"{{"source":"xb6v","url":"{}"}}"#, detail_url)),
+        episodes,
+    })
+}
+
+fn parse_play_episodes(detail_url: &str, html: &str) -> Vec<ScrapedCatalogEpisode> {
+    let heading_regex = Regex::new(r#"<h3>([^<]+)</h3>"#).unwrap();
+    let anchor_regex = Regex::new(r#"(?s)<a\b([^>]*)>(.*?)</a>"#).unwrap();
+    let title_regex = Regex::new(r#"title=['"]([^'"]+)['"]"#).unwrap();
+    let href_regex = Regex::new(r#"href\s*=\s*['"]([^'"]+)['"]"#).unwrap();
+    let mut episodes = Vec::new();
     let mut seen_urls = HashSet::new();
-    let episodes: Vec<ScrapedCatalogEpisode> = link_regex
+
+    for section in html.split(r#"<div class="widget box row">"#).skip(1) {
+        let heading = heading_regex
+            .captures(section)
+            .and_then(|captures| captures.get(1).map(|value| value.as_str()))
+            .map(|value| html_escape_decode(value).trim().to_string())
+            .unwrap_or_else(|| "在线播放".to_string());
+
+        for anchor in anchor_regex.captures_iter(section) {
+            let attrs = anchor.get(1).map(|value| value.as_str()).unwrap_or_default();
+            let label = title_regex
+                .captures(attrs)
+                .and_then(|captures| captures.get(1).map(|value| value.as_str()))
+                .map(|value| html_escape_decode(value).trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "播放".to_string());
+            let href = href_regex
+                .captures(attrs)
+                .and_then(|captures| captures.get(1).map(|value| value.as_str()))
+                .map(|value| absolutize_url(detail_url, value))
+                .unwrap_or_default();
+            if href.is_empty()
+                || !href.contains("/e/DownSys/play/")
+                || !seen_urls.insert(href.clone())
+            {
+                continue;
+            }
+
+            episodes.push(ScrapedCatalogEpisode {
+                source_name: heading.clone(),
+                episode_label: label,
+                play_url: href,
+                order_index: episodes.len() as i64,
+            });
+        }
+    }
+
+    if !episodes.is_empty() {
+        return episodes;
+    }
+
+    parse_download_episodes(html)
+}
+
+fn parse_download_episodes(html: &str) -> Vec<ScrapedCatalogEpisode> {
+    let link_regex = Regex::new(r#"(magnet:\?[^"'<> ]+|ed2k://[^"'<> ]+|thunder://[^"'<> ]+)"#).unwrap();
+    let mut seen_urls = HashSet::new();
+
+    link_regex
         .find_iter(html)
         .filter_map(|m| {
             let url = m.as_str().to_string();
@@ -214,17 +280,7 @@ fn parse_detail_page(
             play_url: url,
             order_index: index as i64,
         })
-        .collect();
-
-    Some(ScrapedCatalogItem {
-        source_item_key: detail_url.to_string(),
-        title,
-        item_type: entry.item_type.clone(),
-        poster,
-        summary,
-        detail_json: Some(format!(r#"{{"source":"xb6v","url":"{}"}}"#, detail_url)),
-        episodes,
-    })
+        .collect()
 }
 
 fn infer_item_type(detail_url: &str) -> String {
@@ -264,7 +320,9 @@ fn html_escape_decode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{infer_item_type, parse_detail_page, parse_listing_page, ListingEntry};
+    use super::{
+        infer_item_type, parse_detail_page, parse_listing_page, parse_play_episodes, ListingEntry,
+    };
 
     #[test]
     fn parses_xb6v_listing_entries() {
@@ -287,8 +345,9 @@ mod tests {
             <title>我的阿米什人双重生活-新版6v电影（旧版66影视）- 免费电影下载</title>
             <meta name="description" content="◎简　　介　剧情简介测试" />
             <img src="https://www.66tutup.com/2026/0267.jpg" />
-            <a href="magnet:?xt=urn:btih:demo">下载1</a>
-            <a href="ed2k://demo">下载2</a>
+            <div class="widget box row"><h3>播放地址（无需安装插件）</h3>
+              <a title='HD' href="/e/DownSys/play/?classid=17&id=28598&pathid2=0&bf=1" target="_blank" class="lBtn">HD</a>
+            </div>
         "#;
         let entry = ListingEntry {
             title: "我的阿米什人双重生活".to_string(),
@@ -299,7 +358,29 @@ mod tests {
         assert_eq!(item.title, "我的阿米什人双重生活");
         assert_eq!(item.item_type, "movie");
         assert_eq!(item.poster.as_deref(), Some("https://www.66tutup.com/2026/0267.jpg"));
-        assert_eq!(item.episodes.len(), 2);
+        assert_eq!(item.episodes.len(), 1);
+        assert_eq!(item.episodes[0].source_name, "播放地址（无需安装插件）");
+        assert_eq!(item.episodes[0].episode_label, "HD");
+        assert!(item.episodes[0].play_url.contains("/e/DownSys/play/"));
+    }
+
+    #[test]
+    fn parses_grouped_play_episodes() {
+        let html = r#"
+            <div class="widget box row"><h3>播放地址（无插件 极速播放）</h3>
+              <a title='第01集' href="/e/DownSys/play/?classid=8&id=11308&pathid1=0&bf=0" target="_blank" class="lBtn">第01集</a>
+              <a title='第02集' href="/e/DownSys/play/?classid=8&id=11308&pathid1=1&bf=0" target="_blank" class="lBtn">第02集</a>
+            </div>
+            <div class="widget box row"><h3>播放地址（无需安装插件）</h3>
+              <a title='第01集' href="/e/DownSys/play/?classid=8&id=11308&pathid2=0&bf=1" target="_blank" class="lBtn">第01集</a>
+            </div>
+        "#;
+        let episodes =
+            parse_play_episodes("https://www.xb6v.com/dianshiju/oumeiju/11308.html", html);
+        assert_eq!(episodes.len(), 3);
+        assert_eq!(episodes[0].source_name, "播放地址（无插件 极速播放）");
+        assert_eq!(episodes[1].episode_label, "第02集");
+        assert_eq!(episodes[2].source_name, "播放地址（无需安装插件）");
     }
 
     #[test]

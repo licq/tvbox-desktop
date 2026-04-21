@@ -38,7 +38,7 @@ export interface VodItem {
   id: number;
   subscription_id: number;
   name: string;
-  type: 'movie' | 'tv' | 'variety' | 'anime';
+  type: 'movie' | 'series' | 'variety' | 'anime';
   poster?: string;
   description?: string;
   episodes: Episode[];
@@ -69,7 +69,7 @@ export interface SourceSubscription {
   last_error?: string | null;
 }
 
-export type CatalogItemType = 'movie' | 'tv' | 'variety' | 'anime';
+export type CatalogItemType = 'movie' | 'series' | 'variety' | 'anime';
 
 export interface CatalogCard {
   id: number;

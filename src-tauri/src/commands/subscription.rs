@@ -1276,13 +1276,19 @@ mod tests {
         let series_count = items.iter().filter(|item| item.item_type == "series").count();
         let variety_count = items.iter().filter(|item| item.item_type == "variety").count();
         let episode_count: usize = items.iter().map(|item| item.episodes.len()).sum();
+        let online_episode_count: usize = items
+            .iter()
+            .flat_map(|item| item.episodes.iter())
+            .filter(|episode| episode.play_url.contains("/e/DownSys/play/"))
+            .count();
         println!(
-            "catalog_items={} movies={} series={} variety={} episodes={}",
+            "catalog_items={} movies={} series={} variety={} episodes={} online_episodes={}",
             items.len(),
             movie_count,
             series_count,
             variety_count,
-            episode_count
+            episode_count,
+            online_episode_count
         );
         assert!(
             items.len() >= 50,
@@ -1296,6 +1302,11 @@ mod tests {
             episode_count >= 50,
             "expected scraped catalog episodes to be non-trivial, got {}",
             episode_count
+        );
+        assert!(
+            online_episode_count >= 20,
+            "expected playable xb6v entries, got {}",
+            online_episode_count
         );
     }
 
@@ -1346,10 +1357,17 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("catalog episode count should query");
+        let online_episode_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM catalog_episodes WHERE catalog_item_id IN (SELECT id FROM catalog_items WHERE subscription_id = ?1) AND play_url LIKE '%/e/DownSys/play/%'",
+                [subscription.id],
+                |row| row.get(0),
+            )
+            .expect("online episode count should query");
 
         println!(
-            "persisted_catalog_items={} persisted_catalog_episodes={}",
-            item_count, episode_count
+            "persisted_catalog_items={} persisted_catalog_episodes={} persisted_online_episodes={}",
+            item_count, episode_count, online_episode_count
         );
         assert!(
             item_count >= 50,
@@ -1360,6 +1378,11 @@ mod tests {
             episode_count >= 50,
             "expected persisted fantaihard catalog episodes >=50, got {}",
             episode_count
+        );
+        assert!(
+            online_episode_count >= 20,
+            "expected persisted playable xb6v entries >=20, got {}",
+            online_episode_count
         );
 
         std::fs::remove_dir_all(&app_data_dir).ok();
