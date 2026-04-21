@@ -84,7 +84,15 @@ async fn scrape_xb6v_catalog() -> Result<Vec<ScrapedCatalogItem>, String> {
     let mut items = Vec::new();
     while let Some(joined) = join_set.join_next().await {
         match joined {
-            Ok(Ok(Some(item))) => items.push(item),
+            Ok(Ok(Some(item))) => {
+                if item
+                    .episodes
+                    .iter()
+                    .any(|episode| episode.play_url.contains("/e/DownSys/play/"))
+                {
+                    items.push(item);
+                }
+            }
             Ok(Ok(None)) => {}
             Ok(Err(error)) => {
                 log::warn!("抓取 xb6v 详情失败: {}", error);
@@ -157,6 +165,9 @@ fn parse_listing_page(page_url: &str, html: &str) -> Vec<ListingEntry> {
 
         let detail_url = absolutize_url(page_url, href);
         if !detail_url.contains("xb6v.com") {
+            continue;
+        }
+        if detail_url.contains("/index_") || detail_url.ends_with("/qian50m.html") {
             continue;
         }
 
@@ -257,30 +268,7 @@ fn parse_play_episodes(detail_url: &str, html: &str) -> Vec<ScrapedCatalogEpisod
         return episodes;
     }
 
-    parse_download_episodes(html)
-}
-
-fn parse_download_episodes(html: &str) -> Vec<ScrapedCatalogEpisode> {
-    let link_regex = Regex::new(r#"(magnet:\?[^"'<> ]+|ed2k://[^"'<> ]+|thunder://[^"'<> ]+)"#).unwrap();
-    let mut seen_urls = HashSet::new();
-
-    link_regex
-        .find_iter(html)
-        .filter_map(|m| {
-            let url = m.as_str().to_string();
-            if !seen_urls.insert(url.clone()) {
-                return None;
-            }
-            Some(url)
-        })
-        .enumerate()
-        .map(|(index, url)| ScrapedCatalogEpisode {
-            source_name: "下载地址".to_string(),
-            episode_label: format!("资源 {}", index + 1),
-            play_url: url,
-            order_index: index as i64,
-        })
-        .collect()
+    Vec::new()
 }
 
 fn infer_item_type(detail_url: &str) -> String {
@@ -330,6 +318,7 @@ mod tests {
             <a href="/dianshiju/oumeiju/11308.html">亢奋[第三季]</a>
             <a href="/juqingpian/28598.html">我的阿米什人双重生活</a>
             <a href="/ZongYi/28518.html">乘风2026</a>
+            <a href="/dianshiju/index_2.html">电视剧</a>
             <a href="/juqingpian/28598.html#respond">评论</a>
         "#;
         let entries = parse_listing_page("https://www.xb6v.com/", html);
@@ -362,6 +351,21 @@ mod tests {
         assert_eq!(item.episodes[0].source_name, "播放地址（无需安装插件）");
         assert_eq!(item.episodes[0].episode_label, "HD");
         assert!(item.episodes[0].play_url.contains("/e/DownSys/play/"));
+    }
+
+    #[test]
+    fn returns_empty_when_detail_has_only_download_links() {
+        let html = r#"
+            <title>丹凤眼-新版6v电影（旧版66影视）- 免费电影下载</title>
+            <a href="magnet:?xt=urn:btih:demo">下载1</a>
+        "#;
+        let entry = ListingEntry {
+            title: "丹凤眼".to_string(),
+            detail_url: "https://www.xb6v.com/juqingpian/28574.html".to_string(),
+            item_type: "movie".to_string(),
+        };
+        let item = parse_detail_page(&entry.detail_url, html, &entry).expect("detail should parse");
+        assert!(item.episodes.is_empty());
     }
 
     #[test]
