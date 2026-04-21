@@ -11,6 +11,7 @@ use crate::models::{
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
 };
+use crate::services::xb6v::ScrapedCatalogItem;
 
 pub struct Storage {
     conn: Arc<Mutex<Connection>>,
@@ -899,6 +900,57 @@ impl Storage {
              WHERE id = ?2",
             rusqlite::params![refreshed_at, id],
         )?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn replace_catalog_for_subscription(
+        &self,
+        subscription_id: i64,
+        items: &[ScrapedCatalogItem],
+    ) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM catalog_items WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+
+        let updated_at = chrono_now();
+        for item in items {
+            tx.execute(
+                "INSERT INTO catalog_items (
+                    subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
+                 ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    subscription_id,
+                    item.source_item_key,
+                    item.title,
+                    item.item_type,
+                    item.poster,
+                    item.summary,
+                    item.detail_json,
+                    updated_at
+                ],
+            )?;
+
+            let catalog_item_id = tx.last_insert_rowid();
+            for episode in &item.episodes {
+                tx.execute(
+                    "INSERT INTO catalog_episodes (
+                        catalog_item_id, source_name, season_label, episode_label, play_url, order_index, extra_json
+                     ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, NULL)",
+                    rusqlite::params![
+                        catalog_item_id,
+                        episode.source_name,
+                        episode.episode_label,
+                        episode.play_url,
+                        episode.order_index
+                    ],
+                )?;
+            }
+        }
 
         tx.commit()?;
         Ok(())

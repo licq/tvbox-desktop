@@ -1,6 +1,6 @@
 use crate::models::Subscription;
 use crate::services::tvbox::TvboxLiveRecord;
-use crate::services::{Parser, TvboxConfigParser};
+use crate::services::{scrape_supported_tvbox_catalogs, Parser, TvboxConfigParser};
 use crate::AppState;
 use encoding_rs::{GB18030, GBK};
 use flate2::read::GzDecoder;
@@ -101,9 +101,10 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
             log::info!("TVBox直播展开完成: {} channels", parsed.lives.len());
 
             let refresh_storage = storage.clone();
+            let parsed_for_refresh = parsed.clone();
             let refresh_result = tokio::task::spawn_blocking(move || {
                 refresh_storage
-                    .refresh_tvbox_subscription(id, &response_text, &parsed)
+                    .refresh_tvbox_subscription(id, &response_text, &parsed_for_refresh)
                     .map_err(|e| e.to_string())
             })
             .await
@@ -112,6 +113,29 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
             if let Err(error) = refresh_result {
                 persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
                 return Err(error);
+            }
+
+            match scrape_supported_tvbox_catalogs(&parsed.sites).await {
+                Ok(items) => {
+                    if !items.is_empty() {
+                        let catalog_storage = storage.clone();
+                        tokio::task::spawn_blocking(move || {
+                            catalog_storage
+                                .replace_catalog_for_subscription(id, &items)
+                                .map_err(|e| e.to_string())
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .map_err(|e| {
+                            log::warn!("写入点播目录失败: {}", e);
+                            e
+                        })
+                        .ok();
+                    }
+                }
+                Err(error) => {
+                    log::warn!("抓取点播目录失败: {}", error);
+                }
             }
         }
         _ => {
@@ -943,7 +967,8 @@ fn decode_common_percent_encoding(content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::services::{Parser, TvboxConfigParser};
+    use crate::Storage;
+    use crate::services::{scrape_supported_tvbox_catalogs, Parser, TvboxConfigParser};
 
     use super::{
         build_probe_urls, candidate_priority, decode_common_percent_encoding,
@@ -1229,6 +1254,115 @@ mod tests {
             "expected tvboxtv.txt to contain >=1000 channels, got {}",
             entries.len()
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live network and DNS access"]
+    async fn scrapes_fantaihard_snapshot_catalog_items() {
+        let fetched = fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json")
+            .await
+            .expect("fantaihard snapshot fetch should succeed");
+        let fetched = augment_brand_snapshot_content(
+            "饭太硬",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json",
+            fetched,
+        );
+        let parsed = TvboxConfigParser::parse(&fetched.body).expect("TVBox config should parse");
+        let items = scrape_supported_tvbox_catalogs(&parsed.sites)
+            .await
+            .expect("supported fantaihard catalogs should scrape");
+        let movie_count = items.iter().filter(|item| item.item_type == "movie").count();
+        let series_count = items.iter().filter(|item| item.item_type == "series").count();
+        let variety_count = items.iter().filter(|item| item.item_type == "variety").count();
+        let episode_count: usize = items.iter().map(|item| item.episodes.len()).sum();
+        println!(
+            "catalog_items={} movies={} series={} variety={} episodes={}",
+            items.len(),
+            movie_count,
+            series_count,
+            variety_count,
+            episode_count
+        );
+        assert!(
+            items.len() >= 50,
+            "expected fantaihard-compatible VOD scrape to yield >=50 items, got {}",
+            items.len()
+        );
+        assert!(movie_count > 0, "expected movie items");
+        assert!(series_count > 0, "expected series items");
+        assert!(variety_count > 0, "expected variety items");
+        assert!(
+            episode_count >= 50,
+            "expected scraped catalog episodes to be non-trivial, got {}",
+            episode_count
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live network and DNS access"]
+    async fn refresh_pipeline_persists_fantaihard_catalog_items() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let app_data_dir = std::env::temp_dir().join(format!("tvbox-fantaihard-test-{unique}"));
+        std::fs::create_dir_all(&app_data_dir).expect("temp app data dir should create");
+
+        let storage = Storage::new(app_data_dir.clone()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("饭太硬", "http://www.饭太硬.net/tv")
+            .expect("subscription should insert");
+
+        let fetched = fetch_effective_subscription_content("饭太硬", "http://www.饭太硬.net/tv")
+            .await
+            .expect("effective source fetch should succeed");
+        let mut parsed = TvboxConfigParser::parse(&fetched.body).expect("TVBox config should parse");
+        parsed.lives = super::expand_tvbox_live_records(&parsed.lives).await;
+
+        storage
+            .refresh_tvbox_subscription(subscription.id, &fetched.body, &parsed)
+            .expect("tvbox refresh should persist");
+        let items = scrape_supported_tvbox_catalogs(&parsed.sites)
+            .await
+            .expect("supported fantaihard catalogs should scrape");
+        storage
+            .replace_catalog_for_subscription(subscription.id, &items)
+            .expect("catalog replacement should persist");
+
+        let conn =
+            rusqlite::Connection::open(app_data_dir.join("tvbox.db")).expect("db should open");
+        let item_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM catalog_items WHERE subscription_id = ?1",
+                [subscription.id],
+                |row| row.get(0),
+            )
+            .expect("catalog item count should query");
+        let episode_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM catalog_episodes WHERE catalog_item_id IN (SELECT id FROM catalog_items WHERE subscription_id = ?1)",
+                [subscription.id],
+                |row| row.get(0),
+            )
+            .expect("catalog episode count should query");
+
+        println!(
+            "persisted_catalog_items={} persisted_catalog_episodes={}",
+            item_count, episode_count
+        );
+        assert!(
+            item_count >= 50,
+            "expected persisted fantaihard catalog items >=50, got {}",
+            item_count
+        );
+        assert!(
+            episode_count >= 50,
+            "expected persisted fantaihard catalog episodes >=50, got {}",
+            episode_count
+        );
+
+        std::fs::remove_dir_all(&app_data_dir).ok();
     }
 }
 
