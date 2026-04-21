@@ -1,7 +1,6 @@
 use crate::models::Subscription;
 use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
-use reqwest::Response;
 use tauri::State;
 
 #[tauri::command]
@@ -56,20 +55,10 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
         subscription.name,
         subscription.url
     );
-    let response = match fetch_with_proxy_fallback(&subscription.url).await {
-        Ok(response) => response,
-        Err(e) => {
-            let error = format!("网络请求失败: {}", e);
-            persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
-            return Err(error);
-        }
-    };
-    let status = response.status();
-    log::info!("响应状态: {}", status);
-    let response_text = match response.text().await {
+    let response_text = match fetch_subscription_content(&subscription.url).await {
         Ok(response_text) => response_text,
         Err(e) => {
-            let error = format!("读取响应失败: {}", e);
+            let error = format!("网络请求失败: {}", e);
             persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
             return Err(error);
         }
@@ -176,28 +165,94 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
     Ok(())
 }
 
-async fn fetch_with_proxy_fallback(url: &str) -> Result<Response, reqwest::Error> {
-    match reqwest::get(url).await {
-        Ok(response) => Ok(response),
-        Err(initial_error) => {
-            let proxy_env_exists = std::env::var_os("http_proxy").is_some()
-                || std::env::var_os("https_proxy").is_some()
-                || std::env::var_os("HTTP_PROXY").is_some()
-                || std::env::var_os("HTTPS_PROXY").is_some();
+async fn fetch_subscription_content(url: &str) -> Result<String, reqwest::Error> {
+    let primary = fetch_text_no_proxy(url).await?;
+    if looks_like_json(&primary) {
+        return Ok(primary);
+    }
 
-            if !proxy_env_exists {
-                return Err(initial_error);
+    for candidate_url in extract_candidate_urls(&primary) {
+        if candidate_url == url {
+            continue;
+        }
+
+        match fetch_text_no_proxy(&candidate_url).await {
+            Ok(candidate_body) if looks_like_json(&candidate_body) => {
+                log::info!("入口返回非 JSON，已自动跟进候选配置地址: {}", candidate_url);
+                return Ok(candidate_body);
             }
-
-            let client = reqwest::Client::builder().no_proxy().build()?;
-            match client.get(url).send().await {
-                Ok(response) => {
-                    log::warn!("代理请求失败后已回退直连: {}", url);
-                    Ok(response)
-                }
-                Err(_) => Err(initial_error),
+            Ok(_) => {}
+            Err(e) => {
+                log::warn!("尝试候选配置地址失败: {} ({})", candidate_url, e);
             }
         }
+    }
+
+    Ok(primary)
+}
+
+async fn fetch_text_no_proxy(url: &str) -> Result<String, reqwest::Error> {
+    let client = reqwest::Client::builder().no_proxy().build()?;
+    client.get(url).send().await?.text().await
+}
+
+fn looks_like_json(content: &str) -> bool {
+    let trimmed = content.trim_start();
+    trimmed.starts_with('{') || trimmed.starts_with('[')
+}
+
+fn extract_candidate_urls(content: &str) -> Vec<String> {
+    let mut urls: Vec<String> = content
+        .split(|ch: char| {
+            ch.is_whitespace()
+                || matches!(ch, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}')
+        })
+        .filter_map(|raw| {
+            let cleaned = raw
+                .trim_matches(|ch: char| matches!(ch, ',' | ';' | '"' | '\'' | ')' | ']'))
+                .replace("&amp;", "&");
+            if cleaned.starts_with("http://") || cleaned.starts_with("https://") {
+                Some(cleaned)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    urls.sort_by_key(|url| {
+        let lower = url.to_ascii_lowercase();
+        let score = if lower.ends_with(".json") {
+            0
+        } else if lower.contains("json") || lower.contains("config") || lower.contains("tv") {
+            1
+        } else {
+            2
+        };
+        (score, url.len())
+    });
+    urls.dedup();
+    urls
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_candidate_urls, looks_like_json};
+
+    #[test]
+    fn detects_json_like_payload() {
+        assert!(looks_like_json("{\"a\":1}"));
+        assert!(looks_like_json(" [1,2,3]"));
+        assert!(!looks_like_json("<html>"));
+    }
+
+    #[test]
+    fn extracts_and_prioritizes_candidate_urls() {
+        let html = r#"
+            <a href="https://example.com/page">page</a>
+            <a href="https://example.com/config.json">json</a>
+        "#;
+        let urls = extract_candidate_urls(html);
+        assert_eq!(urls.first().map(String::as_str), Some("https://example.com/config.json"));
     }
 }
 
