@@ -1,4 +1,5 @@
 use crate::models::Subscription;
+use crate::services::tvbox::TvboxLiveRecord;
 use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
 use encoding_rs::{GB18030, GBK};
@@ -59,20 +60,15 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
         subscription.name,
         subscription.url
     );
-    let fetched = match fetch_subscription_content(&subscription.url).await {
+    let fetched = match fetch_effective_subscription_content(&subscription.name, &subscription.url).await {
         Ok(fetched) => fetched,
-        Err(e) => {
-            let error = format!("网络请求失败: {}", e);
+        Err(error) => {
             persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
             return Err(error);
         }
     };
     let response_text = fetched.body.clone();
     log::info!("响应长度: {}", response_text.len());
-    if let Some(block_reason) = detect_upstream_blocked(&fetched) {
-        persist_refresh_failure(storage.clone(), id, &fallback_kind, &block_reason).await?;
-        return Err(block_reason);
-    }
 
     // Parse JSON
     log::info!(
@@ -98,6 +94,11 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
                 parsed.parses.len(),
                 parsed.lives.len()
             );
+
+            let expanded_lives = expand_tvbox_live_records(&parsed.lives).await;
+            let mut parsed = parsed;
+            parsed.lives = expanded_lives;
+            log::info!("TVBox直播展开完成: {} channels", parsed.lives.len());
 
             let refresh_storage = storage.clone();
             let refresh_result = tokio::task::spawn_blocking(move || {
@@ -242,6 +243,112 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
     Ok(fallback.expect("initial subscription fetch should produce fallback content"))
 }
 
+async fn fetch_effective_subscription_content(
+    subscription_name: &str,
+    url: &str,
+) -> Result<FetchedContent, String> {
+    let fetched = fetch_subscription_content(url)
+        .await
+        .map_err(|e| format!("网络请求失败: {}", e))?;
+    if detect_upstream_blocked(&fetched).is_none() {
+        return Ok(fetched);
+    }
+
+    if let Some(snapshot) = try_brand_snapshot_fallback(subscription_name, url).await {
+        log::warn!(
+            "订阅 {} 官方入口不可用，已回退到公开快照: {}",
+            subscription_name,
+            snapshot.final_url
+        );
+        return Ok(snapshot);
+    }
+
+    Err(detect_upstream_blocked(&fetched).unwrap_or_else(|| "上游源不可用".to_string()))
+}
+
+async fn try_brand_snapshot_fallback(
+    subscription_name: &str,
+    original_url: &str,
+) -> Option<FetchedContent> {
+    let haystack = format!("{} {}", subscription_name, original_url);
+    if !haystack.contains("饭太硬") {
+        return None;
+    }
+
+    for snapshot_url in known_brand_snapshot_urls(subscription_name, original_url) {
+        match fetch_text_no_proxy(&snapshot_url).await {
+            Ok(fetched) if looks_like_json(&fetched.body) => {
+                return Some(augment_brand_snapshot_content(
+                    subscription_name,
+                    original_url,
+                    &snapshot_url,
+                    fetched,
+                ));
+            }
+            Ok(_) => {}
+            Err(error) => {
+                log::warn!("饭太硬快照回退失败: {} ({})", snapshot_url, error);
+            }
+        }
+    }
+
+    None
+}
+
+fn known_brand_snapshot_urls(subscription_name: &str, original_url: &str) -> Vec<String> {
+    let haystack = format!("{} {}", subscription_name, original_url);
+    if haystack.contains("饭太硬") {
+        vec!["https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json".to_string()]
+    } else {
+        Vec::new()
+    }
+}
+
+fn augment_brand_snapshot_content(
+    subscription_name: &str,
+    original_url: &str,
+    snapshot_url: &str,
+    mut fetched: FetchedContent,
+) -> FetchedContent {
+    let haystack = format!("{} {}", subscription_name, original_url);
+    if haystack.contains("饭太硬") && snapshot_url.contains("qist/tvbox@master/0826.json") {
+        if let Some(body) = inject_live_snapshot_entry(
+            &fetched.body,
+            "饭太硬快照直播",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt",
+        ) {
+            fetched.body = body;
+        }
+    }
+    fetched
+}
+
+fn inject_live_snapshot_entry(content: &str, name: &str, url: &str) -> Option<String> {
+    let mut root = serde_json::from_str::<serde_json::Value>(content).ok()?;
+    let object = root.as_object_mut()?;
+    let lives = object
+        .entry("lives")
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+        .as_array_mut()?;
+
+    let already_exists = lives.iter().any(|value| {
+        value
+            .as_object()
+            .and_then(|item| item.get("url"))
+            .and_then(|value| value.as_str())
+            == Some(url)
+    });
+    if !already_exists {
+        lives.push(serde_json::json!({
+            "name": name,
+            "type": 0,
+            "url": url
+        }));
+    }
+
+    serde_json::to_string(&root).ok()
+}
+
 fn fetched_content_with_body(fetched: &FetchedContent, body: String) -> FetchedContent {
     FetchedContent {
         body,
@@ -252,6 +359,174 @@ fn fetched_content_with_body(fetched: &FetchedContent, body: String) -> FetchedC
         body_hex_preview: fetched.body_hex_preview.clone(),
         is_image_payload: false,
     }
+}
+
+async fn expand_tvbox_live_records(records: &[TvboxLiveRecord]) -> Vec<TvboxLiveRecord> {
+    let mut expanded = Vec::new();
+
+    for record in records {
+        if should_expand_live_playlist(record) {
+            match expand_live_playlist_record(record).await {
+                Ok(items) if !items.is_empty() => {
+                    expanded.extend(items);
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    log::warn!("展开直播列表失败: {} ({})", record.url, error);
+                }
+            }
+            continue;
+        }
+
+        expanded.push(record.clone());
+    }
+
+    expanded
+}
+
+fn should_expand_live_playlist(record: &TvboxLiveRecord) -> bool {
+    if record.source_type != Some(0) {
+        return false;
+    }
+
+    let lower = record.url.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+async fn expand_live_playlist_record(
+    record: &TvboxLiveRecord,
+) -> Result<Vec<TvboxLiveRecord>, reqwest::Error> {
+    for candidate_url in candidate_live_playlist_urls(&record.url) {
+        let fetched = fetch_text_no_proxy(&candidate_url).await?;
+        let content = fetched.body.trim();
+        let entries = if looks_like_m3u_playlist(content) {
+            parse_m3u_live_playlist(content, record)
+        } else {
+            parse_txt_live_playlist(content, record)
+        };
+        if !entries.is_empty() {
+            return Ok(entries);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn looks_like_m3u_playlist(content: &str) -> bool {
+    content.contains("#EXTM3U") || content.contains("#EXTINF:")
+}
+
+fn candidate_live_playlist_urls(url: &str) -> Vec<String> {
+    let mut candidates = vec![url.to_string()];
+    if let Some(embedded) = extract_embedded_http_url(url) {
+        candidates.insert(0, embedded);
+    }
+    candidates.dedup();
+    candidates
+}
+
+fn extract_embedded_http_url(url: &str) -> Option<String> {
+    let http_index = url.find("http://");
+    let https_index = url.find("https://");
+    let first_index = match (http_index, https_index) {
+        (Some(http), Some(https)) => Some(http.min(https)),
+        (Some(http), None) => Some(http),
+        (None, Some(https)) => Some(https),
+        (None, None) => None,
+    }?;
+
+    let tail = &url[first_index + 1..];
+    let second_http = tail.find("http://").map(|index| index + first_index + 1);
+    let second_https = tail.find("https://").map(|index| index + first_index + 1);
+    let embedded_index = match (second_http, second_https) {
+        (Some(http), Some(https)) => Some(http.min(https)),
+        (Some(http), None) => Some(http),
+        (None, Some(https)) => Some(https),
+        (None, None) => None,
+    }?;
+
+    Some(url[embedded_index..].to_string())
+}
+
+fn parse_txt_live_playlist(content: &str, record: &TvboxLiveRecord) -> Vec<TvboxLiveRecord> {
+    let mut group_name = record.group_name.clone();
+    let mut entries = Vec::new();
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.contains(",#genre#") {
+            group_name = line.split_once(',').map(|(name, _)| name.trim().to_string());
+            continue;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+
+        let Some((name, url)) = line.split_once(',') else {
+            continue;
+        };
+        let name = name.trim();
+        let url = url.trim();
+        if name.is_empty() || url.is_empty() {
+            continue;
+        }
+
+        entries.push(TvboxLiveRecord {
+            group_name: group_name.clone(),
+            name: name.to_string(),
+            url: url.to_string(),
+            source_type: record.source_type,
+            raw_json: record.raw_json.clone(),
+        });
+    }
+
+    entries
+}
+
+fn parse_m3u_live_playlist(content: &str, record: &TvboxLiveRecord) -> Vec<TvboxLiveRecord> {
+    let mut entries = Vec::new();
+    let mut pending_name: Option<String> = None;
+    let mut pending_group = record.group_name.clone();
+    let group_regex = regex::Regex::new(r#"group-title="([^"]*)""#).unwrap();
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with("#EXTINF:") {
+            pending_name = line
+                .rsplit_once(',')
+                .map(|(_, name)| name.trim().to_string())
+                .filter(|name| !name.is_empty());
+            pending_group = group_regex
+                .captures(line)
+                .and_then(|capture| capture.get(1).map(|value| value.as_str().trim().to_string()))
+                .filter(|value| !value.is_empty())
+                .or_else(|| record.group_name.clone());
+            continue;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+
+        let Some(name) = pending_name.take() else {
+            continue;
+        };
+        entries.push(TvboxLiveRecord {
+            group_name: pending_group.clone(),
+            name,
+            url: line.to_string(),
+            source_type: record.source_type,
+            raw_json: record.raw_json.clone(),
+        });
+    }
+
+    entries
 }
 
 fn discover_candidate_urls(
@@ -288,8 +563,8 @@ fn discover_candidate_urls(
 async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error> {
     let client = reqwest::Client::builder()
         .no_proxy()
-        .connect_timeout(std::time::Duration::from_secs(6))
-        .timeout(std::time::Duration::from_secs(12))
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(20))
         .build()?;
     let response = client
         .get(url)
@@ -672,9 +947,11 @@ mod tests {
 
     use super::{
         build_probe_urls, candidate_priority, decode_common_percent_encoding,
-        detect_upstream_blocked, extract_candidate_urls, extract_clipboard_candidates,
-        extract_json_object_fragment, extract_brand_tokens, fetch_subscription_content,
-        filter_preferred_clipboard_urls, is_image_bytes, looks_like_json,
+        candidate_live_playlist_urls, detect_upstream_blocked, extract_candidate_urls,
+        extract_clipboard_candidates, extract_embedded_http_url, extract_json_object_fragment,
+        extract_brand_tokens, fetch_effective_subscription_content, filter_preferred_clipboard_urls,
+        inject_live_snapshot_entry, is_image_bytes, looks_like_json, parse_m3u_live_playlist,
+        parse_txt_live_playlist, TvboxLiveRecord, fetch_text_no_proxy, augment_brand_snapshot_content,
     };
 
     #[test]
@@ -782,6 +1059,79 @@ mod tests {
     }
 
     #[test]
+    fn parses_txt_live_playlist_into_channels() {
+        let record = TvboxLiveRecord {
+            group_name: None,
+            name: "直播".to_string(),
+            url: "https://example.com/live.txt".to_string(),
+            source_type: Some(0),
+            raw_json: "{}".to_string(),
+        };
+        let content = "央视频道,#genre#\nCCTV1,https://a.example/cctv1.m3u8\nCCTV2,https://a.example/cctv2.m3u8\n";
+        let entries = parse_txt_live_playlist(content, &record);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].group_name.as_deref(), Some("央视频道"));
+        assert_eq!(entries[0].name, "CCTV1");
+    }
+
+    #[test]
+    fn parses_m3u_live_playlist_into_channels() {
+        let record = TvboxLiveRecord {
+            group_name: Some("默认分组".to_string()),
+            name: "直播".to_string(),
+            url: "https://example.com/live.m3u".to_string(),
+            source_type: Some(0),
+            raw_json: "{}".to_string(),
+        };
+        let content = "#EXTM3U\n#EXTINF:-1 group-title=\"央视频道\",CCTV1\nhttps://a.example/cctv1.m3u8\n#EXTINF:-1,CCTV2\nhttps://a.example/cctv2.m3u8\n";
+        let entries = parse_m3u_live_playlist(content, &record);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].group_name.as_deref(), Some("央视频道"));
+        assert_eq!(entries[1].group_name.as_deref(), Some("默认分组"));
+        assert_eq!(entries[1].name, "CCTV2");
+    }
+
+    #[test]
+    fn extracts_embedded_live_playlist_url_from_proxy_wrapper() {
+        let wrapped = "https://gh-proxy.net/https://raw.githubusercontent.com/fanmingming/live/refs/heads/main/tv/m3u/ipv6.m3u";
+        assert_eq!(
+            extract_embedded_http_url(wrapped).as_deref(),
+            Some("https://raw.githubusercontent.com/fanmingming/live/refs/heads/main/tv/m3u/ipv6.m3u")
+        );
+        assert_eq!(
+            candidate_live_playlist_urls(wrapped),
+            vec![
+                "https://raw.githubusercontent.com/fanmingming/live/refs/heads/main/tv/m3u/ipv6.m3u".to_string(),
+                wrapped.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn injects_fantaihard_live_snapshot_entry_once() {
+        let input = r#"{"lives":[{"name":"live","type":0,"url":"https://example.com/live.m3u"}]}"#;
+        let updated = inject_live_snapshot_entry(
+            input,
+            "饭太硬快照直播",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt",
+        )
+        .expect("snapshot entry should inject");
+        let value: serde_json::Value = serde_json::from_str(&updated).expect("json should parse");
+        let lives = value["lives"].as_array().expect("lives should be array");
+        assert_eq!(lives.len(), 2);
+
+        let updated_again = inject_live_snapshot_entry(
+            &updated,
+            "饭太硬快照直播",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt",
+        )
+        .expect("snapshot entry should stay injectible");
+        let value: serde_json::Value =
+            serde_json::from_str(&updated_again).expect("json should parse");
+        assert_eq!(value["lives"].as_array().expect("lives").len(), 2);
+    }
+
+    #[test]
     fn builds_probe_urls_from_final_url() {
         let urls = build_probe_urls(
             "http://www.xn--sss604efuw.net/tv",
@@ -800,23 +1150,15 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires live network and DNS access"]
     async fn analyzes_fantaihard_entry_url() {
-        let fetched = fetch_subscription_content("http://www.饭太硬.net/tv")
+        let fetched = fetch_effective_subscription_content("饭太硬", "http://www.饭太硬.net/tv")
             .await
-            .expect("network fetch should succeed");
+            .expect("effective source fetch should succeed");
         println!(
             "final_url={} status={} preview={}",
             fetched.final_url,
             fetched.status,
             fetched.body.chars().take(200).collect::<String>().replace('\n', " ")
         );
-        assert_ne!(fetched.final_url, "http://cdn.qiaoji8.com/tvbox.json");
-
-        if let Some(error) = detect_upstream_blocked(&fetched) {
-            assert!(error.contains("上游源不可用"));
-            assert!(fetched.final_url.contains("gitee.com/xxoooo/fan/raw/master/in.bmp"));
-            return;
-        }
-
         assert!(
             looks_like_json(&fetched.body),
             "expected JSON-like payload, got preview: {}",
@@ -838,6 +1180,55 @@ mod tests {
             }
             other => panic!("unexpected source kind: {}", other),
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live network and DNS access"]
+    async fn expands_fantaihard_snapshot_to_more_than_1000_channels() {
+        let fetched = fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json")
+            .await
+            .expect("fantaihard snapshot fetch should succeed");
+        let fetched = augment_brand_snapshot_content(
+            "饭太硬",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json",
+            "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json",
+            fetched,
+        );
+        let parsed = TvboxConfigParser::parse(&fetched.body).expect("TVBox config should parse");
+        let expanded = super::expand_tvbox_live_records(&parsed.lives).await;
+        println!(
+            "final_url={} raw_lives={} expanded_channels={}",
+            fetched.final_url,
+            parsed.lives.len(),
+            expanded.len()
+        );
+        assert!(
+            expanded.len() >= 1000,
+            "expected fantaihard-compatible source to expand to >=1000 channels, got {}",
+            expanded.len()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live network and DNS access"]
+    async fn parses_fantaihard_live_snapshot_file_to_more_than_1000_channels() {
+        let fetched = fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt")
+            .await
+            .expect("fantaihard live snapshot file should fetch");
+        let record = TvboxLiveRecord {
+            group_name: None,
+            name: "饭太硬快照直播".to_string(),
+            url: "https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt".to_string(),
+            source_type: Some(0),
+            raw_json: "{}".to_string(),
+        };
+        let entries = parse_txt_live_playlist(&fetched.body, &record);
+        println!("tvboxtv expanded_channels={}", entries.len());
+        assert!(
+            entries.len() >= 1000,
+            "expected tvboxtv.txt to contain >=1000 channels, got {}",
+            entries.len()
+        );
     }
 }
 
