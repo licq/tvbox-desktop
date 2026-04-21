@@ -24,6 +24,7 @@ pub struct TvboxParseRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TvboxLiveRecord {
+    pub group_name: Option<String>,
     pub name: String,
     pub url: String,
     pub source_type: Option<i64>,
@@ -49,7 +50,7 @@ impl TvboxConfigParser {
 
         let sites = parse_section(object.get("sites"), "sites", parse_site_record)?;
         let parses = parse_section(object.get("parses"), "parses", parse_parse_record)?;
-        let lives = parse_section(object.get("lives"), "lives", parse_live_record)?;
+        let lives = parse_live_section(object.get("lives"))?;
 
         if sites.is_empty() && parses.is_empty() && lives.is_empty() {
             return Err("TVBox配置缺少有效的 sites、parses 或 lives 数据".to_string());
@@ -139,11 +140,96 @@ fn parse_live_record(value: &Value) -> Result<TvboxLiveRecord, String> {
     let url = get_string(object.get("url")).ok_or_else(|| "缺少 url".to_string())?;
 
     Ok(TvboxLiveRecord {
+        group_name: None,
         name,
         url,
         source_type: get_optional_i64(object.get("type")),
         raw_json: json_to_string(value),
     })
+}
+
+fn parse_live_section(value: Option<&Value>) -> Result<Vec<TvboxLiveRecord>, String> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+
+    let items = value
+        .as_array()
+        .ok_or_else(|| "TVBox配置中的 lives 必须是数组".to_string())?;
+
+    let mut records = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let mut parsed = parse_live_records(item)
+            .map_err(|err| format!("TVBox配置中的 lives[{}] 无效: {}", index, err))?;
+        records.append(&mut parsed);
+    }
+    Ok(records)
+}
+
+fn parse_live_records(value: &Value) -> Result<Vec<TvboxLiveRecord>, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "直播配置必须是对象".to_string())?;
+
+    if let Some(channels) = object.get("channels") {
+        let group_name = get_optional_string(object.get("group"));
+        return parse_grouped_live_channels(channels, group_name.as_deref());
+    }
+
+    Ok(vec![parse_live_record(value)?])
+}
+
+fn parse_grouped_live_channels(
+    channels: &Value,
+    group_name: Option<&str>,
+) -> Result<Vec<TvboxLiveRecord>, String> {
+    let items = channels
+        .as_array()
+        .ok_or_else(|| "channels 必须是数组".to_string())?;
+
+    let mut records = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let object = item
+            .as_object()
+            .ok_or_else(|| format!("channels[{}] 必须是对象", index))?;
+        let name = get_string(object.get("name")).ok_or_else(|| "缺少 name".to_string())?;
+        let urls = extract_live_urls(object).ok_or_else(|| "缺少 url 或 urls".to_string())?;
+        let source_type = get_optional_i64(object.get("type"));
+        let raw_json = json_to_string(item);
+
+        for url in urls {
+            records.push(TvboxLiveRecord {
+                group_name: group_name.map(str::to_string),
+                name: name.clone(),
+                url,
+                source_type,
+                raw_json: raw_json.clone(),
+            });
+        }
+    }
+
+    Ok(records)
+}
+
+fn extract_live_urls(object: &serde_json::Map<String, Value>) -> Option<Vec<String>> {
+    if let Some(url) = get_optional_string(object.get("url")) {
+        return Some(vec![url]);
+    }
+
+    let urls = object.get("urls")?.as_array()?;
+    let extracted: Vec<String> = urls
+        .iter()
+        .filter_map(|value| match value {
+            Value::String(url) if !url.is_empty() => Some(url.clone()),
+            _ => None,
+        })
+        .collect();
+
+    if extracted.is_empty() {
+        None
+    } else {
+        Some(extracted)
+    }
 }
 
 fn get_string(value: Option<&Value>) -> Option<String> {
@@ -229,8 +315,37 @@ mod tests {
         assert_eq!(parsed.parses[0].url, "https://parse.example.com/?url=");
 
         assert_eq!(parsed.lives.len(), 1);
+        assert_eq!(parsed.lives[0].group_name, None);
         assert_eq!(parsed.lives[0].name, "直播源");
         assert_eq!(parsed.lives[0].url, "https://live.example.com/list.txt");
+    }
+
+    #[test]
+    fn parses_grouped_live_channels() {
+        let input = r#"{
+            "lives": [
+                {
+                    "group": "redirect",
+                    "channels": [
+                        {
+                            "name": "live",
+                            "urls": [
+                                "proxy://do=live&type=txt&ext=a",
+                                "proxy://do=live&type=txt&ext=b"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }"#;
+
+        let parsed = TvboxConfigParser::parse(input).expect("grouped lives should parse");
+
+        assert_eq!(parsed.lives.len(), 2);
+        assert_eq!(parsed.lives[0].group_name.as_deref(), Some("redirect"));
+        assert_eq!(parsed.lives[0].name, "live");
+        assert_eq!(parsed.lives[0].url, "proxy://do=live&type=txt&ext=a");
+        assert_eq!(parsed.lives[1].url, "proxy://do=live&type=txt&ext=b");
     }
 
     #[test]

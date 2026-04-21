@@ -3,6 +3,7 @@ use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
 use encoding_rs::{GB18030, GBK};
 use flate2::read::GzDecoder;
+use std::collections::{HashSet, VecDeque};
 use std::io::Read;
 use tauri::State;
 
@@ -182,88 +183,98 @@ struct FetchedContent {
 }
 
 async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest::Error> {
-    let primary = fetch_text_no_proxy(url).await?;
-    if looks_like_json(&primary.body) {
-        return Ok(primary);
-    }
+    let mut queue = VecDeque::from([(url.to_string(), 0usize)]);
+    let mut visited = HashSet::new();
+    let mut fallback: Option<FetchedContent> = None;
 
-    if let Some(fragment) = extract_json_object_fragment(&primary.body) {
-        return Ok(FetchedContent {
-            body: fragment,
-            final_url: primary.final_url,
-            status: primary.status,
-            content_type: primary.content_type,
-            content_encoding: primary.content_encoding,
-            body_hex_preview: primary.body_hex_preview,
-            is_image_payload: false,
-        });
-    }
-
-    if primary.is_image_payload {
-        for probe_url in build_probe_urls(url, &primary.final_url) {
-            if probe_url == primary.final_url {
-                continue;
-            }
-
-            match fetch_text_no_proxy(&probe_url).await {
-                Ok(probe) if !probe.is_image_payload => {
-                    log::info!("入口返回图片，切换到备选入口探测: {}", probe_url);
-                    return fetch_subscription_content_from_non_json(probe, url).await;
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::warn!("探测备选入口失败: {} ({})", probe_url, e);
-                }
-            }
-        }
-    }
-
-    fetch_subscription_content_from_non_json(primary, url).await
-}
-
-async fn fetch_subscription_content_from_non_json(
-    primary: FetchedContent,
-    original_url: &str,
-) -> Result<FetchedContent, reqwest::Error> {
-    if looks_like_json(&primary.body) {
-        return Ok(primary);
-    }
-
-    for candidate_url in extract_candidate_urls(&primary.body) {
-        if candidate_url == original_url {
+    while let Some((candidate_url, depth)) = queue.pop_front() {
+        if !visited.insert(candidate_url.clone()) {
             continue;
         }
 
-        match fetch_text_no_proxy(&candidate_url).await {
-            Ok(candidate_body) if looks_like_json(&candidate_body.body) => {
-                log::info!("入口返回非 JSON，已自动跟进候选配置地址: {}", candidate_url);
-                return Ok(candidate_body);
-            }
-            Ok(candidate_body) => {
-                if let Some(fragment) = extract_json_object_fragment(&candidate_body.body) {
-                    log::info!("候选地址返回页面，已提取嵌入 JSON: {}", candidate_url);
-                    return Ok(FetchedContent {
-                        body: fragment,
-                        final_url: candidate_body.final_url,
-                        status: candidate_body.status,
-                        content_type: candidate_body.content_type,
-                        content_encoding: candidate_body.content_encoding,
-                        body_hex_preview: candidate_body.body_hex_preview,
-                        is_image_payload: false,
-                    });
+        let fetched = match fetch_text_no_proxy(&candidate_url).await {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                if fallback.is_none() {
+                    return Err(error);
                 }
+                log::warn!("尝试候选配置地址失败: {} ({})", candidate_url, error);
+                continue;
             }
-            Err(e) => {
-                log::warn!("尝试候选配置地址失败: {} ({})", candidate_url, e);
+        };
+
+        if looks_like_json(&fetched.body) {
+            if candidate_url != url {
+                log::info!("入口返回非 JSON，已自动跟进候选配置地址: {}", candidate_url);
+            }
+            return Ok(fetched);
+        }
+
+        if let Some(fragment) = extract_json_object_fragment(&fetched.body) {
+            if candidate_url != url {
+                log::info!("候选地址返回页面，已提取嵌入 JSON: {}", candidate_url);
+            }
+            return Ok(fetched_content_with_body(&fetched, fragment));
+        }
+
+        let next_urls = discover_candidate_urls(url, &candidate_url, &fetched, depth);
+        if fallback.is_none() || fallback.as_ref().is_some_and(|content| content.is_image_payload) {
+            fallback = Some(fetched);
+        }
+
+        for next_url in next_urls {
+            if !visited.contains(&next_url) {
+                queue.push_back((next_url, depth + 1));
             }
         }
     }
 
-    Ok(primary)
+    Ok(fallback.expect("initial subscription fetch should produce fallback content"))
+}
+
+fn fetched_content_with_body(fetched: &FetchedContent, body: String) -> FetchedContent {
+    FetchedContent {
+        body,
+        final_url: fetched.final_url.clone(),
+        status: fetched.status,
+        content_type: fetched.content_type.clone(),
+        content_encoding: fetched.content_encoding.clone(),
+        body_hex_preview: fetched.body_hex_preview.clone(),
+        is_image_payload: false,
+    }
+}
+
+fn discover_candidate_urls(
+    original_url: &str,
+    candidate_url: &str,
+    fetched: &FetchedContent,
+    depth: usize,
+) -> Vec<String> {
+    if depth >= 2 {
+        return Vec::new();
+    }
+
+    let mut urls = Vec::new();
+    if fetched.is_image_payload {
+        log::info!("入口返回图片，尝试探测备选入口: {}", candidate_url);
+        urls.extend(build_probe_urls(original_url, &fetched.final_url));
+    }
+
+    urls.extend(extract_clipboard_urls(&fetched.body));
+    urls.extend(extract_candidate_urls(&fetched.body));
+
+    urls.retain(|url| url != candidate_url && url != &fetched.final_url);
+    urls.sort_by_key(|url| candidate_priority(url));
+    urls.dedup();
+    urls
 }
 
 async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error> {
-    let client = reqwest::Client::builder().no_proxy().build()?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(6))
+        .timeout(std::time::Duration::from_secs(12))
+        .build()?;
     let response = client
         .get(url)
         .header(
@@ -368,6 +379,41 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
     urls
 }
 
+fn extract_clipboard_urls(content: &str) -> Vec<String> {
+    let regex = regex::Regex::new(r#"data-clipboard-text="([^"]+)""#).unwrap();
+    regex
+        .captures_iter(content)
+        .filter_map(|capture| capture.get(1).map(|value| html_escape_decode(value.as_str())))
+        .collect()
+}
+
+fn html_escape_decode(content: &str) -> String {
+    content
+        .replace("&amp;", "&")
+        .replace("&#x2F;", "/")
+        .replace("&#47;", "/")
+        .replace("&quot;", "\"")
+}
+
+fn candidate_priority(url: &str) -> (usize, usize) {
+    let lower = url.to_ascii_lowercase();
+    let score = if lower.ends_with(".json") {
+        0
+    } else if lower.contains("raw.githubusercontent.com")
+        || lower.contains("gh-proxy")
+        || lower.contains("cdn.")
+    {
+        1
+    } else if lower.ends_with("/tv") || lower.ends_with("/tv/") {
+        2
+    } else if lower.ends_with(".bmp") {
+        3
+    } else {
+        4
+    };
+    (score, url.len())
+}
+
 fn extract_json_object_fragment(content: &str) -> Option<String> {
     let start = content.find('{')?;
     let end = content.rfind('}')?;
@@ -376,7 +422,10 @@ fn extract_json_object_fragment(content: &str) -> Option<String> {
     }
 
     let fragment = content[start..=end].trim();
-    if looks_like_json(fragment) && fragment.contains(':') {
+    if looks_like_json(fragment)
+        && fragment.contains(':')
+        && serde_json::from_str::<serde_json::Value>(fragment).is_ok()
+    {
         Some(fragment.to_string())
     } else {
         None
@@ -484,6 +533,17 @@ fn build_probe_urls(original_url: &str, final_url: &str) -> Vec<String> {
                 urls.push(format!("{}://{}/tv/", scheme, host));
                 urls.push(format!("{}://{}/index.php/tv", scheme, host));
             }
+
+            if let Some((name, _tld)) = host.rsplit_once('.') {
+                for tld in ["com", "net", "top"] {
+                    let alt_host = format!("{}.{}", name, tld);
+                    for scheme in ["https", "http"] {
+                        urls.push(format!("{}://{}/", scheme, alt_host));
+                        urls.push(format!("{}://{}/tv", scheme, alt_host));
+                        urls.push(format!("{}://{}/tv/", scheme, alt_host));
+                    }
+                }
+            }
         }
     }
 
@@ -527,9 +587,12 @@ fn decode_common_percent_encoding(content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::services::{Parser, TvboxConfigParser};
+
     use super::{
-        build_probe_urls, decode_common_percent_encoding, extract_candidate_urls,
-        extract_json_object_fragment, fetch_subscription_content, is_image_bytes, looks_like_json,
+        build_probe_urls, candidate_priority, decode_common_percent_encoding,
+        extract_candidate_urls, extract_clipboard_urls, extract_json_object_fragment,
+        fetch_subscription_content, is_image_bytes, looks_like_json,
     };
 
     #[test]
@@ -571,6 +634,13 @@ mod tests {
     }
 
     #[test]
+    fn extracts_clipboard_urls() {
+        let html = r#"<div data-clipboard-text="http://www.饭太硬.net/tv"></div>"#;
+        let urls = extract_clipboard_urls(html);
+        assert_eq!(urls, vec!["http://www.饭太硬.net/tv"]);
+    }
+
+    #[test]
     fn detects_image_magic_bytes() {
         assert!(is_image_bytes(&[0xff, 0xd8, 0xff, 0xe0]));
         assert!(is_image_bytes(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a]));
@@ -584,7 +654,13 @@ mod tests {
             "http://www.xn--sss604efuw.net/tv/",
         );
         assert!(urls.iter().any(|url| url == "https://www.xn--sss604efuw.net/"));
+        assert!(urls.iter().any(|url| url == "https://www.xn--sss604efuw.com/"));
         assert!(urls.iter().any(|url| url == "http://www.xn--sss604efuw.net/tv"));
+    }
+
+    #[test]
+    fn prioritizes_direct_json_candidates() {
+        assert!(candidate_priority("http://a.com/config.json") < candidate_priority("http://a.com/tv"));
     }
 
     #[tokio::test]
@@ -598,6 +674,22 @@ mod tests {
             "expected JSON-like payload, got preview: {}",
             fetched.body_hex_preview
         );
+
+        match Parser::detect_source_kind(&fetched.body) {
+            "tvbox_config" => {
+                let parsed = TvboxConfigParser::parse(&fetched.body)
+                    .expect("fetched TVBox config should parse");
+                assert!(
+                    !parsed.sites.is_empty() || !parsed.parses.is_empty() || !parsed.lives.is_empty(),
+                    "parsed TVBox config should contain usable records"
+                );
+            }
+            "simple_json" => {
+                Parser::parse_subscription(&fetched.body)
+                    .expect("fetched simple json subscription should parse");
+            }
+            other => panic!("unexpected source kind: {}", other),
+        }
     }
 }
 

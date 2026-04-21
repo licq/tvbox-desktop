@@ -1214,9 +1214,10 @@ fn insert_tvbox_lives(
         tx.execute(
             "INSERT INTO source_lives (
                 subscription_id, group_name, channel_name, raw_url, normalized_url, source_type, raw_json
-             ) VALUES (?1, NULL, ?2, ?3, ?3, ?4, ?5)",
+             ) VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6)",
             rusqlite::params![
                 subscription_id,
+                live.group_name,
                 live.name,
                 live.url,
                 live.source_type,
