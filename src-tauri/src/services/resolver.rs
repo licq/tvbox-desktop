@@ -66,13 +66,33 @@ fn looks_like_xb6v_play_page(input: &str) -> bool {
 }
 
 async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String> {
-    let client = reqwest::Client::builder()
+    let client = build_client()?;
+    let body = fetch_text(&client, input).await?;
+    if let Some(source_url) = extract_aliplayer_source(&body) {
+        return Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)));
+    }
+    if let Some(iframe_url) = extract_iframe_src(input, &body) {
+        return resolve_embedded_share_page(&client, &iframe_url).await;
+    }
+
+    Ok(ResolvedPlayback {
+        status: "failed".to_string(),
+        candidates: vec![],
+        error_message: Some("未能从播放页提取实际视频地址".to_string()),
+    })
+}
+
+fn build_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
         .no_proxy()
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(20))
         .build()
-        .map_err(|e| e.to_string())?;
-    let body = client
+        .map_err(|e| e.to_string())
+}
+
+async fn fetch_text(client: &reqwest::Client, input: &str) -> Result<String, String> {
+    client
         .get(input)
         .header(
             reqwest::header::USER_AGENT,
@@ -83,26 +103,60 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
         .map_err(|e| e.to_string())?
         .text()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+}
 
+fn extract_aliplayer_source(body: &str) -> Option<String> {
     let source_regex = Regex::new(r#""source"\s*:\s*"([^"]+)""#).unwrap();
-    let Some(source_url) = source_regex
-        .captures(&body)
+    source_regex
+        .captures(body)
         .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+}
+
+fn extract_iframe_src(page_url: &str, body: &str) -> Option<String> {
+    let iframe_regex = Regex::new(r#"<iframe[^>]+src="([^"]+)""#).unwrap();
+    iframe_regex
+        .captures(body)
+        .and_then(|captures| captures.get(1).map(|value| absolutize_url(page_url, value.as_str())))
+}
+
+async fn resolve_embedded_share_page(
+    client: &reqwest::Client,
+    iframe_url: &str,
+) -> Result<ResolvedPlayback, String> {
+    let body = fetch_text(client, iframe_url).await?;
+    let share_url_regex = Regex::new(r#"const\s+url\s*=\s*"([^"]+)""#).unwrap();
+    let Some(source_url) = share_url_regex
+        .captures(&body)
+        .and_then(|captures| captures.get(1).map(|value| absolutize_url(iframe_url, value.as_str())))
     else {
         return Ok(ResolvedPlayback {
             status: "failed".to_string(),
             candidates: vec![],
-            error_message: Some("未能从播放页提取实际视频地址".to_string()),
+            error_message: Some("未能从分享页提取实际视频地址".to_string()),
         });
     };
 
     Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)))
 }
 
+fn absolutize_url(base_url: &str, candidate: &str) -> String {
+    if candidate.starts_with("http://") || candidate.starts_with("https://") {
+        candidate.to_string()
+    } else {
+        reqwest::Url::parse(base_url)
+            .and_then(|base| base.join(candidate))
+            .map(|url| url.to_string())
+            .unwrap_or_else(|_| candidate.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{detect_kind, looks_like_xb6v_play_page, PlaybackResolver};
+    use super::{
+        absolutize_url, detect_kind, extract_aliplayer_source, extract_iframe_src,
+        looks_like_xb6v_play_page, PlaybackResolver,
+    };
     use crate::models::ResolvedPlayback;
 
     #[tokio::test]
@@ -137,6 +191,32 @@ mod tests {
             "https://www.xb6v.com/e/DownSys/play/?classid=17&id=28598&pathid2=0&bf=1"
         ));
         assert_eq!(detect_kind("https://video.example.com/index.m3u8"), "hls");
+    }
+
+    #[test]
+    fn extracts_aliplayer_source() {
+        let body = r#"var player = new Aliplayer({ "source": "https://example.com/index.m3u8" });"#;
+        assert_eq!(
+            extract_aliplayer_source(body).as_deref(),
+            Some("https://example.com/index.m3u8")
+        );
+    }
+
+    #[test]
+    fn extracts_iframe_and_absolutizes_relative_url() {
+        let body = r#"<div class="video"><iframe src="https://vip.dytt-tvs.com/share/demo"></iframe></div>"#;
+        assert_eq!(
+            extract_iframe_src(
+                "https://www.xb6v.com/e/DownSys/play/?classid=6&id=28503&pathid1=0&bf=0",
+                body
+            )
+            .as_deref(),
+            Some("https://vip.dytt-tvs.com/share/demo")
+        );
+        assert_eq!(
+            absolutize_url("https://vip.dytt-tvs.com/share/demo", "/20260407/15657/index.m3u8"),
+            "https://vip.dytt-tvs.com/20260407/15657/index.m3u8"
+        );
     }
 
     #[test]
