@@ -178,6 +178,7 @@ struct FetchedContent {
     content_type: Option<String>,
     content_encoding: Option<String>,
     body_hex_preview: String,
+    is_image_payload: bool,
 }
 
 async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest::Error> {
@@ -194,11 +195,42 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
             content_type: primary.content_type,
             content_encoding: primary.content_encoding,
             body_hex_preview: primary.body_hex_preview,
+            is_image_payload: false,
         });
     }
 
+    if primary.is_image_payload {
+        for probe_url in build_probe_urls(url, &primary.final_url) {
+            if probe_url == primary.final_url {
+                continue;
+            }
+
+            match fetch_text_no_proxy(&probe_url).await {
+                Ok(probe) if !probe.is_image_payload => {
+                    log::info!("入口返回图片，切换到备选入口探测: {}", probe_url);
+                    return fetch_subscription_content_from_non_json(probe, url).await;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!("探测备选入口失败: {} ({})", probe_url, e);
+                }
+            }
+        }
+    }
+
+    fetch_subscription_content_from_non_json(primary, url).await
+}
+
+async fn fetch_subscription_content_from_non_json(
+    primary: FetchedContent,
+    original_url: &str,
+) -> Result<FetchedContent, reqwest::Error> {
+    if looks_like_json(&primary.body) {
+        return Ok(primary);
+    }
+
     for candidate_url in extract_candidate_urls(&primary.body) {
-        if candidate_url == url {
+        if candidate_url == original_url {
             continue;
         }
 
@@ -217,6 +249,7 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
                         content_type: candidate_body.content_type,
                         content_encoding: candidate_body.content_encoding,
                         body_hex_preview: candidate_body.body_hex_preview,
+                        is_image_payload: false,
                     });
                 }
             }
@@ -231,7 +264,22 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
 
 async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error> {
     let client = reqwest::Client::builder().no_proxy().build()?;
-    let response = client.get(url).send().await?;
+    let response = client
+        .get(url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        )
+        .header(
+            reqwest::header::ACCEPT,
+            "text/html,application/json,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
+        .header(
+            reqwest::header::ACCEPT_LANGUAGE,
+            "zh-CN,zh;q=0.9,en;q=0.8",
+        )
+        .send()
+        .await?;
     let final_url = response.url().to_string();
     let status = response.status().as_u16();
     let content_type = response
@@ -251,6 +299,7 @@ async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error
         .map(|byte| format!("{:02x}", byte))
         .collect::<Vec<String>>()
         .join("");
+    let is_image_payload = is_image_bytes(&bytes);
     let body = decode_response_body(&bytes, content_type.as_deref(), content_encoding.as_deref());
 
     Ok(FetchedContent {
@@ -260,6 +309,7 @@ async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error
         content_type,
         content_encoding,
         body_hex_preview,
+        is_image_payload,
     })
 }
 
@@ -415,6 +465,33 @@ fn decode_gzip(bytes: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
+fn is_image_bytes(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xff, 0xd8, 0xff])
+        || bytes.starts_with(&[0x89, b'P', b'N', b'G'])
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || bytes.starts_with(b"RIFF")
+}
+
+fn build_probe_urls(original_url: &str, final_url: &str) -> Vec<String> {
+    let mut urls = vec![original_url.to_string(), final_url.to_string()];
+
+    if let Ok(parsed) = reqwest::Url::parse(final_url) {
+        if let Some(host) = parsed.host_str() {
+            for scheme in ["https", "http"] {
+                urls.push(format!("{}://{}/", scheme, host));
+                urls.push(format!("{}://{}/tv", scheme, host));
+                urls.push(format!("{}://{}/tv/", scheme, host));
+                urls.push(format!("{}://{}/index.php/tv", scheme, host));
+            }
+        }
+    }
+
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
 fn extract_charset(content_type: Option<&str>) -> Option<String> {
     let content_type = content_type?;
     let lower = content_type.to_ascii_lowercase();
@@ -451,8 +528,8 @@ fn decode_common_percent_encoding(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_common_percent_encoding, extract_candidate_urls, extract_json_object_fragment,
-        looks_like_json,
+        build_probe_urls, decode_common_percent_encoding, extract_candidate_urls,
+        extract_json_object_fragment, fetch_subscription_content, is_image_bytes, looks_like_json,
     };
 
     #[test]
@@ -491,6 +568,36 @@ mod tests {
         let html = r#"<html><script>window.cfg={"sites":[],"lives":[]};</script></html>"#;
         let fragment = extract_json_object_fragment(html).expect("fragment expected");
         assert!(fragment.contains("\"sites\""));
+    }
+
+    #[test]
+    fn detects_image_magic_bytes() {
+        assert!(is_image_bytes(&[0xff, 0xd8, 0xff, 0xe0]));
+        assert!(is_image_bytes(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a]));
+        assert!(!is_image_bytes(b"{\"sites\":[]}"));
+    }
+
+    #[test]
+    fn builds_probe_urls_from_final_url() {
+        let urls = build_probe_urls(
+            "http://www.xn--sss604efuw.net/tv",
+            "http://www.xn--sss604efuw.net/tv/",
+        );
+        assert!(urls.iter().any(|url| url == "https://www.xn--sss604efuw.net/"));
+        assert!(urls.iter().any(|url| url == "http://www.xn--sss604efuw.net/tv"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live network and DNS access"]
+    async fn analyzes_fantaihard_entry_url() {
+        let fetched = fetch_subscription_content("http://www.饭太硬.net/tv")
+            .await
+            .expect("network fetch should succeed");
+        assert!(
+            looks_like_json(&fetched.body),
+            "expected JSON-like payload, got preview: {}",
+            fetched.body_hex_preview
+        );
     }
 }
 
