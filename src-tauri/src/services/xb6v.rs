@@ -1,3 +1,4 @@
+use crate::services::libvio::{is_libvio_site, scrape_libvio_catalog, scrape_libvio_detail};
 use crate::services::tvbox::TvboxSiteRecord;
 use crate::services::zxzj::{is_zxzj_site, scrape_zxzj_catalog, scrape_zxzj_detail};
 use regex::Regex;
@@ -38,6 +39,9 @@ pub async fn scrape_supported_tvbox_catalogs(
     if sites.iter().any(is_xb6v_site) {
         items.extend(scrape_xb6v_catalog().await?);
     }
+    if sites.iter().any(is_libvio_site) {
+        items.extend(scrape_libvio_catalog().await?);
+    }
     if sites.iter().any(is_zxzj_site) {
         items.extend(scrape_zxzj_catalog().await?);
     }
@@ -59,6 +63,15 @@ pub async fn scrape_catalog_detail_from_json(
 
     match source {
         "xb6v" => scrape_xb6v_detail(url).await,
+        "libvio" => {
+            let mut item = scrape_libvio_detail(url).await?;
+            if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
+                if let Some(item) = item.as_mut() {
+                    item.item_type = expected_type.to_string();
+                }
+            }
+            Ok(item)
+        }
         "zxzj" => {
             let mut item = scrape_zxzj_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {

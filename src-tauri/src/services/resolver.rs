@@ -1,4 +1,5 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
+use crate::services::extract_libvio_player_url;
 use regex::Regex;
 
 pub struct PlaybackResolver;
@@ -22,6 +23,9 @@ impl PlaybackResolver {
         if looks_like_xb6v_play_page(input) {
             return resolve_xb6v_play_page(input).await;
         }
+        if looks_like_libvio_play_page(input) {
+            return resolve_libvio_play_page(input).await;
+        }
         if looks_like_zxzj_play_page(input) {
             return Ok(ready_with_candidate(input.to_string(), "embed"));
         }
@@ -43,7 +47,7 @@ pub fn classify_playback_target(input: &str) -> &'static str {
         return "embedded";
     }
 
-    if looks_like_xb6v_play_page(input) {
+    if looks_like_xb6v_play_page(input) || looks_like_libvio_play_page(input) {
         return "resolvable";
     }
 
@@ -111,6 +115,10 @@ fn looks_like_xb6v_play_page(input: &str) -> bool {
     input.contains("xb6v.com/e/DownSys/play/")
 }
 
+fn looks_like_libvio_play_page(input: &str) -> bool {
+    (input.contains("libvio.") || input.contains("libvio.me/")) && input.contains("/play/")
+}
+
 fn looks_like_zxzj_play_page(input: &str) -> bool {
     (input.contains("zxzjhd.com/") || input.contains("zxzjys.com/")) && input.contains("/vodplay/")
 }
@@ -130,6 +138,20 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
         candidates: vec![],
         error_message: Some("未能从播放页提取实际视频地址".to_string()),
     })
+}
+
+async fn resolve_libvio_play_page(input: &str) -> Result<ResolvedPlayback, String> {
+    let client = build_client()?;
+    let body = fetch_text(&client, input).await?;
+    let Some(source_url) = extract_libvio_player_url(&body) else {
+        return Ok(ResolvedPlayback {
+            status: "failed".to_string(),
+            candidates: vec![],
+            error_message: Some("未能从 LIBVIO 播放页提取实际视频地址".to_string()),
+        });
+    };
+
+    Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)))
 }
 
 fn build_client() -> Result<reqwest::Client, String> {
@@ -205,7 +227,8 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 mod tests {
     use super::{
         absolutize_url, classify_playback_target, detect_kind, extract_aliplayer_source,
-        extract_iframe_src, looks_like_xb6v_play_page, looks_like_zxzj_play_page,
+        extract_iframe_src, looks_like_libvio_play_page, looks_like_xb6v_play_page,
+        looks_like_zxzj_play_page,
         PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
@@ -241,6 +264,9 @@ mod tests {
         assert!(looks_like_xb6v_play_page(
             "https://www.xb6v.com/e/DownSys/play/?classid=17&id=28598&pathid2=0&bf=1"
         ));
+        assert!(looks_like_libvio_play_page(
+            "https://www.libvio.me/play/714891197-1-1.html"
+        ));
         assert!(looks_like_zxzj_play_page(
             "https://www.zxzjhd.com/vodplay/4627-1-1.html"
         ));
@@ -270,6 +296,10 @@ mod tests {
             classify_playback_target(
                 "https://www.xb6v.com/e/DownSys/play/?classid=2&id=28522&pathid2=0&bf=1"
             ),
+            "resolvable"
+        );
+        assert_eq!(
+            classify_playback_target("https://www.libvio.me/play/714891197-1-1.html"),
             "resolvable"
         );
         assert_eq!(
