@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import type { CatalogCard, CatalogCardInput, HomePayloadInput } from '@/types'
 
 function resolveItemType(card: CatalogCardInput) {
@@ -30,6 +31,8 @@ export const useLibraryStore = defineStore('library', () => {
   const continueWatching = ref<CatalogCard[]>([])
   const latestUpdates = ref<CatalogCard[]>([])
   const featured = ref<CatalogCard[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   function applyHomePayload(payload: HomePayloadInput) {
     continueWatching.value = normalizeCards(payload.continue_watching ?? payload.continueWatching)
@@ -37,5 +40,19 @@ export const useLibraryStore = defineStore('library', () => {
     featured.value = normalizeCards(payload.featured)
   }
 
-  return { continueWatching, latestUpdates, featured, applyHomePayload }
+  async function fetchHome() {
+    loading.value = true
+    error.value = null
+    try {
+      const payload = await invoke<HomePayloadInput>('get_library_home')
+      applyHomePayload(payload)
+    } catch (e) {
+      error.value = String(e)
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return { continueWatching, latestUpdates, featured, loading, error, applyHomePayload, fetchHome }
 })

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { open } from '@tauri-apps/plugin-shell'
 import Hls from 'hls.js'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import type { ChannelSource } from '@/types'
 
+const route = useRoute()
 const router = useRouter()
 const liveStore = useLiveStore()
 const playerStore = usePlayerStore()
@@ -19,75 +20,79 @@ const volume = ref(1)
 const fullscreen = ref(false)
 const errorMsg = ref('')
 
-// Multi-source state
 const sources = ref<ChannelSource[]>([])
 const currentSourceIndex = ref(0)
 
-const currentSource = computed(() => sources.value[currentSourceIndex.value])
+const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
+const mode = computed(() => String(route.params.mode ?? 'live'))
+const itemId = computed(() => Number(route.params.id))
+const episodeUrl = computed(() => {
+  const value = route.query.episode
+  return typeof value === 'string' ? value : null
+})
+const sourceLabel = computed(() => `线路 ${currentSourceIndex.value + 1}`)
 
 let hlsInstance: Hls | null = null
 let progressUpdateInterval: number | null = null
 
-// Parse URL params
-const params = new URLSearchParams(globalThis.location.search)
-const episodeUrl = params.get('episode')
-
-// Get type and id from path
-const pathParts = globalThis.location.pathname.split('/')
-const type = pathParts[2] // 'live' or 'vod'
-const id = parseInt(pathParts[3])
-
 onMounted(async () => {
-  if (type === 'live') {
+  if (mode.value === 'live') {
     await liveStore.fetchChannels()
-    const channel = liveStore.channels.find(c => c.id === id)
+    const channel = liveStore.channels.find(channel => channel.id === itemId.value)
     if (channel && channel.sources.length > 0) {
       sources.value = channel.sources
       currentSourceIndex.value = 0
-      playSource(channel.sources[0].url)
+      await playSource(channel.sources[0].url)
+    } else {
+      errorMsg.value = '当前频道没有可用线路'
     }
-  } else if (type === 'vod' && episodeUrl) {
-    const url = decodeURIComponent(episodeUrl)
+  } else if (mode.value === 'vod' && episodeUrl.value) {
+    const url = decodeURIComponent(episodeUrl.value)
     sources.value = [{ url, subscription_id: 0 }]
     currentSourceIndex.value = 0
-    playSource(url)
+    await playSource(url)
+  } else {
+    errorMsg.value = '缺少播放地址'
   }
 
   if (videoRef.value) {
     videoRef.value.volume = volume.value
   }
 
-  progressUpdateInterval = globalThis.setInterval(() => {
-    if (videoRef.value) {
-      currentTime.value = videoRef.value.currentTime
-      duration.value = videoRef.value.duration || 0
-    }
+  progressUpdateInterval = window.setInterval(() => {
+    if (!videoRef.value) return
+    currentTime.value = videoRef.value.currentTime
+    duration.value = videoRef.value.duration || 0
   }, 1000)
 })
 
 onUnmounted(() => {
   if (progressUpdateInterval) {
-    globalThis.clearInterval(progressUpdateInterval)
+    window.clearInterval(progressUpdateInterval)
   }
+
   if (hlsInstance) {
     hlsInstance.destroy()
     hlsInstance = null
   }
-  // Save play history
-  if (type === 'vod' && duration.value > 0) {
+
+  if (mode.value === 'vod' && duration.value > 0) {
     const progress = (currentTime.value / duration.value) * 100
-    playerStore.saveHistory('vod', id, progress)
+    void playerStore.saveHistory('vod', itemId.value, progress)
   }
 })
 
 function togglePlay() {
   if (!videoRef.value) return
+
   if (playing.value) {
     videoRef.value.pause()
-  } else {
-    videoRef.value.play()
+    playing.value = false
+    return
   }
-  playing.value = !playing.value
+
+  void videoRef.value.play()
+  playing.value = true
 }
 
 function seek(time: number) {
@@ -95,64 +100,67 @@ function seek(time: number) {
   videoRef.value.currentTime = time
 }
 
-function handleVolumeChange(e: Event) {
-  const target = e.target as HTMLInputElement
+function handleVolumeChange(event: Event) {
+  const target = event.target as HTMLInputElement
   volume.value = parseFloat(target.value)
   if (videoRef.value) {
     videoRef.value.volume = volume.value
   }
 }
 
-function toggleFullscreen() {
+async function toggleFullscreen() {
   if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen()
+    await document.documentElement.requestFullscreen()
     fullscreen.value = true
-  } else {
-    document.exitFullscreen()
-    fullscreen.value = false
+    return
   }
+
+  await document.exitFullscreen()
+  fullscreen.value = false
 }
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
+
   if (h > 0) {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
+
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function isDrpyProtocol(url: string): boolean {
+function isDrpyProtocol(url: string) {
   return url.startsWith('drpy://')
 }
 
-function switchToSource(index: number) {
-  if (index >= 0 && index < sources.value.length) {
-    currentSourceIndex.value = index
-    playSource(sources.value[index].url)
-  }
+async function switchToSource(index: number) {
+  if (index < 0 || index >= sources.value.length) return
+  currentSourceIndex.value = index
+  await playSource(sources.value[index].url)
 }
 
 async function playSource(url: string) {
   errorMsg.value = ''
+
   if (isDrpyProtocol(url)) {
+    errorMsg.value = '该地址需要外部解析，已尝试交给系统处理'
     await open(url)
     return
   }
+
   initHlsPlayer(url)
 }
 
 function initHlsPlayer(url: string) {
   if (!videoRef.value) return
 
-  // Clean up existing HLS instance
   if (hlsInstance) {
     hlsInstance.destroy()
     hlsInstance = null
   }
 
-  // Check if URL is HLS (.m3u8)
   if (url.includes('.m3u8')) {
     if (Hls.isSupported()) {
       const hls = new Hls()
@@ -161,128 +169,151 @@ function initHlsPlayer(url: string) {
       hls.attachMedia(videoRef.value)
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          console.error('HLS fatal error:', data)
-          // Try next source
-          if (currentSourceIndex.value < sources.value.length - 1) {
-            switchToSource(currentSourceIndex.value + 1)
-          } else {
-            errorMsg.value = '所有源均不可用'
-          }
+        if (!data.fatal) return
+
+        if (currentSourceIndex.value < sources.value.length - 1) {
+          void switchToSource(currentSourceIndex.value + 1)
+        } else {
+          errorMsg.value = '所有线路均不可用'
         }
       })
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         videoRef.value?.play().then(() => {
           playing.value = true
-        }).catch(console.error)
+        }).catch(() => {
+          errorMsg.value = '自动播放失败，请手动开始播放'
+        })
       })
 
-      return hls
-    } else if (videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari native HLS support
+      return
+    }
+
+    if (videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.value.src = url
       videoRef.value.play().then(() => {
         playing.value = true
-      }).catch(console.error)
-      return null
+      }).catch(() => {
+        errorMsg.value = '自动播放失败，请手动开始播放'
+      })
+      return
     }
   }
 
-  // Regular video source
   videoRef.value.src = url
   videoRef.value.play().then(() => {
     playing.value = true
-  }).catch(console.error)
-  return null
+  }).catch(() => {
+    errorMsg.value = '无法直接播放当前地址'
+  })
 }
 </script>
 
 <template>
-  <div class="player-page min-h-screen bg-black text-white">
-    <!-- Video -->
-    <div class="relative">
-      <video
-        ref="videoRef"
-        class="w-full aspect-video bg-black"
-        :title="currentSource?.url || ''"
-        @click="togglePlay"
-      ></video>
-
-      <!-- Controls -->
-      <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-        <!-- Progress -->
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-sm">{{ formatTime(currentTime) }}</span>
-          <input
-            type="range"
-            :value="currentTime"
-            :max="duration || 100"
-            class="flex-1 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-            @input="seek(parseFloat(($event.target as HTMLInputElement).value))"
-          />
-          <span class="text-sm">{{ formatTime(duration) }}</span>
+  <div class="min-h-screen bg-[#05070b] px-4 py-4 text-white md:px-6">
+    <div class="mx-auto max-w-[1500px]">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <button class="action-button action-button-secondary" @click="router.back()">
+          返回
+        </button>
+        <div class="flex items-center gap-2">
+          <div class="rounded-full bg-white/8 px-3 py-2 text-[11px] uppercase tracking-[0.28em] text-white/50">
+            {{ mode }}
+          </div>
+          <div class="rounded-full bg-white/8 px-3 py-2 text-[11px] uppercase tracking-[0.28em] text-white/50">
+            {{ sourceLabel }}
+          </div>
         </div>
+      </div>
 
-        <!-- Buttons -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <button
-              class="px-4 py-2 bg-white/20 rounded hover:bg-white/30 transition"
+      <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section class="surface-panel overflow-hidden rounded-[2rem]">
+          <div class="relative">
+            <video
+              ref="videoRef"
+              class="aspect-video w-full bg-black"
+              :title="currentSource?.url || ''"
               @click="togglePlay"
-            >
-              {{ playing ? '⏸️' : '▶️' }}
-            </button>
-            <div class="flex items-center gap-2">
-              <span>🔊</span>
-              <input
-                type="range"
-                :value="volume"
-                min="0"
-                max="1"
-                step="0.1"
-                class="w-20 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                @input="handleVolumeChange"
-              />
+            ></video>
+
+            <div class="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent"></div>
+            <div class="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/85 via-black/40 to-transparent"></div>
+
+            <div class="absolute inset-x-0 bottom-0 p-5 md:p-6">
+              <div v-if="errorMsg" class="mb-4 rounded-[1.25rem] border border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {{ errorMsg }}
+              </div>
+
+              <div class="space-y-4">
+                <div class="flex items-center gap-3 text-xs text-white/60">
+                  <span>{{ formatTime(currentTime) }}</span>
+                  <input
+                    type="range"
+                    :value="currentTime"
+                    :max="duration || 100"
+                    class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-white/15"
+                    @input="seek(parseFloat(($event.target as HTMLInputElement).value))"
+                  />
+                  <span>{{ formatTime(duration) }}</span>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button class="action-button action-button-primary" @click="togglePlay">
+                      {{ playing ? '暂停' : '播放' }}
+                    </button>
+                    <button class="action-button action-button-secondary" @click="toggleFullscreen">
+                      {{ fullscreen ? '退出全屏' : '全屏' }}
+                    </button>
+                  </div>
+
+                  <div class="flex items-center gap-3 rounded-full bg-white/8 px-4 py-2">
+                    <span class="text-xs uppercase tracking-[0.28em] text-white/38">Volume</span>
+                    <input
+                      type="range"
+                      :value="volume"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      class="h-1 w-24 cursor-pointer appearance-none rounded-full bg-white/15"
+                      @input="handleVolumeChange"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+        </section>
 
-          <!-- Source selector -->
-          <div v-if="sources.length > 1" class="source-selector flex items-center gap-2">
-            <span class="text-sm">{{ currentSourceIndex + 1 }}/{{ sources.length }}</span>
+        <aside class="surface-panel rounded-[2rem] px-5 py-5">
+          <div class="section-title">线路面板</div>
+          <p class="mt-2 text-sm text-white/48">线路切换、模式和失败反馈统一放到视频右侧，避免遮住关键画面。</p>
+
+          <div class="mt-6 space-y-3">
             <button
-              v-for="(_, i) in sources"
-              :key="i"
-              :class="['px-2 py-1 text-xs rounded', i === currentSourceIndex ? 'bg-primary' : 'bg-gray-700']"
-              @click="switchToSource(i)"
+              v-for="(_, index) in sources"
+              :key="index"
+              :class="[
+                'w-full rounded-[1.2rem] border px-4 py-3 text-left transition',
+                index === currentSourceIndex
+                  ? 'border-[#d89a57]/40 bg-[#d89a57]/12 text-white'
+                  : 'border-white/6 bg-white/[0.03] text-white/68 hover:bg-white/[0.06]'
+              ]"
+              @click="switchToSource(index)"
             >
-              源{{ i + 1 }}
+              <div class="text-[10px] uppercase tracking-[0.28em] text-white/35">Line {{ index + 1 }}</div>
+              <div class="mt-2 text-sm font-medium">{{ sources[index].url ? '内置地址' : '占位线路' }}</div>
             </button>
           </div>
 
-          <button
-            class="px-4 py-2 bg-white/20 rounded hover:bg-white/30 transition"
-            @click="toggleFullscreen"
-          >
-            ⛶
-          </button>
-        </div>
+          <div class="mt-6 rounded-[1.4rem] border border-white/6 bg-white/[0.03] p-4">
+            <div class="text-[11px] uppercase tracking-[0.28em] text-white/34">Current Url</div>
+            <div class="mt-3 break-all text-xs leading-6 text-white/52">
+              {{ currentSource?.url || '当前没有可用地址' }}
+            </div>
+          </div>
+        </aside>
       </div>
-
-      <!-- Error message -->
-      <div v-if="errorMsg" class="absolute inset-0 flex items-center justify-center bg-black/60">
-        <span class="text-red-400 text-lg">{{ errorMsg }}</span>
-      </div>
-    </div>
-
-    <!-- Info -->
-    <div class="p-4">
-      <button
-        class="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition mb-4"
-        @click="router.back()"
-      >
-        ← 返回
-      </button>
     </div>
   </div>
 </template>

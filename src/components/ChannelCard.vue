@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { LiveChannel } from '@/types'
 
 const props = defineProps<{
@@ -10,28 +11,42 @@ const emit = defineEmits<{
   play: [channel: LiveChannel, sourceUrl?: string]
 }>()
 
+const sourceCount = computed(() => props.channel.sources.length)
+
 function handleClick() {
   emit('play', props.channel, props.sourceUrl)
 }
 </script>
 
 <template>
-  <div
-    class="channel-card bg-gray-800 rounded-lg p-4 cursor-pointer hover:bg-gray-700 transition-colors"
+  <button
+    class="surface-muted group flex w-full flex-col gap-4 rounded-[1.5rem] p-4 text-left transition duration-300 hover:-translate-y-1 hover:border-white/15 hover:bg-white/[0.07]"
     @click="handleClick"
   >
-    <img
-      v-if="channel.logo"
-      :src="channel.logo"
-      :alt="channel.name"
-      class="w-16 h-16 mx-auto mb-2 object-contain"
-    />
-    <div v-else class="w-16 h-16 mx-auto mb-2 bg-gray-600 rounded-full flex items-center justify-center text-2xl">
-      📺
+    <div class="flex items-start justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <img
+          v-if="channel.logo"
+          :src="channel.logo"
+          :alt="channel.name"
+          class="h-12 w-12 rounded-2xl object-contain bg-white/5 p-2"
+        />
+        <div v-else class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5 text-xl text-white/60">
+          📺
+        </div>
+        <div>
+          <div class="text-sm font-semibold text-white">{{ channel.name }}</div>
+          <div class="mt-1 text-xs uppercase tracking-[0.22em] text-white/35">{{ channel.category }}</div>
+        </div>
+      </div>
+      <div class="rounded-full bg-white/8 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-white/55">
+        {{ sourceCount }} 路
+      </div>
     </div>
-    <div class="text-center text-sm truncate">{{ channel.name }}</div>
-    <div v-if="channel.category" class="text-center text-xs text-gray-400 mt-1">
-      {{ channel.category }}
+
+    <div class="flex items-center justify-between text-xs text-white/48">
+      <span>直播汇聚</span>
+      <span class="translate-x-0 transition group-hover:translate-x-1">立即播放</span>
     </div>
-  </div>
+  </button>
 </template>
