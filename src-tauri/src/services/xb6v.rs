@@ -1,5 +1,7 @@
 use crate::services::tvbox::TvboxSiteRecord;
+use crate::services::zxzj::{is_zxzj_site, scrape_zxzj_catalog, scrape_zxzj_detail};
 use regex::Regex;
+use serde_json::Value;
 use std::collections::HashSet;
 use tokio::task::JoinSet;
 
@@ -36,7 +38,38 @@ pub async fn scrape_supported_tvbox_catalogs(
     if sites.iter().any(is_xb6v_site) {
         items.extend(scrape_xb6v_catalog().await?);
     }
+    if sites.iter().any(is_zxzj_site) {
+        items.extend(scrape_zxzj_catalog().await?);
+    }
     Ok(items)
+}
+
+pub async fn scrape_catalog_detail_from_json(
+    detail_json: &str,
+) -> Result<Option<ScrapedCatalogItem>, String> {
+    let detail: Value = serde_json::from_str(detail_json).map_err(|e| e.to_string())?;
+    let source = detail
+        .get("source")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "catalog detail source is missing".to_string())?;
+    let url = detail
+        .get("url")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "catalog detail url is missing".to_string())?;
+
+    match source {
+        "xb6v" => scrape_xb6v_detail(url).await,
+        "zxzj" => {
+            let mut item = scrape_zxzj_detail(url).await?;
+            if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
+                if let Some(item) = item.as_mut() {
+                    item.item_type = expected_type.to_string();
+                }
+            }
+            Ok(item)
+        }
+        other => Err(format!("unsupported catalog detail source: {other}")),
+    }
 }
 
 fn is_xb6v_site(site: &TvboxSiteRecord) -> bool {
@@ -109,6 +142,17 @@ async fn scrape_xb6v_catalog() -> Result<Vec<ScrapedCatalogItem>, String> {
     }
 
     Ok(items)
+}
+
+async fn scrape_xb6v_detail(detail_url: &str) -> Result<Option<ScrapedCatalogItem>, String> {
+    let client = build_client()?;
+    let html = fetch_text(&client, detail_url).await?;
+    let entry = ListingEntry {
+        title: String::new(),
+        detail_url: detail_url.to_string(),
+        item_type: infer_item_type(detail_url),
+    };
+    Ok(parse_detail_page(detail_url, &html, &entry))
 }
 
 fn build_client() -> Result<reqwest::Client, String> {

@@ -588,7 +588,7 @@ async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error
     let client = reqwest::Client::builder()
         .no_proxy()
         .connect_timeout(std::time::Duration::from_secs(20))
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(45))
         .build()?;
     let response = client
         .get(url)
@@ -1275,6 +1275,7 @@ mod tests {
         let movie_count = items.iter().filter(|item| item.item_type == "movie").count();
         let series_count = items.iter().filter(|item| item.item_type == "series").count();
         let variety_count = items.iter().filter(|item| item.item_type == "variety").count();
+        let anime_count = items.iter().filter(|item| item.item_type == "anime").count();
         let episode_count: usize = items.iter().map(|item| item.episodes.len()).sum();
         let online_episode_count: usize = items
             .iter()
@@ -1282,21 +1283,23 @@ mod tests {
             .filter(|episode| episode.play_url.contains("/e/DownSys/play/"))
             .count();
         println!(
-            "catalog_items={} movies={} series={} variety={} episodes={} online_episodes={}",
+            "catalog_items={} movies={} series={} variety={} anime={} episodes={} online_episodes={}",
             items.len(),
             movie_count,
             series_count,
             variety_count,
+            anime_count,
             episode_count,
             online_episode_count
         );
         assert!(
-            items.len() >= 50,
-            "expected fantaihard-compatible VOD scrape to yield >=50 items, got {}",
+            items.len() >= 1000,
+            "expected fantaihard-compatible VOD scrape to yield >=1000 items, got {}",
             items.len()
         );
         assert!(movie_count > 0, "expected movie items");
         assert!(series_count > 0, "expected series items");
+        assert!(anime_count > 0, "expected anime items");
         assert!(variety_count > 0, "expected variety items");
         assert!(
             episode_count >= 50,
@@ -1370,8 +1373,8 @@ mod tests {
             item_count, episode_count, online_episode_count
         );
         assert!(
-            item_count >= 50,
-            "expected persisted fantaihard catalog items >=50, got {}",
+            item_count >= 1000,
+            "expected persisted fantaihard catalog items >=1000, got {}",
             item_count
         );
         assert!(

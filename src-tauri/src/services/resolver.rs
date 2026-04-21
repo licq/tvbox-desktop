@@ -1,4 +1,5 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
+use crate::services::zxzj::extract_player_url as extract_zxzj_player_url;
 use regex::Regex;
 
 pub struct PlaybackResolver;
@@ -21,6 +22,9 @@ impl PlaybackResolver {
 
         if looks_like_xb6v_play_page(input) {
             return resolve_xb6v_play_page(input).await;
+        }
+        if looks_like_zxzj_play_page(input) {
+            return resolve_zxzj_play_page(input).await;
         }
 
         Ok(ready_with_candidate(input.to_string(), detect_kind(input)))
@@ -65,6 +69,10 @@ fn looks_like_xb6v_play_page(input: &str) -> bool {
     input.contains("xb6v.com/e/DownSys/play/")
 }
 
+fn looks_like_zxzj_play_page(input: &str) -> bool {
+    (input.contains("zxzjhd.com/") || input.contains("zxzjys.com/")) && input.contains("/vodplay/")
+}
+
 async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
     let body = fetch_text(&client, input).await?;
@@ -80,6 +88,20 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
         candidates: vec![],
         error_message: Some("未能从播放页提取实际视频地址".to_string()),
     })
+}
+
+async fn resolve_zxzj_play_page(input: &str) -> Result<ResolvedPlayback, String> {
+    let client = build_client()?;
+    let body = fetch_text(&client, input).await?;
+    let Some(source_url) = extract_zxzj_player_url(&body) else {
+        return Ok(ResolvedPlayback {
+            status: "failed".to_string(),
+            candidates: vec![],
+            error_message: Some("未能从在线之家播放页提取实际视频地址".to_string()),
+        });
+    };
+
+    Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)))
 }
 
 fn build_client() -> Result<reqwest::Client, String> {
@@ -155,7 +177,7 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 mod tests {
     use super::{
         absolutize_url, detect_kind, extract_aliplayer_source, extract_iframe_src,
-        looks_like_xb6v_play_page, PlaybackResolver,
+        looks_like_xb6v_play_page, looks_like_zxzj_play_page, PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
 
@@ -189,6 +211,9 @@ mod tests {
     fn detects_xb6v_play_page() {
         assert!(looks_like_xb6v_play_page(
             "https://www.xb6v.com/e/DownSys/play/?classid=17&id=28598&pathid2=0&bf=1"
+        ));
+        assert!(looks_like_zxzj_play_page(
+            "https://www.zxzjhd.com/vodplay/4627-1-1.html"
         ));
         assert_eq!(detect_kind("https://video.example.com/index.m3u8"), "hls");
     }

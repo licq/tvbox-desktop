@@ -710,7 +710,7 @@ impl Storage {
                    AND ci.item_type = ?1
                    AND ci.title LIKE ?2
                  ORDER BY ci.updated_at DESC, ci.id DESC
-                 LIMIT 72",
+                 LIMIT 240",
                 rusqlite::params![item_type, format!("%{}%", keyword)],
             ),
             (Some(item_type), None) => query_home_catalog_items(
@@ -721,7 +721,7 @@ impl Storage {
                  WHERE s.enabled = 1
                    AND ci.item_type = ?1
                  ORDER BY ci.updated_at DESC, ci.id DESC
-                 LIMIT 72",
+                 LIMIT 240",
                 [item_type],
             ),
             (None, Some(keyword)) => query_home_catalog_items(
@@ -732,7 +732,7 @@ impl Storage {
                  WHERE s.enabled = 1
                    AND ci.title LIKE ?1
                  ORDER BY ci.updated_at DESC, ci.id DESC
-                 LIMIT 72",
+                 LIMIT 240",
                 [format!("%{}%", keyword)],
             ),
             (None, None) => query_home_catalog_items(
@@ -742,7 +742,7 @@ impl Storage {
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
                  ORDER BY ci.updated_at DESC, ci.id DESC
-                 LIMIT 72",
+                 LIMIT 240",
                 [],
             ),
         }
@@ -1004,6 +1004,58 @@ impl Storage {
                     ],
                 )?;
             }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn replace_catalog_item_detail(
+        &self,
+        item_id: i64,
+        item: &ScrapedCatalogItem,
+    ) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let updated_at = chrono_now();
+
+        tx.execute(
+            "UPDATE catalog_items
+             SET title = ?2,
+                 item_type = ?3,
+                 poster = COALESCE(?4, poster),
+                 summary = COALESCE(?5, summary),
+                 detail_json = COALESCE(?6, detail_json),
+                 updated_at = ?7
+             WHERE id = ?1",
+            rusqlite::params![
+                item_id,
+                item.title,
+                item.item_type,
+                item.poster,
+                item.summary,
+                item.detail_json,
+                updated_at
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM catalog_episodes WHERE catalog_item_id = ?1",
+            [item_id],
+        )?;
+
+        for episode in &item.episodes {
+            tx.execute(
+                "INSERT INTO catalog_episodes (
+                    catalog_item_id, source_name, season_label, episode_label, play_url, order_index, extra_json
+                 ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, NULL)",
+                rusqlite::params![
+                    item_id,
+                    episode.source_name,
+                    episode.episode_label,
+                    episode.play_url,
+                    episode.order_index
+                ],
+            )?;
         }
 
         tx.commit()?;
