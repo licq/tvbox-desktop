@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useLiveStore } from '@/stores/live'
 import { useVodStore } from '@/stores/vod'
 import { useDoubanStore, type MatchedHotItem } from '@/stores/douban'
@@ -11,13 +11,16 @@ import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import type { LiveChannel, VodItem } from '@/types'
 
+type HomeTabKey = 'live' | 'hot' | 'movie' | 'tv' | 'variety' | 'anime'
+
+const route = useRoute()
 const router = useRouter()
 const liveStore = useLiveStore()
 const vodStore = useVodStore()
 const doubanStore = useDoubanStore()
 const subStore = useSubscriptionStore()
 
-const tabs = [
+const tabs: { key: HomeTabKey; label: string; icon: string }[] = [
   { key: 'live', label: '直播', icon: '📺' },
   { key: 'hot', label: '热门', icon: '🔥' },
   { key: 'movie', label: '电影', icon: '🎬' },
@@ -26,12 +29,21 @@ const tabs = [
   { key: 'anime', label: '动漫', icon: '🅰️' }
 ]
 
-const activeTab = ref('live')
+const activeTab = ref<HomeTabKey>('live')
 const searchKeyword = ref('')
 const expandedChannels = ref<Set<string>>(new Set())
 const showAllVod = ref(false)
 
 const matchedHotItems = computed<MatchedHotItem[]>(() => doubanStore.matchedItems)
+const validTabs = new Set<HomeTabKey>(tabs.map(tab => tab.key))
+
+function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
+  if (typeof tab === 'string' && validTabs.has(tab as HomeTabKey)) {
+    return tab as HomeTabKey
+  }
+
+  return 'live'
+}
 
 function getTabLabel(tab: string): string {
   return tabs.find(t => t.key === tab)?.label || ''
@@ -53,6 +65,27 @@ onMounted(async () => {
   await doubanStore.fetchMatchedHot()
 })
 
+watch(
+  () => route.params.type,
+  async (tabParam) => {
+    const nextTab = normalizeTab(tabParam)
+
+    if (typeof tabParam === 'string' && nextTab !== tabParam) {
+      await router.replace(`/library/${nextTab}`)
+      return
+    }
+
+    activeTab.value = nextTab
+    searchKeyword.value = ''
+    showAllVod.value = false
+
+    if (nextTab !== 'live' && nextTab !== 'hot') {
+      await vodStore.fetchItems(nextTab)
+    }
+  },
+  { immediate: true }
+)
+
 function handleLiveSearch(keyword: string) {
   searchKeyword.value = keyword
 }
@@ -72,7 +105,7 @@ function handlePlayChannel(channel: LiveChannel, _sourceUrl?: string) {
 }
 
 function handleVodClick(item: VodItem) {
-  router.push(`/vod/${item.id}`)
+  router.push(`/detail/${item.id}`)
 }
 
 function toggleChannelExpansion(category: string) {
@@ -102,19 +135,8 @@ const displayedVodItems = computed(() => {
 })
 
 // Fetch VOD items when switching to a VOD tab
-function onTabChange(tab: string) {
-  activeTab.value = tab
-  searchKeyword.value = ''
-  showAllVod.value = false
-
-  if (tab === 'live') {
-    // Already loaded via fetchGroups
-  } else if (tab === 'hot') {
-    // Hot uses matchedHotItems, no fetch needed
-  } else {
-    // movie, tv, variety, anime
-    vodStore.fetchItems(tab)
-  }
+function onTabChange(tab: HomeTabKey) {
+  router.push(`/library/${tab}`)
 }
 </script>
 
@@ -224,7 +246,7 @@ function onTabChange(tab: string) {
               description: '',
               episodes: []
             }"
-            @click="(vodItem) => router.push(`/vod/${vodItem.id}`)"
+            @click="(vodItem) => router.push(`/detail/${vodItem.id}`)"
           />
         </div>
       </div>

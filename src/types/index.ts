@@ -110,6 +110,32 @@ export interface HomePayloadInput {
   featured?: CatalogCardInput[];
 }
 
+export interface CatalogEpisode {
+  id: number;
+  episode_label: string;
+  play_url: string;
+  order_index: number;
+}
+
+export interface CatalogEpisodeGroup {
+  source_name: string;
+  episodes: CatalogEpisode[];
+}
+
+export interface CatalogDetailItem {
+  id: number;
+  title: string;
+  item_type: CatalogItemType;
+  poster?: string;
+  summary?: string;
+  detail_json?: string;
+}
+
+export interface CatalogDetail {
+  item: CatalogDetailItem;
+  episode_groups: CatalogEpisodeGroup[];
+}
+
 export interface PlaybackCandidate {
   url: string;
   label: string;

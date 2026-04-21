@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { Subscription } from '@/types'
+import type { SourceSubscription } from '@/types'
 
 export const useSubscriptionStore = defineStore('subscription', () => {
-  const subscriptions = ref<Subscription[]>([])
+  const subscriptions = ref<SourceSubscription[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -12,9 +12,10 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     loading.value = true
     error.value = null
     try {
-      subscriptions.value = await invoke<Subscription[]>('get_subscriptions')
+      subscriptions.value = await invoke<SourceSubscription[]>('get_subscriptions')
     } catch (e) {
       error.value = String(e)
+      throw e
     } finally {
       loading.value = false
     }
@@ -22,7 +23,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
 
   async function addSubscription(name: string, url: string) {
     try {
-      const sub = await invoke<Subscription>('add_subscription', { name, url })
+      const sub = await invoke<SourceSubscription>('add_subscription', { name, url })
       subscriptions.value.push(sub)
       return sub
     } catch (e) {
@@ -44,6 +45,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   async function refreshSubscription(id: number) {
     try {
       await invoke('refresh_subscription', { id })
+      await fetchSubscriptions()
     } catch (e) {
       error.value = String(e)
       throw e

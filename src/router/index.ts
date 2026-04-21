@@ -6,21 +6,28 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'home',
+      redirect: '/library/live'
+    },
+    {
+      path: '/library/:type',
+      name: 'library',
       component: Home
     },
     {
       path: '/live',
-      name: 'live',
-      component: () => import('@/views/Live.vue')
+      redirect: '/library/live'
     },
     {
       path: '/vod',
-      name: 'vod',
-      component: () => import('@/views/Vod.vue')
+      redirect: '/library/movie'
     },
     {
-      path: '/player/:type/:id',
+      path: '/library/live',
+      name: 'live',
+      component: Home
+    },
+    {
+      path: '/player/:mode/:id',
       name: 'player',
       component: () => import('@/views/PlayerPage.vue')
     },
@@ -30,9 +37,13 @@ const router = createRouter({
       component: () => import('@/views/Subscriptions.vue')
     },
     {
-      path: '/vod/:id',
-      name: 'vod-detail',
+      path: '/detail/:itemId',
+      name: 'detail',
       component: () => import('@/views/VodDetail.vue')
+    },
+    {
+      path: '/vod/:id',
+      redirect: to => `/detail/${to.params.id}`
     },
     {
       path: '/settings',

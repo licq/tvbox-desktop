@@ -7,9 +7,9 @@ describe('library store', () => {
     setActivePinia(createPinia())
     const store = useLibraryStore()
 
-    const firstContinueWatching = { id: 7, title: '继续看', item_type: 'tv', progress: 42 }
-    const firstLatestUpdate = { id: 8, title: '最新更新', item_type: 'movie' }
-    const firstFeatured = { id: 9, title: '推荐内容', item_type: 'anime' }
+    const firstContinueWatching = { id: 7, title: '继续看', item_type: 'tv' as const, progress: 42 }
+    const firstLatestUpdate = { id: 8, title: '最新更新', item_type: 'movie' as const }
+    const firstFeatured = { id: 9, title: '推荐内容', item_type: 'anime' as const }
 
     store.applyHomePayload({
       continue_watching: [firstContinueWatching],

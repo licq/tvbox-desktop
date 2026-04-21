@@ -3,6 +3,16 @@ import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { LiveChannel, LiveChannelGroup } from '@/types'
 
+interface GroupedLiveChannel {
+  name: string
+  source_count: number
+}
+
+interface GroupedLiveChannelGroup {
+  category: string
+  channels: GroupedLiveChannel[]
+}
+
 export const useLiveStore = defineStore('live', () => {
   const channels = ref<LiveChannel[]>([])
   const groups = ref<LiveChannelGroup[]>([])
@@ -26,7 +36,35 @@ export const useLiveStore = defineStore('live', () => {
     loading.value = true
     error.value = null
     try {
-      groups.value = await invoke<LiveChannelGroup[]>('get_live_channel_groups')
+      const rawGroups = await invoke<GroupedLiveChannelGroup[]>('get_live_channel_groups')
+      const hydratedGroups = await Promise.all(
+        rawGroups.map(async (group) => {
+          const groupChannels = await invoke<LiveChannel[]>('get_live_channels', {
+            category: group.category
+          })
+          const sourceCountByName = new Map(
+            group.channels.map((channel) => [channel.name, channel.source_count])
+          )
+
+          const hydratedChannels = groupChannels.map((channel) => ({
+            ...channel,
+            sources:
+              channel.sources.length > 0
+                ? channel.sources
+                : Array.from({ length: sourceCountByName.get(channel.name) ?? 0 }, () => ({
+                    url: '',
+                    subscription_id: 0
+                  }))
+          }))
+
+          return {
+            category: group.category,
+            channels: hydratedChannels
+          }
+        })
+      )
+
+      groups.value = hydratedGroups
     } catch (e) {
       error.value = String(e)
     } finally {
