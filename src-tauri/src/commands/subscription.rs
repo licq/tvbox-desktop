@@ -1,6 +1,7 @@
 use crate::models::Subscription;
 use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
+use encoding_rs::{GB18030, GBK};
 use tauri::State;
 
 #[tauri::command]
@@ -230,7 +231,8 @@ async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.to_string());
-    let body = response.text().await?;
+    let bytes = response.bytes().await?;
+    let body = decode_response_body(&bytes, content_type.as_deref());
 
     Ok(FetchedContent {
         body,
@@ -246,6 +248,15 @@ fn looks_like_json(content: &str) -> bool {
 }
 
 fn extract_candidate_urls(content: &str) -> Vec<String> {
+    let normalized_content = content
+        .replace("\\/", "/")
+        .replace("\\u003a", ":")
+        .replace("\\u002f", "/")
+        .replace("\\x3a", ":")
+        .replace("\\x2f", "/");
+
+    let decoded_percent_content = decode_common_percent_encoding(&normalized_content);
+
     let trimmed = content.trim();
     let mut urls: Vec<String> = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         vec![trimmed.to_string()]
@@ -253,8 +264,7 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
         Vec::new()
     };
 
-    let normalized = content.replace("\\/", "/");
-    let mut extracted: Vec<String> = normalized
+    let mut extracted: Vec<String> = decoded_percent_content
         .split(|ch: char| {
             ch.is_whitespace()
                 || matches!(ch, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}')
@@ -325,9 +335,71 @@ fn enrich_simple_parse_error(base_error: &str, fetched: &FetchedContent) -> Stri
     )
 }
 
+fn decode_response_body(bytes: &[u8], content_type: Option<&str>) -> String {
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return text;
+    }
+
+    let charset = extract_charset(content_type);
+    if let Some(charset) = charset {
+        if charset.contains("gb18030") {
+            let (decoded, _, _) = GB18030.decode(bytes);
+            return decoded.into_owned();
+        }
+        if charset.contains("gbk") || charset.contains("gb2312") {
+            let (decoded, _, _) = GBK.decode(bytes);
+            return decoded.into_owned();
+        }
+    }
+
+    let (decoded_gbk, _, _) = GBK.decode(bytes);
+    let gbk_text = decoded_gbk.into_owned();
+    if gbk_text.contains("http://") || gbk_text.contains("https://") || gbk_text.contains("复制") {
+        return gbk_text;
+    }
+
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn extract_charset(content_type: Option<&str>) -> Option<String> {
+    let content_type = content_type?;
+    let lower = content_type.to_ascii_lowercase();
+    let marker = "charset=";
+    let index = lower.find(marker)?;
+    Some(
+        lower[index + marker.len()..]
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
+    )
+}
+
+fn decode_common_percent_encoding(content: &str) -> String {
+    let mut result = content.to_string();
+    let replacements = [
+        ("%3A", ":"),
+        ("%3a", ":"),
+        ("%2F", "/"),
+        ("%2f", "/"),
+        ("%5C", "\\"),
+        ("%5c", "\\"),
+        ("%3D", "="),
+        ("%3d", "="),
+    ];
+    for (from, to) in replacements {
+        result = result.replace(from, to);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_candidate_urls, extract_json_object_fragment, looks_like_json};
+    use super::{
+        decode_common_percent_encoding, extract_candidate_urls, extract_json_object_fragment,
+        looks_like_json,
+    };
 
     #[test]
     fn detects_json_like_payload() {
@@ -351,6 +423,13 @@ mod tests {
         let html = r#"var data = "https:\/\/example.com\/config.json";"#;
         let urls = extract_candidate_urls(html);
         assert_eq!(urls.first().map(String::as_str), Some("https://example.com/config.json"));
+    }
+
+    #[test]
+    fn decodes_percent_escaped_http_tokens() {
+        let encoded = "https%3A%2F%2Fexample.com%2Ftv";
+        let decoded = decode_common_percent_encoding(encoded);
+        assert_eq!(decoded, "https://example.com/tv");
     }
 
     #[test]
