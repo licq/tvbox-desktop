@@ -1,4 +1,5 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
+use crate::services::extract_auete_player_url;
 use crate::services::extract_libvio_player_url;
 use regex::Regex;
 
@@ -26,6 +27,9 @@ impl PlaybackResolver {
         if looks_like_libvio_play_page(input) {
             return resolve_libvio_play_page(input).await;
         }
+        if looks_like_auete_play_page(input) {
+            return resolve_auete_play_page(input).await;
+        }
         if looks_like_zxzj_play_page(input) {
             return Ok(ready_with_candidate(input.to_string(), "embed"));
         }
@@ -47,7 +51,10 @@ pub fn classify_playback_target(input: &str) -> &'static str {
         return "embedded";
     }
 
-    if looks_like_xb6v_play_page(input) || looks_like_libvio_play_page(input) {
+    if looks_like_xb6v_play_page(input)
+        || looks_like_libvio_play_page(input)
+        || looks_like_auete_play_page(input)
+    {
         return "resolvable";
     }
 
@@ -119,6 +126,12 @@ fn looks_like_libvio_play_page(input: &str) -> bool {
     (input.contains("libvio.") || input.contains("libvio.me/")) && input.contains("/play/")
 }
 
+fn looks_like_auete_play_page(input: &str) -> bool {
+    (input.contains("auete.") || input.contains("au1080.com/") || input.contains("auete.top/"))
+        && input.contains("/play-")
+        && input.ends_with(".html")
+}
+
 fn looks_like_zxzj_play_page(input: &str) -> bool {
     (input.contains("zxzjhd.com/") || input.contains("zxzjys.com/")) && input.contains("/vodplay/")
 }
@@ -127,7 +140,10 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
     let client = build_client()?;
     let body = fetch_text(&client, input).await?;
     if let Some(source_url) = extract_aliplayer_source(&body) {
-        return Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)));
+        return Ok(ready_with_candidate(
+            source_url.clone(),
+            detect_kind(&source_url),
+        ));
     }
     if let Some(iframe_url) = extract_iframe_src(input, &body) {
         return resolve_embedded_share_page(&client, &iframe_url).await;
@@ -151,7 +167,27 @@ async fn resolve_libvio_play_page(input: &str) -> Result<ResolvedPlayback, Strin
         });
     };
 
-    Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)))
+    Ok(ready_with_candidate(
+        source_url.clone(),
+        detect_kind(&source_url),
+    ))
+}
+
+async fn resolve_auete_play_page(input: &str) -> Result<ResolvedPlayback, String> {
+    let client = build_client()?;
+    let body = fetch_text(&client, input).await?;
+    let Some(source_url) = extract_auete_player_url(&body) else {
+        return Ok(ResolvedPlayback {
+            status: "failed".to_string(),
+            candidates: vec![],
+            error_message: Some("未能从 Auete 播放页提取实际视频地址".to_string()),
+        });
+    };
+
+    Ok(ready_with_candidate(
+        source_url.clone(),
+        detect_kind(&source_url),
+    ))
 }
 
 fn build_client() -> Result<reqwest::Client, String> {
@@ -187,9 +223,11 @@ fn extract_aliplayer_source(body: &str) -> Option<String> {
 
 fn extract_iframe_src(page_url: &str, body: &str) -> Option<String> {
     let iframe_regex = Regex::new(r#"<iframe[^>]+src="([^"]+)""#).unwrap();
-    iframe_regex
-        .captures(body)
-        .and_then(|captures| captures.get(1).map(|value| absolutize_url(page_url, value.as_str())))
+    iframe_regex.captures(body).and_then(|captures| {
+        captures
+            .get(1)
+            .map(|value| absolutize_url(page_url, value.as_str()))
+    })
 }
 
 async fn resolve_embedded_share_page(
@@ -198,10 +236,11 @@ async fn resolve_embedded_share_page(
 ) -> Result<ResolvedPlayback, String> {
     let body = fetch_text(client, iframe_url).await?;
     let share_url_regex = Regex::new(r#"const\s+url\s*=\s*"([^"]+)""#).unwrap();
-    let Some(source_url) = share_url_regex
-        .captures(&body)
-        .and_then(|captures| captures.get(1).map(|value| absolutize_url(iframe_url, value.as_str())))
-    else {
+    let Some(source_url) = share_url_regex.captures(&body).and_then(|captures| {
+        captures
+            .get(1)
+            .map(|value| absolutize_url(iframe_url, value.as_str()))
+    }) else {
         return Ok(ResolvedPlayback {
             status: "failed".to_string(),
             candidates: vec![],
@@ -209,7 +248,10 @@ async fn resolve_embedded_share_page(
         });
     };
 
-    Ok(ready_with_candidate(source_url.clone(), detect_kind(&source_url)))
+    Ok(ready_with_candidate(
+        source_url.clone(),
+        detect_kind(&source_url),
+    ))
 }
 
 fn absolutize_url(base_url: &str, candidate: &str) -> String {
@@ -227,9 +269,8 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 mod tests {
     use super::{
         absolutize_url, classify_playback_target, detect_kind, extract_aliplayer_source,
-        extract_iframe_src, looks_like_libvio_play_page, looks_like_xb6v_play_page,
-        looks_like_zxzj_play_page,
-        PlaybackResolver,
+        extract_iframe_src, looks_like_auete_play_page, looks_like_libvio_play_page,
+        looks_like_xb6v_play_page, looks_like_zxzj_play_page, PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
 
@@ -267,6 +308,9 @@ mod tests {
         assert!(looks_like_libvio_play_page(
             "https://www.libvio.me/play/714891197-1-1.html"
         ));
+        assert!(looks_like_auete_play_page(
+            "https://auete.top/Movie/dzp/xunlongjuemizong/play-0-0.html"
+        ));
         assert!(looks_like_zxzj_play_page(
             "https://www.zxzjhd.com/vodplay/4627-1-1.html"
         ));
@@ -303,6 +347,10 @@ mod tests {
             "resolvable"
         );
         assert_eq!(
+            classify_playback_target("https://auete.top/Movie/dzp/xunlongjuemizong/play-0-0.html"),
+            "resolvable"
+        );
+        assert_eq!(
             classify_playback_target("https://www.zxzjhd.com/vodplay/4627-1-1.html"),
             "embedded"
         );
@@ -333,7 +381,10 @@ mod tests {
             Some("https://vip.dytt-tvs.com/share/demo")
         );
         assert_eq!(
-            absolutize_url("https://vip.dytt-tvs.com/share/demo", "/20260407/15657/index.m3u8"),
+            absolutize_url(
+                "https://vip.dytt-tvs.com/share/demo",
+                "/20260407/15657/index.m3u8"
+            ),
             "https://vip.dytt-tvs.com/20260407/15657/index.m3u8"
         );
     }
@@ -348,7 +399,10 @@ mod tests {
 
         let json = serde_json::to_value(resolved).unwrap();
 
-        assert_eq!(json.get("errorMessage").and_then(|v| v.as_str()), Some("resolver required"));
+        assert_eq!(
+            json.get("errorMessage").and_then(|v| v.as_str()),
+            Some("resolver required")
+        );
         assert!(json.get("error_message").is_none());
     }
 }

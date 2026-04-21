@@ -60,13 +60,14 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
         subscription.name,
         subscription.url
     );
-    let fetched = match fetch_effective_subscription_content(&subscription.name, &subscription.url).await {
-        Ok(fetched) => fetched,
-        Err(error) => {
-            persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
-            return Err(error);
-        }
-    };
+    let fetched =
+        match fetch_effective_subscription_content(&subscription.name, &subscription.url).await {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
+                return Err(error);
+            }
+        };
     let response_text = fetched.body.clone();
     log::info!("响应长度: {}", response_text.len());
 
@@ -253,7 +254,11 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
         }
 
         let next_urls = discover_candidate_urls(url, &candidate_url, &fetched, depth);
-        if fallback.is_none() || fallback.as_ref().is_some_and(|content| content.is_image_payload) {
+        if fallback.is_none()
+            || fallback
+                .as_ref()
+                .is_some_and(|content| content.is_image_payload)
+        {
             fallback = Some(fetched);
         }
 
@@ -483,7 +488,9 @@ fn parse_txt_live_playlist(content: &str, record: &TvboxLiveRecord) -> Vec<Tvbox
             continue;
         }
         if line.contains(",#genre#") {
-            group_name = line.split_once(',').map(|(name, _)| name.trim().to_string());
+            group_name = line
+                .split_once(',')
+                .map(|(name, _)| name.trim().to_string());
             continue;
         }
         if line.starts_with('#') {
@@ -529,7 +536,11 @@ fn parse_m3u_live_playlist(content: &str, record: &TvboxLiveRecord) -> Vec<Tvbox
                 .filter(|name| !name.is_empty());
             pending_group = group_regex
                 .captures(line)
-                .and_then(|capture| capture.get(1).map(|value| value.as_str().trim().to_string()))
+                .and_then(|capture| {
+                    capture
+                        .get(1)
+                        .map(|value| value.as_str().trim().to_string())
+                })
                 .filter(|value| !value.is_empty())
                 .or_else(|| record.group_name.clone());
             continue;
@@ -570,11 +581,16 @@ fn discover_candidate_urls(
     }
 
     let clipboard_candidates = extract_clipboard_candidates(&fetched.body);
-    let preferred_clipboard_urls = filter_preferred_clipboard_urls(original_url, &clipboard_candidates);
+    let preferred_clipboard_urls =
+        filter_preferred_clipboard_urls(original_url, &clipboard_candidates);
     if !preferred_clipboard_urls.is_empty() {
         urls.extend(preferred_clipboard_urls);
     } else {
-        urls.extend(clipboard_candidates.into_iter().map(|candidate| candidate.url));
+        urls.extend(
+            clipboard_candidates
+                .into_iter()
+                .map(|candidate| candidate.url),
+        );
         urls.extend(extract_candidate_urls(&fetched.body));
     }
 
@@ -655,7 +671,8 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
     let decoded_percent_content = decode_common_percent_encoding(&normalized_content);
 
     let trimmed = content.trim();
-    let mut urls: Vec<String> = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+    let mut urls: Vec<String> = if trimmed.starts_with("http://") || trimmed.starts_with("https://")
+    {
         vec![trimmed.to_string()]
     } else {
         Vec::new()
@@ -664,7 +681,10 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
     let mut extracted: Vec<String> = decoded_percent_content
         .split(|ch: char| {
             ch.is_whitespace()
-                || matches!(ch, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}')
+                || matches!(
+                    ch,
+                    '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}'
+                )
         })
         .filter_map(|raw| {
             let cleaned = raw
@@ -695,14 +715,14 @@ fn extract_candidate_urls(content: &str) -> Vec<String> {
 }
 
 fn extract_clipboard_candidates(content: &str) -> Vec<ClipboardCandidate> {
-    let regex = regex::Regex::new(
-        r#"data-clipboard-text="([^"]+)"[^>]*>\s*<span>([^<]+)</span>"#,
-    )
-    .unwrap();
+    let regex =
+        regex::Regex::new(r#"data-clipboard-text="([^"]+)"[^>]*>\s*<span>([^<]+)</span>"#).unwrap();
     regex
         .captures_iter(content)
         .filter_map(|capture| {
-            let url = capture.get(1).map(|value| html_escape_decode(value.as_str()))?;
+            let url = capture
+                .get(1)
+                .map(|value| html_escape_decode(value.as_str()))?;
             let label = capture
                 .get(2)
                 .map(|value| html_escape_decode(value.as_str().trim()))
@@ -833,11 +853,18 @@ fn detect_upstream_blocked(fetched: &FetchedContent) -> Option<String> {
         "上游源不可用: 响应状态={} 最终地址={} 内容预览={}",
         fetched.status,
         fetched.final_url,
-        body.chars().take(120).collect::<String>().replace('\n', " ")
+        body.chars()
+            .take(120)
+            .collect::<String>()
+            .replace('\n', " ")
     ))
 }
 
-fn decode_response_body(bytes: &[u8], content_type: Option<&str>, content_encoding: Option<&str>) -> String {
+fn decode_response_body(
+    bytes: &[u8],
+    content_type: Option<&str>,
+    content_encoding: Option<&str>,
+) -> String {
     let mut normalized = bytes.to_vec();
 
     if let Some(encoding) = content_encoding.map(|value| value.to_ascii_lowercase()) {
@@ -878,7 +905,8 @@ fn decode_response_body(bytes: &[u8], content_type: Option<&str>, content_encodi
 
     let (decoded_gbk, _, _) = GBK.decode(&normalized);
     let gbk_text = decoded_gbk.into_owned();
-    if gbk_text.contains("http://") || gbk_text.contains("https://") || gbk_text.contains("复制") {
+    if gbk_text.contains("http://") || gbk_text.contains("https://") || gbk_text.contains("复制")
+    {
         return gbk_text;
     }
 
@@ -967,16 +995,19 @@ fn decode_common_percent_encoding(content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::services::{
+        is_visible_playback_target, scrape_supported_tvbox_catalogs, Parser, TvboxConfigParser,
+    };
     use crate::Storage;
-    use crate::services::{scrape_supported_tvbox_catalogs, Parser, TvboxConfigParser};
 
     use super::{
-        build_probe_urls, candidate_priority, decode_common_percent_encoding,
-        candidate_live_playlist_urls, detect_upstream_blocked, extract_candidate_urls,
-        extract_clipboard_candidates, extract_embedded_http_url, extract_json_object_fragment,
-        extract_brand_tokens, fetch_effective_subscription_content, filter_preferred_clipboard_urls,
+        augment_brand_snapshot_content, build_probe_urls, candidate_live_playlist_urls,
+        candidate_priority, decode_common_percent_encoding, detect_upstream_blocked,
+        extract_brand_tokens, extract_candidate_urls, extract_clipboard_candidates,
+        extract_embedded_http_url, extract_json_object_fragment,
+        fetch_effective_subscription_content, fetch_text_no_proxy, filter_preferred_clipboard_urls,
         inject_live_snapshot_entry, is_image_bytes, looks_like_json, parse_m3u_live_playlist,
-        parse_txt_live_playlist, TvboxLiveRecord, fetch_text_no_proxy, augment_brand_snapshot_content,
+        parse_txt_live_playlist, TvboxLiveRecord,
     };
 
     #[test]
@@ -993,14 +1024,20 @@ mod tests {
             <a href="https://example.com/config.json">json</a>
         "#;
         let urls = extract_candidate_urls(html);
-        assert_eq!(urls.first().map(String::as_str), Some("https://example.com/config.json"));
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some("https://example.com/config.json")
+        );
     }
 
     #[test]
     fn extracts_escaped_urls() {
         let html = r#"var data = "https:\/\/example.com\/config.json";"#;
         let urls = extract_candidate_urls(html);
-        assert_eq!(urls.first().map(String::as_str), Some("https://example.com/config.json"));
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some("https://example.com/config.json")
+        );
     }
 
     #[test]
@@ -1162,14 +1199,22 @@ mod tests {
             "http://www.xn--sss604efuw.net/tv",
             "http://www.xn--sss604efuw.net/tv/",
         );
-        assert!(urls.iter().any(|url| url == "https://www.xn--sss604efuw.net/"));
-        assert!(urls.iter().any(|url| url == "https://www.xn--sss604efuw.com/"));
-        assert!(urls.iter().any(|url| url == "http://www.xn--sss604efuw.net/tv"));
+        assert!(urls
+            .iter()
+            .any(|url| url == "https://www.xn--sss604efuw.net/"));
+        assert!(urls
+            .iter()
+            .any(|url| url == "https://www.xn--sss604efuw.com/"));
+        assert!(urls
+            .iter()
+            .any(|url| url == "http://www.xn--sss604efuw.net/tv"));
     }
 
     #[test]
     fn prioritizes_direct_json_candidates() {
-        assert!(candidate_priority("http://a.com/config.json") < candidate_priority("http://a.com/tv"));
+        assert!(
+            candidate_priority("http://a.com/config.json") < candidate_priority("http://a.com/tv")
+        );
     }
 
     #[tokio::test]
@@ -1182,7 +1227,12 @@ mod tests {
             "final_url={} status={} preview={}",
             fetched.final_url,
             fetched.status,
-            fetched.body.chars().take(200).collect::<String>().replace('\n', " ")
+            fetched
+                .body
+                .chars()
+                .take(200)
+                .collect::<String>()
+                .replace('\n', " ")
         );
         assert!(
             looks_like_json(&fetched.body),
@@ -1195,7 +1245,9 @@ mod tests {
                 let parsed = TvboxConfigParser::parse(&fetched.body)
                     .expect("fetched TVBox config should parse");
                 assert!(
-                    !parsed.sites.is_empty() || !parsed.parses.is_empty() || !parsed.lives.is_empty(),
+                    !parsed.sites.is_empty()
+                        || !parsed.parses.is_empty()
+                        || !parsed.lives.is_empty(),
                     "parsed TVBox config should contain usable records"
                 );
             }
@@ -1210,9 +1262,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires live network and DNS access"]
     async fn expands_fantaihard_snapshot_to_more_than_1000_channels() {
-        let fetched = fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json")
-            .await
-            .expect("fantaihard snapshot fetch should succeed");
+        let fetched =
+            fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json")
+                .await
+                .expect("fantaihard snapshot fetch should succeed");
         let fetched = augment_brand_snapshot_content(
             "饭太硬",
             "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json",
@@ -1237,9 +1290,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires live network and DNS access"]
     async fn parses_fantaihard_live_snapshot_file_to_more_than_1000_channels() {
-        let fetched = fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt")
-            .await
-            .expect("fantaihard live snapshot file should fetch");
+        let fetched =
+            fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/tvboxtv.txt")
+                .await
+                .expect("fantaihard live snapshot file should fetch");
         let record = TvboxLiveRecord {
             group_name: None,
             name: "饭太硬快照直播".to_string(),
@@ -1259,9 +1313,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires live network and DNS access"]
     async fn scrapes_fantaihard_snapshot_catalog_items() {
-        let fetched = fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json")
-            .await
-            .expect("fantaihard snapshot fetch should succeed");
+        let fetched =
+            fetch_text_no_proxy("https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json")
+                .await
+                .expect("fantaihard snapshot fetch should succeed");
         let fetched = augment_brand_snapshot_content(
             "饭太硬",
             "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0826.json",
@@ -1272,25 +1327,37 @@ mod tests {
         let items = scrape_supported_tvbox_catalogs(&parsed.sites)
             .await
             .expect("supported fantaihard catalogs should scrape");
-        let movie_count = items.iter().filter(|item| item.item_type == "movie").count();
-        let series_count = items.iter().filter(|item| item.item_type == "series").count();
-        let variety_count = items.iter().filter(|item| item.item_type == "variety").count();
-        let anime_count = items.iter().filter(|item| item.item_type == "anime").count();
+        let movie_count = items
+            .iter()
+            .filter(|item| item.item_type == "movie")
+            .count();
+        let series_count = items
+            .iter()
+            .filter(|item| item.item_type == "series")
+            .count();
+        let variety_count = items
+            .iter()
+            .filter(|item| item.item_type == "variety")
+            .count();
+        let anime_count = items
+            .iter()
+            .filter(|item| item.item_type == "anime")
+            .count();
         let episode_count: usize = items.iter().map(|item| item.episodes.len()).sum();
-        let online_episode_count: usize = items
+        let playable_episode_count: usize = items
             .iter()
             .flat_map(|item| item.episodes.iter())
-            .filter(|episode| episode.play_url.contains("/e/DownSys/play/"))
+            .filter(|episode| is_visible_playback_target(&episode.play_url))
             .count();
         println!(
-            "catalog_items={} movies={} series={} variety={} anime={} episodes={} online_episodes={}",
+            "catalog_items={} movies={} series={} variety={} anime={} episodes={} playable_episodes={}",
             items.len(),
             movie_count,
             series_count,
             variety_count,
             anime_count,
             episode_count,
-            online_episode_count
+            playable_episode_count
         );
         assert!(
             items.len() >= 1000,
@@ -1307,9 +1374,9 @@ mod tests {
             episode_count
         );
         assert!(
-            online_episode_count >= 20,
-            "expected playable xb6v entries, got {}",
-            online_episode_count
+            playable_episode_count >= 500,
+            "expected a large number of playable catalog episodes, got {}",
+            playable_episode_count
         );
     }
 
@@ -1331,7 +1398,8 @@ mod tests {
         let fetched = fetch_effective_subscription_content("饭太硬", "http://www.饭太硬.net/tv")
             .await
             .expect("effective source fetch should succeed");
-        let mut parsed = TvboxConfigParser::parse(&fetched.body).expect("TVBox config should parse");
+        let mut parsed =
+            TvboxConfigParser::parse(&fetched.body).expect("TVBox config should parse");
         parsed.lives = super::expand_tvbox_live_records(&parsed.lives).await;
 
         storage
@@ -1360,17 +1428,17 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("catalog episode count should query");
-        let online_episode_count: i64 = conn
+        let playable_episode_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM catalog_episodes WHERE catalog_item_id IN (SELECT id FROM catalog_items WHERE subscription_id = ?1) AND play_url LIKE '%/e/DownSys/play/%'",
+                "SELECT COUNT(*) FROM catalog_episodes WHERE catalog_item_id IN (SELECT id FROM catalog_items WHERE subscription_id = ?1) AND (play_url LIKE '%/e/DownSys/play/%' OR play_url LIKE '%/play-%')",
                 [subscription.id],
                 |row| row.get(0),
             )
-            .expect("online episode count should query");
+            .expect("playable episode count should query");
 
         println!(
-            "persisted_catalog_items={} persisted_catalog_episodes={} persisted_online_episodes={}",
-            item_count, episode_count, online_episode_count
+            "persisted_catalog_items={} persisted_catalog_episodes={} persisted_playable_episodes={}",
+            item_count, episode_count, playable_episode_count
         );
         assert!(
             item_count >= 1000,
@@ -1383,9 +1451,9 @@ mod tests {
             episode_count
         );
         assert!(
-            online_episode_count >= 20,
-            "expected persisted playable xb6v entries >=20, got {}",
-            online_episode_count
+            playable_episode_count >= 500,
+            "expected persisted playable episodes, got {}",
+            playable_episode_count
         );
 
         std::fs::remove_dir_all(&app_data_dir).ok();

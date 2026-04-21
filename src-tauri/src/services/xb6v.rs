@@ -1,3 +1,4 @@
+use crate::services::auete::{is_auete_site, scrape_auete_catalog, scrape_auete_detail};
 use crate::services::libvio::{is_libvio_site, scrape_libvio_catalog, scrape_libvio_detail};
 use crate::services::tvbox::TvboxSiteRecord;
 use crate::services::zxzj::{is_zxzj_site, scrape_zxzj_catalog, scrape_zxzj_detail};
@@ -42,6 +43,9 @@ pub async fn scrape_supported_tvbox_catalogs(
     if sites.iter().any(is_libvio_site) {
         items.extend(scrape_libvio_catalog().await?);
     }
+    if sites.iter().any(is_auete_site) {
+        items.extend(scrape_auete_catalog().await?);
+    }
     if sites.iter().any(is_zxzj_site) {
         items.extend(scrape_zxzj_catalog().await?);
     }
@@ -65,6 +69,15 @@ pub async fn scrape_catalog_detail_from_json(
         "xb6v" => scrape_xb6v_detail(url).await,
         "libvio" => {
             let mut item = scrape_libvio_detail(url).await?;
+            if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
+                if let Some(item) = item.as_mut() {
+                    item.item_type = expected_type.to_string();
+                }
+            }
+            Ok(item)
+        }
+        "auete" => {
+            let mut item = scrape_auete_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
                     item.item_type = expected_type.to_string();
@@ -256,7 +269,11 @@ fn parse_detail_page(
 
     let summary = meta_regex
         .captures(html)
-        .and_then(|capture| capture.get(1).map(|value| html_escape_decode(value.as_str())))
+        .and_then(|capture| {
+            capture
+                .get(1)
+                .map(|value| html_escape_decode(value.as_str()))
+        })
         .filter(|value| !value.is_empty());
 
     let poster = poster_regex
@@ -293,7 +310,10 @@ fn parse_play_episodes(detail_url: &str, html: &str) -> Vec<ScrapedCatalogEpisod
             .unwrap_or_else(|| "在线播放".to_string());
 
         for anchor in anchor_regex.captures_iter(section) {
-            let attrs = anchor.get(1).map(|value| value.as_str()).unwrap_or_default();
+            let attrs = anchor
+                .get(1)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
             let label = title_regex
                 .captures(attrs)
                 .and_then(|captures| captures.get(1).map(|value| value.as_str()))
@@ -345,7 +365,12 @@ fn absolutize_url(page_url: &str, href: &str) -> String {
         href.to_string()
     } else if href.starts_with('/') {
         let base = reqwest::Url::parse(page_url).unwrap();
-        format!("{}://{}{}", base.scheme(), base.host_str().unwrap_or_default(), href)
+        format!(
+            "{}://{}{}",
+            base.scheme(),
+            base.host_str().unwrap_or_default(),
+            href
+        )
     } else {
         reqwest::Url::parse(page_url)
             .and_then(|base| base.join(href))
@@ -403,7 +428,10 @@ mod tests {
         let item = parse_detail_page(&entry.detail_url, html, &entry).expect("detail should parse");
         assert_eq!(item.title, "我的阿米什人双重生活");
         assert_eq!(item.item_type, "movie");
-        assert_eq!(item.poster.as_deref(), Some("https://www.66tutup.com/2026/0267.jpg"));
+        assert_eq!(
+            item.poster.as_deref(),
+            Some("https://www.66tutup.com/2026/0267.jpg")
+        );
         assert_eq!(item.episodes.len(), 1);
         assert_eq!(item.episodes[0].source_name, "播放地址（无需安装插件）");
         assert_eq!(item.episodes[0].episode_label, "HD");
@@ -446,9 +474,21 @@ mod tests {
 
     #[test]
     fn infers_item_type_from_url() {
-        assert_eq!(infer_item_type("https://www.xb6v.com/dianshiju/oumeiju/11308.html"), "series");
-        assert_eq!(infer_item_type("https://www.xb6v.com/ZongYi/28518.html"), "variety");
-        assert_eq!(infer_item_type("https://www.xb6v.com/donghuapian/28580.html"), "anime");
-        assert_eq!(infer_item_type("https://www.xb6v.com/juqingpian/28598.html"), "movie");
+        assert_eq!(
+            infer_item_type("https://www.xb6v.com/dianshiju/oumeiju/11308.html"),
+            "series"
+        );
+        assert_eq!(
+            infer_item_type("https://www.xb6v.com/ZongYi/28518.html"),
+            "variety"
+        );
+        assert_eq!(
+            infer_item_type("https://www.xb6v.com/donghuapian/28580.html"),
+            "anime"
+        );
+        assert_eq!(
+            infer_item_type("https://www.xb6v.com/juqingpian/28598.html"),
+            "movie"
+        );
     }
 }
