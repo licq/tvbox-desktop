@@ -145,6 +145,16 @@ async function playSource(url: string) {
   errorMsg.value = ''
 
   if (isDrpyProtocol(url)) {
+    if (hlsInstance) {
+      hlsInstance.destroy()
+      hlsInstance = null
+    }
+    if (videoRef.value) {
+      videoRef.value.pause()
+      videoRef.value.removeAttribute('src')
+      videoRef.value.load()
+    }
+    playing.value = false
     errorMsg.value = '该地址需要外部解析，已尝试交给系统处理'
     await open(url)
     return

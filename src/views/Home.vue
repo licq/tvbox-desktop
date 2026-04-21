@@ -110,8 +110,13 @@ async function hydrateSources() {
   }
 
   await Promise.allSettled(
-    enabledSubscriptions.value.map(subscription => subStore.refreshSubscription(subscription.id))
+    enabledSubscriptions.value.map(subscription => subStore.refreshSubscription(subscription.id, false))
   )
+  try {
+    await subStore.fetchSubscriptions()
+  } catch {
+    // Keep rendering with whatever cache exists.
+  }
 
   await Promise.allSettled([
     liveStore.fetchGroups(),

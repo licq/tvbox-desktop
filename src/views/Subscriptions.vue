@@ -10,8 +10,12 @@ const newName = ref('')
 const newUrl = ref('')
 const refreshing = ref<number | null>(null)
 
-onMounted(() => {
-  subStore.fetchSubscriptions()
+onMounted(async () => {
+  try {
+    await subStore.fetchSubscriptions()
+  } catch (e) {
+    alert('加载订阅失败: ' + e)
+  }
 })
 
 async function handleAdd() {

@@ -42,10 +42,12 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     }
   }
 
-  async function refreshSubscription(id: number) {
+  async function refreshSubscription(id: number, reload = true) {
     try {
       await invoke('refresh_subscription', { id })
-      await fetchSubscriptions()
+      if (reload) {
+        await fetchSubscriptions()
+      }
     } catch (e) {
       error.value = String(e)
       throw e
