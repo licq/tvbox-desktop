@@ -12,6 +12,7 @@ use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
 };
 use crate::services::xb6v::ScrapedCatalogItem;
+use crate::services::{is_visible_playback_target, playback_sort_rank};
 
 pub struct Storage {
     conn: Arc<Mutex<Connection>>,
@@ -794,18 +795,47 @@ impl Storage {
         let mut grouped = std::collections::BTreeMap::<String, Vec<CatalogEpisode>>::new();
         for row in rows {
             let (source_name, episode) = row?;
+            if !is_visible_playback_target(&episode.play_url) {
+                continue;
+            }
             grouped.entry(source_name).or_default().push(episode);
         }
 
-        Ok(CatalogDetail {
-            item,
-            episode_groups: grouped
-                .into_iter()
-                .map(|(source_name, episodes)| CatalogEpisodeGroup {
+        let mut episode_groups: Vec<_> = grouped
+            .into_iter()
+            .map(|(source_name, mut episodes)| {
+                episodes.sort_by(|left, right| {
+                    playback_sort_rank(&left.play_url)
+                        .cmp(&playback_sort_rank(&right.play_url))
+                        .then(left.order_index.cmp(&right.order_index))
+                        .then(left.id.cmp(&right.id))
+                });
+                CatalogEpisodeGroup {
                     source_name,
                     episodes,
-                })
-                .collect(),
+                }
+            })
+            .collect();
+
+        episode_groups.sort_by(|left, right| {
+            let left_rank = left
+                .episodes
+                .first()
+                .map(|episode| playback_sort_rank(&episode.play_url))
+                .unwrap_or(i32::MAX);
+            let right_rank = right
+                .episodes
+                .first()
+                .map(|episode| playback_sort_rank(&episode.play_url))
+                .unwrap_or(i32::MAX);
+            left_rank
+                .cmp(&right_rank)
+                .then(left.source_name.cmp(&right.source_name))
+        });
+
+        Ok(CatalogDetail {
+            item,
+            episode_groups,
         })
     }
 
@@ -1611,6 +1641,61 @@ mod tests {
         assert_eq!(channels[0].sources.len(), 2);
     }
 
+    #[test]
+    fn catalog_detail_hides_embedded_and_external_lines_and_sorts_playable_first() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_catalog_item(&storage, subscription.id, 201, "示例影片", "movie");
+        seed_catalog_episode(
+            &storage,
+            201,
+            "嵌入线路",
+            "第01集",
+            "https://www.zxzjhd.com/vodplay/4627-1-1.html",
+            0,
+        );
+        seed_catalog_episode(
+            &storage,
+            201,
+            "直链线路",
+            "第01集",
+            "https://media.example.com/demo/index.m3u8",
+            1,
+        );
+        seed_catalog_episode(
+            &storage,
+            201,
+            "可解析线路",
+            "第01集",
+            "https://www.xb6v.com/e/DownSys/play/?classid=2&id=28522&pathid2=0&bf=1",
+            2,
+        );
+        seed_catalog_episode(
+            &storage,
+            201,
+            "外部线路",
+            "全集",
+            "magnet:?xt=urn:btih:test",
+            3,
+        );
+
+        let detail = storage
+            .get_catalog_detail(201)
+            .expect("catalog detail should query");
+
+        assert_eq!(detail.episode_groups.len(), 2);
+        assert_eq!(detail.episode_groups[0].source_name, "直链线路");
+        assert_eq!(detail.episode_groups[0].episodes[0].play_url, "https://media.example.com/demo/index.m3u8");
+        assert_eq!(detail.episode_groups[1].source_name, "可解析线路");
+        assert!(detail
+            .episode_groups
+            .iter()
+            .all(|group| !group.source_name.contains("嵌入") && !group.source_name.contains("外部")));
+    }
+
     fn seed_live_source(
         storage: &Storage,
         subscription_id: i64,
@@ -1651,6 +1736,30 @@ mod tests {
             rusqlite::params![id, subscription_id, title, item_type],
         )
         .expect("catalog item should insert");
+    }
+
+    fn seed_catalog_episode(
+        storage: &Storage,
+        catalog_item_id: i64,
+        source_name: &str,
+        episode_label: &str,
+        play_url: &str,
+        order_index: i64,
+    ) {
+        let conn = storage.conn.lock().expect("storage lock should succeed");
+        conn.execute(
+            "INSERT INTO catalog_episodes (
+                catalog_item_id, source_name, season_label, episode_label, play_url, order_index, extra_json
+             ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, NULL)",
+            rusqlite::params![
+                catalog_item_id,
+                source_name,
+                episode_label,
+                play_url,
+                order_index
+            ],
+        )
+        .expect("catalog episode should insert");
     }
 
     fn unique_test_dir() -> PathBuf {

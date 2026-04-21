@@ -30,6 +30,48 @@ impl PlaybackResolver {
     }
 }
 
+pub fn classify_playback_target(input: &str) -> &'static str {
+    if input.starts_with("drpy://")
+        || input.starts_with("magnet:")
+        || input.starts_with("ed2k://")
+        || input.starts_with("thunder://")
+    {
+        return "external";
+    }
+
+    if looks_like_zxzj_play_page(input) {
+        return "embedded";
+    }
+
+    if looks_like_xb6v_play_page(input) {
+        return "resolvable";
+    }
+
+    if input.contains(".m3u8")
+        || input.contains(".mp4")
+        || input.contains(".m4v")
+        || input.contains(".webm")
+        || input.contains(".mov")
+    {
+        return "direct";
+    }
+
+    "direct"
+}
+
+pub fn is_visible_playback_target(input: &str) -> bool {
+    matches!(classify_playback_target(input), "direct" | "resolvable")
+}
+
+pub fn playback_sort_rank(input: &str) -> i32 {
+    match classify_playback_target(input) {
+        "direct" => 0,
+        "resolvable" => 1,
+        "embedded" => 2,
+        _ => 3,
+    }
+}
+
 fn external_required(message: &str, input: &str) -> ResolvedPlayback {
     ResolvedPlayback {
         status: "external_required".to_string(),
@@ -57,10 +99,11 @@ fn ready_with_candidate(url: String, kind: &'static str) -> ResolvedPlayback {
 }
 
 fn detect_kind(input: &str) -> &'static str {
-    if input.contains(".m3u8") {
-        "hls"
-    } else {
-        "http"
+    match classify_playback_target(input) {
+        "direct" if input.contains(".m3u8") => "hls",
+        "embedded" => "embed",
+        "external" => "external",
+        _ => "http",
     }
 }
 
@@ -161,8 +204,9 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        absolutize_url, detect_kind, extract_aliplayer_source, extract_iframe_src,
-        looks_like_xb6v_play_page, looks_like_zxzj_play_page, PlaybackResolver,
+        absolutize_url, classify_playback_target, detect_kind, extract_aliplayer_source,
+        extract_iframe_src, looks_like_xb6v_play_page, looks_like_zxzj_play_page,
+        PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
 
@@ -213,6 +257,28 @@ mod tests {
         assert_eq!(
             resolved.candidates[0].url,
             "https://www.zxzjhd.com/vodplay/4627-1-1.html"
+        );
+    }
+
+    #[test]
+    fn classifies_playback_targets_for_visibility_and_sorting() {
+        assert_eq!(
+            classify_playback_target("https://media.example.com/video/index.m3u8"),
+            "direct"
+        );
+        assert_eq!(
+            classify_playback_target(
+                "https://www.xb6v.com/e/DownSys/play/?classid=2&id=28522&pathid2=0&bf=1"
+            ),
+            "resolvable"
+        );
+        assert_eq!(
+            classify_playback_target("https://www.zxzjhd.com/vodplay/4627-1-1.html"),
+            "embedded"
+        );
+        assert_eq!(
+            classify_playback_target("magnet:?xt=urn:btih:test"),
+            "external"
         );
     }
 

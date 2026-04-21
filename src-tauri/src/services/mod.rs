@@ -8,7 +8,9 @@ pub mod zxzj;
 
 pub use douban::DoubanCrawler;
 pub use parser::Parser;
-pub use resolver::PlaybackResolver;
+pub use resolver::{
+    is_visible_playback_target, playback_sort_rank, PlaybackResolver,
+};
 pub use storage::Storage;
 pub use tvbox::TvboxConfigParser;
 pub use xb6v::{
