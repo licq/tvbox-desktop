@@ -24,6 +24,8 @@ env_logger = "0.11"
 scraper = "0.20"
 regex = "1"
 encoding_rs = "0.8"
+flate2 = "1"
+zstd = "0.13"
 
 [profile.release]
 panic = "abort"

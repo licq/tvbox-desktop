@@ -2,6 +2,8 @@ use crate::models::Subscription;
 use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
 use encoding_rs::{GB18030, GBK};
+use flate2::read::GzDecoder;
+use std::io::Read;
 use tauri::State;
 
 #[tauri::command]
@@ -174,6 +176,8 @@ struct FetchedContent {
     final_url: String,
     status: u16,
     content_type: Option<String>,
+    content_encoding: Option<String>,
+    body_hex_preview: String,
 }
 
 async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest::Error> {
@@ -188,6 +192,8 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
             final_url: primary.final_url,
             status: primary.status,
             content_type: primary.content_type,
+            content_encoding: primary.content_encoding,
+            body_hex_preview: primary.body_hex_preview,
         });
     }
 
@@ -209,6 +215,8 @@ async fn fetch_subscription_content(url: &str) -> Result<FetchedContent, reqwest
                         final_url: candidate_body.final_url,
                         status: candidate_body.status,
                         content_type: candidate_body.content_type,
+                        content_encoding: candidate_body.content_encoding,
+                        body_hex_preview: candidate_body.body_hex_preview,
                     });
                 }
             }
@@ -231,14 +239,27 @@ async fn fetch_text_no_proxy(url: &str) -> Result<FetchedContent, reqwest::Error
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.to_string());
+    let content_encoding = response
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
     let bytes = response.bytes().await?;
-    let body = decode_response_body(&bytes, content_type.as_deref());
+    let body_hex_preview = bytes
+        .iter()
+        .take(32)
+        .map(|byte| format!("{:02x}", byte))
+        .collect::<Vec<String>>()
+        .join("");
+    let body = decode_response_body(&bytes, content_type.as_deref(), content_encoding.as_deref());
 
     Ok(FetchedContent {
         body,
         final_url,
         status,
         content_type,
+        content_encoding,
+        body_hex_preview,
     })
 }
 
@@ -326,39 +347,72 @@ fn enrich_simple_parse_error(base_error: &str, fetched: &FetchedContent) -> Stri
         .replace('\r', " ");
 
     format!(
-        "{} | 响应状态={} | 类型={} | 最终地址={} | 内容预览={}",
+        "{} | 响应状态={} | 类型={} | 编码={} | 最终地址={} | 十六进制预览={} | 内容预览={}",
         base_error,
         fetched.status,
         fetched.content_type.as_deref().unwrap_or("unknown"),
+        fetched.content_encoding.as_deref().unwrap_or("none"),
         fetched.final_url,
+        fetched.body_hex_preview,
         preview
     )
 }
 
-fn decode_response_body(bytes: &[u8], content_type: Option<&str>) -> String {
-    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+fn decode_response_body(bytes: &[u8], content_type: Option<&str>, content_encoding: Option<&str>) -> String {
+    let mut normalized = bytes.to_vec();
+
+    if let Some(encoding) = content_encoding.map(|value| value.to_ascii_lowercase()) {
+        if encoding.contains("gzip") {
+            if let Some(decoded) = decode_gzip(bytes) {
+                normalized = decoded;
+            }
+        } else if encoding.contains("zstd") {
+            if let Ok(decoded) = zstd::stream::decode_all(bytes) {
+                normalized = decoded;
+            }
+        }
+    } else if bytes.starts_with(&[0x1f, 0x8b]) {
+        if let Some(decoded) = decode_gzip(bytes) {
+            normalized = decoded;
+        }
+    } else if bytes.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
+        if let Ok(decoded) = zstd::stream::decode_all(bytes) {
+            normalized = decoded;
+        }
+    }
+
+    if let Ok(text) = String::from_utf8(normalized.clone()) {
         return text;
     }
 
     let charset = extract_charset(content_type);
     if let Some(charset) = charset {
         if charset.contains("gb18030") {
-            let (decoded, _, _) = GB18030.decode(bytes);
+            let (decoded, _, _) = GB18030.decode(&normalized);
             return decoded.into_owned();
         }
         if charset.contains("gbk") || charset.contains("gb2312") {
-            let (decoded, _, _) = GBK.decode(bytes);
+            let (decoded, _, _) = GBK.decode(&normalized);
             return decoded.into_owned();
         }
     }
 
-    let (decoded_gbk, _, _) = GBK.decode(bytes);
+    let (decoded_gbk, _, _) = GBK.decode(&normalized);
     let gbk_text = decoded_gbk.into_owned();
     if gbk_text.contains("http://") || gbk_text.contains("https://") || gbk_text.contains("复制") {
         return gbk_text;
     }
 
-    String::from_utf8_lossy(bytes).into_owned()
+    String::from_utf8_lossy(&normalized).into_owned()
+}
+
+fn decode_gzip(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut decoder = GzDecoder::new(bytes);
+    let mut decoded = Vec::new();
+    match decoder.read_to_end(&mut decoded) {
+        Ok(_) => Some(decoded),
+        Err(_) => None,
+    }
 }
 
 fn extract_charset(content_type: Option<&str>) -> Option<String> {
