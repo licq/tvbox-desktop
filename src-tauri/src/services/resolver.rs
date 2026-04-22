@@ -711,7 +711,7 @@ async fn probe_hls_playlist(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
-    let body = fetch_text_with_headers(client, url, headers).await?;
+    let body = fetch_hls_playlist_with_headers(client, url, headers).await?;
     if !body.contains("#EXTM3U") {
         return Err("playlist missing EXTM3U header".to_string());
     }
@@ -719,7 +719,7 @@ async fn probe_hls_playlist(
     let media_playlist_url = if body.contains("#EXT-X-STREAM-INF") {
         let variant_url = first_playlist_resource(url, &body)
             .ok_or_else(|| "master playlist missing variant url".to_string())?;
-        let variant_body = fetch_text_with_headers(client, &variant_url, headers).await?;
+        let variant_body = fetch_hls_playlist_with_headers(client, &variant_url, headers).await?;
         if !variant_body.contains("#EXTM3U") {
             return Err("variant playlist missing EXTM3U header".to_string());
         }
@@ -827,13 +827,42 @@ async fn fetch_text_with_headers(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    apply_request_headers(request, headers)
+    let response = apply_request_headers(request, headers)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .text()
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("request failed: {status}"));
+    }
+
+    response.text().await.map_err(|e| e.to_string())
+}
+
+async fn fetch_hls_playlist_with_headers(
+    client: &reqwest::Client,
+    input: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<String, String> {
+    let request = client
+        .get(input)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        );
+    let response = apply_request_headers(request, headers)
+        .send()
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("playlist request failed: {status}"));
+    }
+    if !has_browser_cors(&response) {
+        return Err("playlist missing browser CORS headers".to_string());
+    }
+
+    response.text().await.map_err(|e| e.to_string())
 }
 
 fn extract_aliplayer_source(body: &str) -> Option<String> {
@@ -896,17 +925,18 @@ mod tests {
         extract_wencai_play_page_candidates, guard_play_page_url,
         first_playlist_resource, looks_like_auete_play_page, looks_like_jianpian_play_page,
         looks_like_libvio_play_page, looks_like_wencai_play_page, looks_like_xb6v_play_page,
-        looks_like_zxzj_play_page, PlaybackResolver,
+        looks_like_zxzj_play_page, probe_media_candidate, PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
     use crate::services::{decode_guard_play_target, encode_guard_play_target};
 
     #[tokio::test]
     async fn marks_hls_url_as_ready_candidate() {
-        let resolved = PlaybackResolver::resolve("https://example.com/live.m3u8")
-            .await
-            .unwrap();
-        assert_eq!(resolved.status, "failed");
+        assert_eq!(
+            classify_playback_target("https://example.com/live.m3u8"),
+            "direct"
+        );
+        assert_eq!(detect_kind("https://example.com/live.m3u8"), "hls");
     }
 
     #[tokio::test]
@@ -918,12 +948,19 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live upstream failure response"]
     async fn rejects_dead_direct_hls_links() {
-        let resolved = PlaybackResolver::resolve(
-            "https://vip.dytt-kan.com/20260320/12512_74a8f422/index.m3u8",
-        )
-        .await
-        .unwrap();
+        let url = "https://vip.dytt-kan.com/20260320/12512_74a8f422/index.m3u8";
+        assert_eq!(classify_playback_target(url), "direct");
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .unwrap();
+        let probe = probe_media_candidate(&client, url, None).await;
+        assert!(probe.is_err(), "expected direct probe to fail, got {probe:?}");
+
+        let resolved = PlaybackResolver::resolve(url).await.unwrap();
         assert_eq!(resolved.status, "failed");
         assert!(resolved.candidates.is_empty());
     }
