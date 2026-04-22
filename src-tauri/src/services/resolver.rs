@@ -147,12 +147,18 @@ fn looks_like_auete_play_page(input: &str) -> bool {
 }
 
 fn looks_like_wencai_play_page(input: &str) -> bool {
-    input.contains("/play/") && (input.contains("wencai") || input.contains("%E6%96%87%E9%87%87"))
+    input.contains("/play/")
+        && (input.contains("wencai")
+            || input.contains("deeyy.com")
+            || input.contains("%E6%96%87%E9%87%87"))
 }
 
 fn looks_like_jianpian_play_page(input: &str) -> bool {
-    input.contains("/vodplay/")
-        && (input.contains("jianpian") || input.contains("jpys") || input.contains("%E8%8D%90%E7%89%87"))
+    (input.contains("/vodplay/") || input.contains("/play/"))
+        && (input.contains("jianpian")
+            || input.contains("jpys")
+            || input.contains("jpvod.com")
+            || input.contains("%E8%8D%90%E7%89%87"))
 }
 
 fn looks_like_zxzj_play_page(input: &str) -> bool {
@@ -422,6 +428,9 @@ fn extract_wencai_play_page_candidates(page_url: &str, body: &str) -> Vec<PlayPa
 }
 
 fn extract_jianpian_play_page_candidates(page_url: &str, body: &str) -> Vec<PlayPageCandidate> {
+    if body.contains("vod-play-list-box") && body.contains("jpvod.com") {
+        return extract_jpvod_play_page_candidates(page_url, body);
+    }
     extract_split_play_page_candidates(
         page_url,
         body,
@@ -429,6 +438,80 @@ fn extract_jianpian_play_page_candidates(page_url: &str, body: &str) -> Vec<Play
         is_jianpian_play_link,
         "默认线路",
     )
+}
+
+fn extract_jpvod_play_page_candidates(page_url: &str, body: &str) -> Vec<PlayPageCandidate> {
+    let section_regex =
+        Regex::new(r#"(?s)<section class="[^"]*vod-play-list-box[^"]*"[^>]*>(.*?)</section>"#)
+            .unwrap();
+    let title_regex = Regex::new(r#"<h2 class="title">([^<]+)</h2>"#).unwrap();
+    let anchor_regex = Regex::new(r#"<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+
+    let mut current_label = None;
+    let mut grouped = Vec::new();
+
+    for section in section_regex.captures_iter(body) {
+        let Some(content) = section.get(1).map(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(source_name) = title_regex
+            .captures(content)
+            .and_then(|capture| capture.get(1))
+            .map(|value| strip_html(value.as_str()).trim().to_string())
+        else {
+            continue;
+        };
+
+        let mut entries = Vec::new();
+        for anchor in anchor_regex.captures_iter(content) {
+            let Some(href) = anchor.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
+            let absolute = absolutize_url(page_url, href);
+            if !is_jianpian_play_link(&absolute) {
+                continue;
+            }
+            let Some(label) = anchor
+                .get(2)
+                .map(|value| strip_html(value.as_str()).trim().to_string())
+            else {
+                continue;
+            };
+            if absolute == page_url {
+                current_label = Some(label.clone());
+            }
+            entries.push((absolute, label));
+        }
+        if !entries.is_empty() {
+            grouped.push((source_name, entries));
+        }
+    }
+
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (source_name, entries) in grouped {
+        for (url, label) in entries {
+            if current_label.as_deref().is_some_and(|current| current != label) {
+                continue;
+            }
+            if !seen.insert(url.clone()) {
+                continue;
+            }
+            candidates.push(PlayPageCandidate {
+                url,
+                label: source_name.clone(),
+            });
+        }
+    }
+
+    if candidates.is_empty() {
+        candidates.push(PlayPageCandidate {
+            url: page_url.to_string(),
+            label: "默认线路".to_string(),
+        });
+    }
+
+    candidates
 }
 
 fn extract_split_play_page_candidates(
@@ -703,7 +786,8 @@ mod tests {
     use super::{
         absolutize_url, classify_playback_target, detect_kind, extract_aliplayer_source,
         extract_auete_play_page_candidates, extract_hls_key_url, extract_iframe_src,
-        extract_jianpian_play_page_candidates, extract_wencai_play_page_candidates,
+        extract_jianpian_play_page_candidates, extract_jpvod_play_page_candidates,
+        extract_wencai_play_page_candidates,
         first_playlist_resource, looks_like_auete_play_page, looks_like_jianpian_play_page,
         looks_like_libvio_play_page, looks_like_wencai_play_page, looks_like_xb6v_play_page,
         looks_like_zxzj_play_page, PlaybackResolver,
@@ -760,8 +844,11 @@ mod tests {
         assert!(looks_like_wencai_play_page(
             "https://www.wencai.example/play/123-1-1.html"
         ));
+        assert!(looks_like_wencai_play_page(
+            "https://www.deeyy.com/vod/play/id/1419/sid/1/nid/1.html"
+        ));
         assert!(looks_like_jianpian_play_page(
-            "https://www.jianpian.example/vodplay/123-1-1.html"
+            "https://jpvod.com/play/123-1-1.html"
         ));
         assert!(looks_like_zxzj_play_page(
             "https://www.zxzjhd.com/vodplay/4627-1-1.html"
@@ -807,7 +894,7 @@ mod tests {
             "resolvable"
         );
         assert_eq!(
-            classify_playback_target("https://www.jianpian.example/vodplay/888-1-1.html"),
+            classify_playback_target("https://jpvod.com/play/888-1-1.html"),
             "resolvable"
         );
         assert_eq!(
@@ -831,7 +918,7 @@ mod tests {
             "resolvable"
         );
         assert_eq!(
-            classify_playback_target("https://www.jianpian.example/vodplay/888-1-1.html"),
+            classify_playback_target("https://jpvod.com/play/888-1-1.html"),
             "resolvable"
         );
     }
@@ -867,13 +954,13 @@ mod tests {
     fn extracts_same_episode_candidates_from_jianpian_page() {
         let body = r#"
             <script>var playp='正片';</script>
-            <div class="from">荐片A</div><a href="/vodplay/2-1-1.html">正片</a>
-            <div class="from">荐片B</div><a href="/vodplay/2-2-1.html">正片</a>
+            <div class="from">荐片A</div><a href="/play/2-1-1.html">正片</a>
+            <div class="from">荐片B</div><a href="/play/2-2-1.html">正片</a>
             <div class="from">荐片下载</div><a href="magnet:?xt=urn:btih:test">合集</a>
         "#;
 
         let candidates = extract_jianpian_play_page_candidates(
-            "https://www.jianpian.example/vodplay/2-1-1.html",
+            "https://jpvod.com/play/2-1-1.html",
             body,
         );
 
@@ -881,13 +968,46 @@ mod tests {
         assert_eq!(candidates[0].label, "荐片A");
         assert_eq!(
             candidates[0].url,
-            "https://www.jianpian.example/vodplay/2-1-1.html"
+            "https://jpvod.com/play/2-1-1.html"
         );
         assert_eq!(candidates[1].label, "荐片B");
         assert_eq!(
             candidates[1].url,
-            "https://www.jianpian.example/vodplay/2-2-1.html"
+            "https://jpvod.com/play/2-2-1.html"
         );
+    }
+
+    #[test]
+    fn extracts_same_episode_candidates_from_jpvod_page() {
+        let body = r#"
+            <section class="section-ryhd6l vod-play-list-box vod-play-list-1 active">
+              <div class="section-head-ryhd6l justify-content-start">
+                <h2 class="title">金牌资源</h2>
+              </div>
+              <div class="section-content-ryhd6l">
+                <a class="w-100 btn btn-secondary active" href="/play/97910-1-1.html" title="播放第1集">第1集</a>
+                <a class="w-100 btn btn-secondary" href="/play/97910-1-2.html" title="播放第2集">第2集</a>
+              </div>
+            </section>
+            <section class="section-ryhd6l vod-play-list-box vod-play-list-2">
+              <div class="section-head-ryhd6l justify-content-start">
+                <h2 class="title">无尽线路</h2>
+              </div>
+              <div class="section-content-ryhd6l">
+                <a class="w-100 btn btn-secondary" href="/play/97910-2-1.html" title="播放第1集">第1集</a>
+                <a class="w-100 btn btn-secondary" href="/play/97910-2-2.html" title="播放第2集">第2集</a>
+              </div>
+            </section>
+        "#;
+
+        let candidates =
+            extract_jpvod_play_page_candidates("https://jpvod.com/play/97910-1-1.html", body);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].label, "金牌资源");
+        assert_eq!(candidates[0].url, "https://jpvod.com/play/97910-1-1.html");
+        assert_eq!(candidates[1].label, "无尽线路");
+        assert_eq!(candidates[1].url, "https://jpvod.com/play/97910-2-1.html");
     }
 
     #[test]
