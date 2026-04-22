@@ -17,6 +17,7 @@ pub use auete::{
 };
 pub use douban::DoubanCrawler;
 pub use guard::{
+    guard_jpj, guard_jpys,
     decode_guard_play_target, encode_guard_play_target, guard_adapter_key,
     is_guard_site_supported, GuardPlayTarget,
 };

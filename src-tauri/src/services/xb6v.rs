@@ -1,4 +1,5 @@
 use crate::services::auete::{is_auete_site, scrape_auete_catalog, scrape_auete_detail};
+use crate::services::guard::{guard_adapter_key, is_guard_site_supported};
 use crate::services::jianpian::{
     is_jianpian_site, parse_detail_page as parse_jianpian_detail_page,
     parse_listing_page as parse_jianpian_listing_page, JianpianListingEntry,
@@ -57,6 +58,9 @@ pub async fn scrape_supported_tvbox_catalogs(
     if sites.iter().any(is_zxzj_site) {
         items.extend(scrape_zxzj_catalog().await?);
     }
+    if sites.iter().any(is_guard_site_supported) {
+        items.extend(scrape_supported_guard_catalogs(sites).await?);
+    }
     if sites.iter().any(is_wencai_site) {
         items.extend(scrape_wencai_catalog(sites).await?);
     }
@@ -80,6 +84,21 @@ pub async fn scrape_catalog_detail_from_json(
         .ok_or_else(|| "catalog detail url is missing".to_string())?;
 
     match source {
+        "guard" => {
+            let guard_key = detail
+                .get("guard_key")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "guard detail missing guard_key".to_string())?;
+            let site_key = detail
+                .get("site_key")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "guard detail missing site_key".to_string())?;
+            let item_id = detail
+                .get("item_id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "guard detail missing item_id".to_string())?;
+            resolve_guard_detail(guard_key, site_key, item_id).await
+        }
         "xb6v" => scrape_xb6v_detail(url).await,
         "libvio" => {
             let mut item = scrape_libvio_detail(url).await?;
@@ -128,6 +147,46 @@ pub async fn scrape_catalog_detail_from_json(
         }
         other => Err(format!("unsupported catalog detail source: {other}")),
     }
+}
+
+fn collect_supported_guard_keys(sites: &[TvboxSiteRecord]) -> Vec<&'static str> {
+    let mut keys = Vec::new();
+    if sites
+        .iter()
+        .any(|site| guard_adapter_key(site).as_deref() == Some("csp_JpysGuard"))
+    {
+        keys.push("csp_JpysGuard");
+    }
+    if sites
+        .iter()
+        .any(|site| guard_adapter_key(site).as_deref() == Some("csp_JPJGuard"))
+    {
+        keys.push("csp_JPJGuard");
+    }
+    keys
+}
+
+async fn scrape_supported_guard_catalogs(
+    sites: &[TvboxSiteRecord],
+) -> Result<Vec<ScrapedCatalogItem>, String> {
+    let items = Vec::new();
+    for key in collect_supported_guard_keys(sites) {
+        match key {
+            "csp_JpysGuard" | "csp_JPJGuard" => {}
+            _ => {}
+        }
+    }
+    Ok(items)
+}
+
+async fn resolve_guard_detail(
+    guard_key: &str,
+    site_key: &str,
+    item_id: &str,
+) -> Result<Option<ScrapedCatalogItem>, String> {
+    Err(format!(
+        "guard detail dispatch not implemented yet for {guard_key}:{site_key}:{item_id}"
+    ))
 }
 
 fn is_xb6v_site(site: &TvboxSiteRecord) -> bool {
@@ -646,8 +705,9 @@ fn shallow_item_from_jianpian_entry(entry: JianpianListingEntry) -> ScrapedCatal
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_site_roots, derive_browse_root, infer_item_type, parse_detail_page,
-        parse_listing_page, parse_play_episodes, ListingEntry,
+        collect_site_roots, collect_supported_guard_keys, derive_browse_root, infer_item_type,
+        parse_detail_page, parse_listing_page, parse_play_episodes, scrape_catalog_detail_from_json,
+        ListingEntry,
     };
 
     #[test]
@@ -820,5 +880,47 @@ mod tests {
             derive_browse_root("https://www.wencai.example/dianshiju/123.html").as_deref(),
             Some("https://www.wencai.example/")
         );
+    }
+
+    #[test]
+    fn selects_guard_sites_from_tvbox_records() {
+        let sites = vec![
+            crate::services::tvbox::TvboxSiteRecord {
+                site_key: "文采".to_string(),
+                site_name: "💮文采┃秒播".to_string(),
+                api: Some("csp_JpysGuard".to_string()),
+                ext: None,
+                searchable: true,
+                quick_search: true,
+                filterable: false,
+                source_type: "3".to_string(),
+                raw_json: "{}".to_string(),
+            },
+            crate::services::tvbox::TvboxSiteRecord {
+                site_key: "贱贱".to_string(),
+                site_name: "🐭荐片┃P2P".to_string(),
+                api: Some("csp_JPJGuard".to_string()),
+                ext: None,
+                searchable: true,
+                quick_search: true,
+                filterable: false,
+                source_type: "3".to_string(),
+                raw_json: "{}".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            collect_supported_guard_keys(&sites),
+            vec!["csp_JpysGuard", "csp_JPJGuard"]
+        );
+    }
+
+    #[tokio::test]
+    async fn parses_guard_detail_json_source() {
+        let item = scrape_catalog_detail_from_json(
+            r#"{"source":"guard","guard_key":"csp_JpysGuard","site_key":"文采","item_id":"1419","item_type":"movie"}"#,
+        )
+        .await;
+        assert!(item.is_err(), "dispatch path should exist even before network stubbing");
     }
 }
