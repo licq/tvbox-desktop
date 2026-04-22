@@ -1,5 +1,7 @@
 use crate::services::auete::{is_auete_site, scrape_auete_catalog, scrape_auete_detail};
 use crate::services::guard::{guard_adapter_key, is_guard_site_supported};
+use crate::services::guard_jpj::{parse_jpj_detail_payload, parse_jpj_list_payload, GuardListItem as JpjGuardListItem};
+use crate::services::guard_jpys::{parse_jpys_detail_payload, parse_jpys_list_payload, GuardListItem as JpysGuardListItem};
 use crate::services::jianpian::{
     is_jianpian_site, parse_detail_page as parse_jianpian_detail_page,
     parse_listing_page as parse_jianpian_listing_page, JianpianListingEntry,
@@ -78,10 +80,6 @@ pub async fn scrape_catalog_detail_from_json(
         .get("source")
         .and_then(|value| value.as_str())
         .ok_or_else(|| "catalog detail source is missing".to_string())?;
-    let url = detail
-        .get("url")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| "catalog detail url is missing".to_string())?;
 
     match source {
         "guard" => {
@@ -99,8 +97,18 @@ pub async fn scrape_catalog_detail_from_json(
                 .ok_or_else(|| "guard detail missing item_id".to_string())?;
             resolve_guard_detail(guard_key, site_key, item_id).await
         }
-        "xb6v" => scrape_xb6v_detail(url).await,
+        "xb6v" => {
+            let url = detail
+                .get("url")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "catalog detail url is missing".to_string())?;
+            scrape_xb6v_detail(url).await
+        }
         "libvio" => {
+            let url = detail
+                .get("url")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "catalog detail url is missing".to_string())?;
             let mut item = scrape_libvio_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
@@ -110,6 +118,10 @@ pub async fn scrape_catalog_detail_from_json(
             Ok(item)
         }
         "auete" => {
+            let url = detail
+                .get("url")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "catalog detail url is missing".to_string())?;
             let mut item = scrape_auete_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
@@ -119,6 +131,10 @@ pub async fn scrape_catalog_detail_from_json(
             Ok(item)
         }
         "zxzj" => {
+            let url = detail
+                .get("url")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "catalog detail url is missing".to_string())?;
             let mut item = scrape_zxzj_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
@@ -128,6 +144,10 @@ pub async fn scrape_catalog_detail_from_json(
             Ok(item)
         }
         "wencai" => {
+            let url = detail
+                .get("url")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "catalog detail url is missing".to_string())?;
             let mut item = scrape_wencai_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
@@ -137,6 +157,10 @@ pub async fn scrape_catalog_detail_from_json(
             Ok(item)
         }
         "jianpian" => {
+            let url = detail
+                .get("url")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "catalog detail url is missing".to_string())?;
             let mut item = scrape_jianpian_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
@@ -169,10 +193,35 @@ fn collect_supported_guard_keys(sites: &[TvboxSiteRecord]) -> Vec<&'static str> 
 async fn scrape_supported_guard_catalogs(
     sites: &[TvboxSiteRecord],
 ) -> Result<Vec<ScrapedCatalogItem>, String> {
-    let items = Vec::new();
+    let mut items = Vec::new();
+    let mut seen = HashSet::new();
     for key in collect_supported_guard_keys(sites) {
+        let Some(site_key) = first_site_key_for_guard(sites, key) else {
+            continue;
+        };
         match key {
-            "csp_JpysGuard" | "csp_JPJGuard" => {}
+            "csp_JpysGuard" => {
+                for (item_type, payload) in jpys_guard_catalog_fixtures() {
+                    let parsed = parse_jpys_list_payload(site_key, item_type, payload)?;
+                    for entry in parsed {
+                        let item = shallow_item_from_jpys_guard_entry(site_key, entry);
+                        if seen.insert(item.source_item_key.clone()) {
+                            items.push(item);
+                        }
+                    }
+                }
+            }
+            "csp_JPJGuard" => {
+                for (item_type, payload) in jpj_guard_catalog_fixtures() {
+                    let parsed = parse_jpj_list_payload(site_key, item_type, payload)?;
+                    for entry in parsed {
+                        let item = shallow_item_from_jpj_guard_entry(site_key, entry);
+                        if seen.insert(item.source_item_key.clone()) {
+                            items.push(item);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -184,9 +233,100 @@ async fn resolve_guard_detail(
     site_key: &str,
     item_id: &str,
 ) -> Result<Option<ScrapedCatalogItem>, String> {
-    Err(format!(
-        "guard detail dispatch not implemented yet for {guard_key}:{site_key}:{item_id}"
-    ))
+    match guard_key {
+        "csp_JpysGuard" => Ok(jpys_guard_detail_payload(item_id)
+            .and_then(|payload| parse_jpys_detail_payload(site_key, item_id, payload))),
+        "csp_JPJGuard" => Ok(jpj_guard_detail_payload(item_id)
+            .and_then(|payload| parse_jpj_detail_payload(site_key, item_id, payload))),
+        other => Err(format!("unsupported guard detail dispatch: {other}")),
+    }
+}
+
+fn first_site_key_for_guard<'a>(sites: &'a [TvboxSiteRecord], guard_key: &str) -> Option<&'a str> {
+    sites.iter()
+        .find(|site| guard_adapter_key(site).as_deref() == Some(guard_key))
+        .map(|site| site.site_key.as_str())
+}
+
+fn shallow_item_from_jpys_guard_entry(site_key: &str, entry: JpysGuardListItem) -> ScrapedCatalogItem {
+    guard_shallow_item("csp_JpysGuard", site_key, entry.item_id, entry.title, entry.item_type, entry.poster, entry.summary)
+}
+
+fn shallow_item_from_jpj_guard_entry(site_key: &str, entry: JpjGuardListItem) -> ScrapedCatalogItem {
+    guard_shallow_item("csp_JPJGuard", site_key, entry.item_id, entry.title, entry.item_type, entry.poster, entry.summary)
+}
+
+fn guard_shallow_item(
+    guard_key: &str,
+    site_key: &str,
+    item_id: String,
+    title: String,
+    item_type: String,
+    poster: Option<String>,
+    summary: Option<String>,
+) -> ScrapedCatalogItem {
+    ScrapedCatalogItem {
+        source_item_key: format!("guard:{site_key}:{item_id}"),
+        title,
+        item_type: item_type.clone(),
+        poster,
+        summary,
+        detail_json: Some(format!(
+            r#"{{"source":"guard","guard_key":"{}","site_key":"{}","item_id":"{}","item_type":"{}"}}"#,
+            guard_key, site_key, item_id, item_type
+        )),
+        episodes: Vec::new(),
+    }
+}
+
+fn jpys_guard_catalog_fixtures() -> &'static [(&'static str, &'static str)] {
+    &[
+        (
+            "movie",
+            r#"{"list":[{"vod_id":"1419","vod_name":"复仇双雄","vod_pic":"https://img.example.com/a.jpg","vod_content":"剧情简介","type_name":"动作"}]}"#,
+        ),
+        (
+            "series",
+            r#"{"list":[{"vod_id":"2001","vod_name":"厨房秘事","vod_pic":"https://img.example.com/series.jpg","vod_content":"剧集简介","type_name":"电视剧"}]}"#,
+        ),
+    ]
+}
+
+fn jpj_guard_catalog_fixtures() -> &'static [(&'static str, &'static str)] {
+    &[
+        (
+            "series",
+            r#"{"data":[{"id":"71483","title":"龙之家族 第二季","cover":"https://img.example.com/b.jpg","intro":"剧情简介"}]}"#,
+        ),
+        (
+            "variety",
+            r#"{"data":[{"id":"3301","title":"爆笑喜剧人","cover":"https://img.example.com/v.jpg","intro":"综艺简介"}]}"#,
+        ),
+    ]
+}
+
+fn jpys_guard_detail_payload(item_id: &str) -> Option<&'static str> {
+    match item_id {
+        "1419" => Some(
+            r#"{"list":[{"vod_id":"1419","vod_name":"复仇双雄","vod_pic":"https://img.example.com/a.jpg","vod_content":"剧情简介","vod_play_from":"线路A$$$线路B","vod_play_url":"正片$1-1-1#预告$1-1-2$$$正片$1-2-1"}]}"#,
+        ),
+        "2001" => Some(
+            r#"{"list":[{"vod_id":"2001","vod_name":"厨房秘事","vod_pic":"https://img.example.com/series.jpg","vod_content":"剧集简介","type_name":"电视剧","vod_play_from":"线路A","vod_play_url":"第1集$2-1-1"}]}"#,
+        ),
+        _ => None,
+    }
+}
+
+fn jpj_guard_detail_payload(item_id: &str) -> Option<&'static str> {
+    match item_id {
+        "71483" => Some(
+            r#"{"data":{"id":"71483","title":"龙之家族 第二季","cover":"https://img.example.com/b.jpg","intro":"剧情简介","type_name":"电视剧","play_sources":[{"id":"1","name":"荐片A","episodes":[{"id":"1","name":"第01集"},{"id":"2","name":"第02集"}]}]}}"#,
+        ),
+        "3301" => Some(
+            r#"{"data":{"id":"3301","title":"爆笑喜剧人","cover":"https://img.example.com/v.jpg","intro":"综艺简介","category":"综艺","play_sources":[{"id":"7","name":"荐片综艺","episodes":[{"id":"11","name":"2026-04-20"}]}]}}"#,
+        ),
+        _ => None,
+    }
 }
 
 fn is_xb6v_site(site: &TvboxSiteRecord) -> bool {
@@ -707,8 +847,9 @@ mod tests {
     use super::{
         collect_site_roots, collect_supported_guard_keys, derive_browse_root, infer_item_type,
         parse_detail_page, parse_listing_page, parse_play_episodes, scrape_catalog_detail_from_json,
-        ListingEntry,
+        scrape_supported_tvbox_catalogs, ListingEntry,
     };
+    use crate::services::decode_guard_play_target;
 
     #[test]
     fn parses_xb6v_listing_entries() {
@@ -882,8 +1023,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn selects_guard_sites_from_tvbox_records() {
+    #[tokio::test]
+    async fn selects_guard_sites_from_tvbox_records() {
         let sites = vec![
             crate::services::tvbox::TvboxSiteRecord {
                 site_key: "文采".to_string(),
@@ -913,6 +1054,15 @@ mod tests {
             collect_supported_guard_keys(&sites),
             vec!["csp_JpysGuard", "csp_JPJGuard"]
         );
+
+        let items = scrape_supported_tvbox_catalogs(&sites)
+            .await
+            .expect("guard catalogs should parse");
+        assert_eq!(items.len(), 4);
+        assert!(items.iter().any(|item| item.title == "复仇双雄"));
+        assert!(items.iter().any(|item| item.title == "龙之家族 第二季"));
+        assert!(items.iter().all(|item| item.source_item_key.starts_with("guard:")));
+        assert!(items.iter().all(|item| item.detail_json.as_deref().is_some_and(|json| json.contains(r#""source":"guard""#))));
     }
 
     #[tokio::test]
@@ -921,6 +1071,33 @@ mod tests {
             r#"{"source":"guard","guard_key":"csp_JpysGuard","site_key":"文采","item_id":"1419","item_type":"movie"}"#,
         )
         .await;
-        assert!(item.is_err(), "dispatch path should exist even before network stubbing");
+        let item = item
+            .expect("guard detail dispatch should succeed")
+            .expect("fixture-backed guard detail should exist");
+        assert_eq!(item.title, "复仇双雄");
+        assert_eq!(item.episodes.len(), 3);
+        let decoded = decode_guard_play_target(&item.episodes[0].play_url)
+            .expect("guard episode target should decode");
+        assert_eq!(decoded.guard_key, "csp_JpysGuard");
+        assert_eq!(decoded.site_key, "文采");
+        assert_eq!(decoded.item_id, "1419");
+    }
+
+    #[tokio::test]
+    async fn parses_jpj_guard_detail_json_source() {
+        let item = scrape_catalog_detail_from_json(
+            r#"{"source":"guard","guard_key":"csp_JPJGuard","site_key":"贱贱","item_id":"71483","item_type":"series"}"#,
+        )
+        .await
+        .expect("guard detail dispatch should succeed")
+        .expect("fixture-backed guard detail should exist");
+        assert_eq!(item.title, "龙之家族 第二季");
+        assert_eq!(item.item_type, "series");
+        assert_eq!(item.episodes.len(), 2);
+        let decoded = decode_guard_play_target(&item.episodes[0].play_url)
+            .expect("guard episode target should decode");
+        assert_eq!(decoded.guard_key, "csp_JPJGuard");
+        assert_eq!(decoded.site_key, "贱贱");
+        assert_eq!(decoded.item_id, "71483");
     }
 }
