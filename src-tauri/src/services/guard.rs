@@ -1,5 +1,8 @@
 use crate::services::tvbox::TvboxSiteRecord;
 
+#[path = "guard_jpys.rs"]
+pub mod guard_jpys;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardPlayTarget {
     pub guard_key: String,
@@ -57,13 +60,9 @@ fn percent_encode(value: &str) -> String {
     let mut encoded = String::with_capacity(value.len());
     for byte in value.bytes() {
         match byte {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'-'
-            | b'_'
-            | b'.'
-            | b'~' => encoded.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
             _ => {
                 encoded.push('%');
                 encoded.push(HEX[(byte >> 4) as usize] as char);
@@ -110,8 +109,8 @@ const HEX: &[u8; 16] = b"0123456789ABCDEF";
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_guard_play_target, encode_guard_play_target, guard_adapter_key, percent_decode,
-        percent_encode, is_guard_site_supported,
+        decode_guard_play_target, encode_guard_play_target, guard_adapter_key,
+        is_guard_site_supported, percent_decode, percent_encode,
     };
     use crate::services::tvbox::TvboxSiteRecord;
 
