@@ -4,6 +4,7 @@ pub mod guard;
 pub mod jianpian;
 pub mod libvio;
 pub mod parser;
+pub mod playback_types;
 pub mod resolver;
 pub mod storage;
 pub mod tvbox;
