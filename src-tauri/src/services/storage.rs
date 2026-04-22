@@ -14,6 +14,9 @@ use crate::services::tvbox::{
 use crate::services::xb6v::ScrapedCatalogItem;
 use crate::services::{is_visible_playback_target, playback_sort_rank};
 
+#[path = "playback_cache.rs"]
+pub(crate) mod playback_cache;
+
 pub struct Storage {
     conn: Arc<Mutex<Connection>>,
 }
@@ -223,6 +226,48 @@ impl Storage {
         )?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_play_history_item ON play_history(item_type, item_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS playback_targets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                episode_id INTEGER NOT NULL,
+                source_key TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                target_kind TEXT NOT NULL,
+                resolver_key TEXT,
+                headers_json TEXT,
+                sort_hint INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS playback_health (
+                target_hash TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                manifest_ok INTEGER NOT NULL DEFAULT 0,
+                segment_ok INTEGER NOT NULL DEFAULT 0,
+                cors_ok INTEGER NOT NULL DEFAULT 0,
+                http_status INTEGER,
+                failure_reason TEXT,
+                checked_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_playback_targets_episode_id
+             ON playback_targets(episode_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_playback_health_expires_at
+             ON playback_health(expires_at)",
             [],
         )?;
 
