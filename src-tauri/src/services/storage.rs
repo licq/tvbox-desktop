@@ -1878,3 +1878,56 @@ mod tests {
         std::env::temp_dir().join(format!("tvbox-storage-test-{}", nanos))
     }
 }
+    use super::playback_cache::{
+        get_playback_health, list_playback_targets, replace_playback_targets,
+        upsert_playback_health, PlaybackTargetRecord,
+    };
+    #[test]
+    fn persists_playback_health_with_ttl() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        upsert_playback_health(
+            &storage,
+            "hash-1",
+            "playable",
+            true,
+            true,
+            true,
+            Some(200),
+            None,
+            1800,
+        )
+        .expect("health should save");
+
+        let health = get_playback_health(&storage, "hash-1")
+            .expect("health query should succeed")
+            .expect("health row should exist");
+
+        assert_eq!(health.status, "playable");
+        assert!(health.expires_at > health.checked_at);
+    }
+
+    #[test]
+    fn persists_playback_targets_for_episode() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        replace_playback_targets(
+            &storage,
+            77,
+            vec![PlaybackTargetRecord {
+                episode_id: 77,
+                source_key: "jianpian".to_string(),
+                target_url: "https://cdn.example.com/ok/index.m3u8".to_string(),
+                target_kind: "direct".to_string(),
+                resolver_key: None,
+                headers_json: None,
+                sort_hint: 0,
+            }],
+        )
+        .expect("targets should save");
+
+        let targets = list_playback_targets(&storage, 77).expect("target query should succeed");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].target_kind, "direct");
+    }
+

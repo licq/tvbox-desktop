@@ -53,7 +53,7 @@ pub fn replace_playback_targets(
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             "#,
             params![
-                target.episode_id,
+                episode_id,
                 target.source_key,
                 target.target_url,
                 target.target_kind,
