@@ -365,6 +365,38 @@ fn extract_guard_item_id(guard_key: &str, detail_url: &str) -> Option<String> {
         .map(|value| value.as_str().to_string())
 }
 
+fn extract_guard_play_parts(
+    guard_key: &str,
+    play_url: &str,
+    item_id: &str,
+) -> Option<(String, String)> {
+    match guard_key {
+        "csp_JpysGuard" => {
+            let regex = Regex::new(r#"/vod/play/id/(\d+)/sid/(\d+)/nid/(\d+)\.html"#).unwrap();
+            let captures = regex.captures(play_url)?;
+            if captures.get(1)?.as_str() != item_id {
+                return None;
+            }
+            Some((
+                captures.get(2)?.as_str().to_string(),
+                captures.get(3)?.as_str().to_string(),
+            ))
+        }
+        "csp_JPJGuard" => {
+            let regex = Regex::new(r#"/play/(\d+)-(\d+)-(\d+)\.html"#).unwrap();
+            let captures = regex.captures(play_url)?;
+            if captures.get(1)?.as_str() != item_id {
+                return None;
+            }
+            Some((
+                captures.get(2)?.as_str().to_string(),
+                captures.get(3)?.as_str().to_string(),
+            ))
+        }
+        _ => None,
+    }
+}
+
 fn retag_guard_detail(
     mut item: ScrapedCatalogItem,
     guard_key: &str,
@@ -372,6 +404,24 @@ fn retag_guard_detail(
     item_id: &str,
     expected_item_type: &str,
 ) -> ScrapedCatalogItem {
+    item.episodes = item
+        .episodes
+        .into_iter()
+        .filter_map(|episode| {
+            let (source_id, episode_id) =
+                extract_guard_play_parts(guard_key, &episode.play_url, item_id)?;
+            Some(ScrapedCatalogEpisode {
+                play_url: crate::services::encode_guard_play_target(
+                    guard_key,
+                    site_key,
+                    item_id,
+                    &source_id,
+                    &episode_id,
+                ),
+                ..episode
+            })
+        })
+        .collect();
     item.source_item_key = format!("guard:{site_key}:{item_id}");
     item.item_type = expected_item_type.to_string();
     item.detail_json = Some(format!(
@@ -898,10 +948,12 @@ fn shallow_item_from_jianpian_entry(entry: JianpianListingEntry) -> ScrapedCatal
 mod tests {
     use super::{
         collect_site_roots, collect_supported_guard_keys, derive_browse_root,
-        extract_guard_item_id, guard_catalog_pages, guard_detail_url, infer_item_type,
+        extract_guard_item_id, extract_guard_play_parts, guard_catalog_pages, guard_detail_url,
+        infer_item_type,
         parse_detail_page, parse_listing_page, parse_play_episodes, scrape_catalog_detail_from_json,
         scrape_supported_tvbox_catalogs, ListingEntry,
     };
+    use crate::services::decode_guard_play_target;
 
     #[test]
     fn parses_xb6v_listing_entries() {
@@ -1151,6 +1203,18 @@ mod tests {
                 .as_deref(),
             Some("97910")
         );
+        assert_eq!(
+            extract_guard_play_parts(
+                "csp_JpysGuard",
+                "https://www.deeyy.com/vod/play/id/1419/sid/1/nid/1.html",
+                "1419"
+            ),
+            Some(("1".to_string(), "1".to_string()))
+        );
+        assert_eq!(
+            extract_guard_play_parts("csp_JPJGuard", "https://jpvod.com/play/97910-2-1.html", "97910"),
+            Some(("2".to_string(), "1".to_string()))
+        );
     }
 
     #[tokio::test]
@@ -1201,6 +1265,10 @@ mod tests {
         .await
         .expect("wencai guard detail should dispatch")
         .expect("wencai guard detail should exist");
+        assert!(wencai.episodes.iter().all(|episode| episode.play_url.starts_with("guard://")));
+        let wencai_target =
+            decode_guard_play_target(&wencai.episodes[0].play_url).expect("guard play target");
+        assert_eq!(wencai_target.guard_key, "csp_JpysGuard");
         println!("wencai episodes={}", wencai.episodes.len());
         assert!(!wencai.episodes.is_empty());
 
@@ -1210,6 +1278,13 @@ mod tests {
         .await
         .expect("jpj guard detail should dispatch")
         .expect("jpj guard detail should exist");
+        assert!(jianpian
+            .episodes
+            .iter()
+            .all(|episode| episode.play_url.starts_with("guard://")));
+        let jianpian_target =
+            decode_guard_play_target(&jianpian.episodes[0].play_url).expect("guard play target");
+        assert_eq!(jianpian_target.guard_key, "csp_JPJGuard");
         println!("jianpian episodes={}", jianpian.episodes.len());
         assert!(!jianpian.episodes.is_empty());
     }

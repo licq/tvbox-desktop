@@ -1,5 +1,6 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 use crate::services::{
+    decode_guard_play_target,
     extract_auete_player_url, extract_jianpian_player_url, extract_libvio_player_url,
     extract_wencai_player_url,
 };
@@ -9,6 +10,10 @@ pub struct PlaybackResolver;
 
 impl PlaybackResolver {
     pub async fn resolve(input: &str) -> Result<ResolvedPlayback, String> {
+        if input.starts_with("guard://") {
+            return resolve_guard_play_target(input).await;
+        }
+
         if input.starts_with("drpy://") {
             return Ok(external_required(
                 "Current desktop build does not execute drpy rules directly",
@@ -50,6 +55,10 @@ impl PlaybackResolver {
 }
 
 pub fn classify_playback_target(input: &str) -> &'static str {
+    if input.starts_with("guard://") {
+        return "resolvable";
+    }
+
     if input.starts_with("drpy://")
         || input.starts_with("magnet:")
         || input.starts_with("ed2k://")
@@ -261,6 +270,33 @@ async fn resolve_auete_play_page(input: &str) -> Result<ResolvedPlayback, String
         candidates,
         error_message: None,
     })
+}
+
+async fn resolve_guard_play_target(input: &str) -> Result<ResolvedPlayback, String> {
+    let target = decode_guard_play_target(input)
+        .ok_or_else(|| "invalid guard play target".to_string())?;
+    let play_page_url = guard_play_page_url(&target)
+        .ok_or_else(|| format!("unsupported guard resolver: {}", target.guard_key))?;
+
+    match target.guard_key.as_str() {
+        "csp_JpysGuard" => resolve_wencai_play_page(&play_page_url).await,
+        "csp_JPJGuard" => resolve_jianpian_play_page(&play_page_url).await,
+        other => Err(format!("unsupported guard resolver: {}", other)),
+    }
+}
+
+fn guard_play_page_url(target: &crate::services::GuardPlayTarget) -> Option<String> {
+    match target.guard_key.as_str() {
+        "csp_JpysGuard" => Some(format!(
+            "https://www.deeyy.com/vod/play/id/{}/sid/{}/nid/{}.html",
+            target.item_id, target.source_id, target.episode_id
+        )),
+        "csp_JPJGuard" => Some(format!(
+            "https://jpvod.com/play/{}-{}-{}.html",
+            target.item_id, target.source_id, target.episode_id
+        )),
+        _ => None,
+    }
 }
 
 async fn resolve_wencai_play_page(input: &str) -> Result<ResolvedPlayback, String> {
@@ -787,12 +823,13 @@ mod tests {
         absolutize_url, classify_playback_target, detect_kind, extract_aliplayer_source,
         extract_auete_play_page_candidates, extract_hls_key_url, extract_iframe_src,
         extract_jianpian_play_page_candidates, extract_jpvod_play_page_candidates,
-        extract_wencai_play_page_candidates,
+        extract_wencai_play_page_candidates, guard_play_page_url,
         first_playlist_resource, looks_like_auete_play_page, looks_like_jianpian_play_page,
         looks_like_libvio_play_page, looks_like_wencai_play_page, looks_like_xb6v_play_page,
         looks_like_zxzj_play_page, PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
+    use crate::services::{decode_guard_play_target, encode_guard_play_target};
 
     #[tokio::test]
     async fn marks_hls_url_as_ready_candidate() {
@@ -920,6 +957,53 @@ mod tests {
         assert_eq!(
             classify_playback_target("https://jpvod.com/play/888-1-1.html"),
             "resolvable"
+        );
+    }
+
+    #[test]
+    fn classifies_guard_targets_as_resolvable() {
+        assert_eq!(
+            classify_playback_target("guard://csp_JpysGuard/%E6%96%87%E9%87%87/1419/1/1"),
+            "resolvable"
+        );
+    }
+
+    #[test]
+    fn decodes_guard_targets_for_resolution() {
+        let decoded = decode_guard_play_target(
+            "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1",
+        )
+        .expect("guard target should decode");
+        assert_eq!(decoded.guard_key, "csp_JPJGuard");
+        assert_eq!(decoded.item_id, "97910");
+    }
+
+    #[test]
+    fn builds_play_page_urls_for_guard_targets() {
+        let jpys = decode_guard_play_target(&encode_guard_play_target(
+            "csp_JpysGuard",
+            "文采",
+            "1419",
+            "1",
+            "1",
+        ))
+        .expect("jpys target should decode");
+        assert_eq!(
+            guard_play_page_url(&jpys).as_deref(),
+            Some("https://www.deeyy.com/vod/play/id/1419/sid/1/nid/1.html")
+        );
+
+        let jpj = decode_guard_play_target(&encode_guard_play_target(
+            "csp_JPJGuard",
+            "贱贱",
+            "97910",
+            "2",
+            "1",
+        ))
+        .expect("jpj target should decode");
+        assert_eq!(
+            guard_play_page_url(&jpj).as_deref(),
+            Some("https://jpvod.com/play/97910-2-1.html")
         );
     }
 
