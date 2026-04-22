@@ -12,6 +12,9 @@ pub mod wencai;
 pub mod xb6v;
 pub mod zxzj;
 
+pub use playback_types::{
+    rank_targets, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
+};
 pub use auete::{
     extract_player_url as extract_auete_player_url, is_auete_site, scrape_auete_catalog,
     scrape_auete_detail,

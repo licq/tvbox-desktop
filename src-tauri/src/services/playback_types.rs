@@ -59,32 +59,30 @@ pub fn rank_targets(
 mod tests {
     use super::{PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind, rank_targets};
 
-    #[test]
-    fn ranks_playable_direct_targets_ahead_of_resolvable_targets() {
-        let direct = PlaybackTarget {
+    fn target(kind: PlaybackTargetKind, sort_hint: i32) -> PlaybackTarget {
+        PlaybackTarget {
             episode_id: Some(1),
-            source_key: "jianpian".to_string(),
-            target_url: "https://cdn.example.com/ok/index.m3u8".to_string(),
-            target_kind: PlaybackTargetKind::Direct,
+            source_key: "source".to_string(),
+            target_url: "https://example.com/stream.m3u8".to_string(),
+            target_kind: kind,
             resolver_key: None,
             headers: None,
-            sort_hint: 0,
+            sort_hint,
             meta: None,
-        };
-        let resolvable = PlaybackTarget {
-            episode_id: Some(1),
-            source_key: "guard".to_string(),
-            target_url: "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1".to_string(),
-            target_kind: PlaybackTargetKind::Resolvable,
-            resolver_key: Some("guard".to_string()),
-            headers: None,
-            sort_hint: 0,
-            meta: None,
-        };
+        }
+    }
 
+    #[test]
+    fn ranks_playable_direct_targets_ahead_of_resolvable_targets() {
         let ranked = rank_targets(vec![
-            (resolvable, PlaybackProbeStatus::Playable),
-            (direct, PlaybackProbeStatus::Playable),
+            (
+                target(PlaybackTargetKind::Resolvable, 0),
+                PlaybackProbeStatus::Playable,
+            ),
+            (
+                target(PlaybackTargetKind::Direct, 0),
+                PlaybackProbeStatus::Playable,
+            ),
         ]);
 
         assert_eq!(ranked[0].0.target_kind, PlaybackTargetKind::Direct);
@@ -93,17 +91,39 @@ mod tests {
 
     #[test]
     fn marks_embedded_targets_as_never_playable() {
-        let embedded = PlaybackTarget {
-            episode_id: Some(2),
-            source_key: "zxzj".to_string(),
-            target_url: "https://www.zxzjhd.com/vodplay/4627-1-1.html".to_string(),
-            target_kind: PlaybackTargetKind::Embedded,
-            resolver_key: None,
-            headers: None,
-            sort_hint: 0,
-            meta: None,
-        };
+        let embedded = target(PlaybackTargetKind::Embedded, 0);
 
         assert!(!embedded.is_desktop_playable_kind());
+    }
+
+    #[test]
+    fn ranks_failed_targets_after_playable_targets() {
+        let ranked = rank_targets(vec![
+            (target(PlaybackTargetKind::Direct, 0), PlaybackProbeStatus::Failed),
+            (
+                target(PlaybackTargetKind::Resolvable, 0),
+                PlaybackProbeStatus::Playable,
+            ),
+        ]);
+
+        assert_eq!(ranked[0].1, PlaybackProbeStatus::Playable);
+        assert_eq!(ranked[1].1, PlaybackProbeStatus::Failed);
+    }
+
+    #[test]
+    fn ranks_external_required_targets_after_embedded_targets() {
+        let ranked = rank_targets(vec![
+            (
+                target(PlaybackTargetKind::ExternalRequired, 0),
+                PlaybackProbeStatus::Playable,
+            ),
+            (
+                target(PlaybackTargetKind::Embedded, 0),
+                PlaybackProbeStatus::Playable,
+            ),
+        ]);
+
+        assert_eq!(ranked[0].0.target_kind, PlaybackTargetKind::Embedded);
+        assert_eq!(ranked[1].0.target_kind, PlaybackTargetKind::ExternalRequired);
     }
 }
