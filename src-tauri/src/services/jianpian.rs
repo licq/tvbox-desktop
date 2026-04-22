@@ -277,7 +277,7 @@ pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedC
     Some(ScrapedCatalogItem {
         source_item_key: detail_url.to_string(),
         title,
-        item_type: infer_item_type(detail_url),
+        item_type: infer_item_type(detail_url, html),
         poster: None,
         summary,
         detail_json: Some(format!(r#"{{"source":"jianpian","url":"{}"}}"#, detail_url)),
@@ -319,7 +319,27 @@ fn is_play_url(play_url: &str) -> bool {
     play_url.contains("/play/") || play_url.contains("/vodplay/") || play_url.contains("/jpplay/")
 }
 
-fn infer_item_type(detail_url: &str) -> String {
+fn infer_item_type(detail_url: &str, html: &str) -> String {
+    let page_text = strip_tags(html);
+    if ["连续剧", "欧美剧", "国产剧", "香港剧", "台湾剧", "日本剧", "韩国剧", "海外剧", "泰国剧", "短剧"]
+        .iter()
+        .any(|needle| page_text.contains(needle))
+    {
+        return "series".to_string();
+    }
+    if ["综艺", "真人秀", "脱口秀"]
+        .iter()
+        .any(|needle| page_text.contains(needle))
+    {
+        return "variety".to_string();
+    }
+    if ["动漫", "动画", "番剧"]
+        .iter()
+        .any(|needle| page_text.contains(needle))
+    {
+        return "anime".to_string();
+    }
+
     let normalized = detail_url.to_lowercase();
 
     if normalized.contains("/tv/")
@@ -449,6 +469,11 @@ mod tests {
     fn parses_jianpian_vodjp_style_detail_page() {
         let html = r##"
             <h2 class="title fs-4 fw-bold">帝王计划：怪兽遗产第二季</h2>
+            <section class="section-ryhd6l web-position p-0 bg-transparent border-0 shadow-none">
+              <a href="/">首页</a>
+              <a href="/type/2.html">连续剧</a>
+              <a href="/type/17.html">欧美剧</a>
+            </section>
             <section class="section-ryhd6l vod-play-list-box vod-play-list-1 active">
               <div class="section-head-ryhd6l justify-content-start">
                 <h2 class="title">金牌资源</h2>
@@ -467,6 +492,7 @@ mod tests {
         let item = parse_detail_page("https://jpvod.com/vod/97910.html", html)
             .expect("detail should parse");
         assert_eq!(item.title, "帝王计划：怪兽遗产第二季");
+        assert_eq!(item.item_type, "series");
         assert_eq!(item.summary.as_deref(), Some("剧情简介"));
         assert_eq!(item.episodes.len(), 2);
         assert_eq!(item.episodes[0].source_name, "金牌资源");

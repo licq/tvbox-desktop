@@ -18,7 +18,6 @@ type PlayerSource = {
   url: string
   label: string
   kind: 'hls' | 'http' | 'external' | 'embed'
-  headers?: Record<string, string>
 }
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -67,8 +66,7 @@ onMounted(async () => {
     sources.value = resolved.candidates.map(candidate => ({
       url: candidate.url,
       label: candidate.label,
-      kind: candidate.kind,
-      headers: candidate.headers
+      kind: candidate.kind
     }))
     currentSourceIndex.value = 0
 
@@ -200,10 +198,10 @@ async function playSource(source: PlayerSource) {
     return
   }
 
-  initHlsPlayer(url, source.headers)
+  initHlsPlayer(url)
 }
 
-function initHlsPlayer(url: string, headers?: Record<string, string>) {
+function initHlsPlayer(url: string) {
   if (!videoRef.value) return
 
   if (hlsInstance) {
@@ -213,14 +211,7 @@ function initHlsPlayer(url: string, headers?: Record<string, string>) {
 
   if (url.includes('.m3u8')) {
     if (Hls.isSupported()) {
-      const hls = new Hls({
-        xhrSetup: (xhr) => {
-          if (!headers) return
-          Object.entries(headers).forEach(([key, value]) => {
-            xhr.setRequestHeader(key, value)
-          })
-        }
-      })
+      const hls = new Hls()
       hlsInstance = hls
       hls.loadSource(url)
       hls.attachMedia(videoRef.value)

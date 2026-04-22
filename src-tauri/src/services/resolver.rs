@@ -775,10 +775,21 @@ async fn probe_binary_resource(
         .map_err(|e| e.to_string())?;
 
     if response.status().is_success() || response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+        if !has_browser_cors(&response) {
+            return Err("resource probe missing browser CORS headers".to_string());
+        }
         Ok(())
     } else {
         Err(format!("resource probe failed: {}", response.status()))
     }
+}
+
+fn has_browser_cors(response: &reqwest::Response) -> bool {
+    response
+        .headers()
+        .get("Access-Control-Allow-Origin")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| !value.trim().is_empty())
 }
 
 fn build_client() -> Result<reqwest::Client, String> {
