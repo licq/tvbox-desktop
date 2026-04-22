@@ -32,7 +32,7 @@ impl PlaybackProbeResult {
             manifest_ok: true,
             segment_ok: true,
             cors_ok: true,
-            http_status: Some(200),
+            http_status: None,
             failure_reason: None,
         }
     }
@@ -180,7 +180,7 @@ mod tests {
         assert!(probe.manifest_ok);
         assert!(probe.segment_ok);
         assert!(probe.cors_ok);
-        assert_eq!(probe.http_status, Some(200));
+        assert_eq!(probe.http_status, None);
         assert_eq!(probe.failure_reason, None);
     }
 

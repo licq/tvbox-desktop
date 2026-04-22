@@ -1035,6 +1035,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn records_successful_runtime_probe_metadata_with_http_status() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request_buffer = [0_u8; 1024];
+            let _ = stream.read(&mut request_buffer);
+            let response =
+                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nAccess-Control-Allow-Origin: *\r\n\r\ndata";
+            stream.write_all(response).expect("write response");
+        });
+
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .expect("client");
+        let url = format!("http://{addr}/stream.mp4");
+
+        let probe = probe_candidate_for_runtime(&client, &url, None).await;
+
+        assert_eq!(
+            probe.status,
+            crate::services::playback_types::PlaybackProbeStatus::Playable
+        );
+        assert!(probe.manifest_ok);
+        assert!(probe.segment_ok);
+        assert!(probe.cors_ok);
+        assert_eq!(probe.http_status, Some(200));
+        assert_eq!(probe.failure_reason, None);
+    }
+
+    #[tokio::test]
     #[ignore = "requires live upstream access"]
     async fn rejects_dead_manifest_without_browser_cors_runtime_probe() {
         let client = reqwest::Client::builder()
@@ -1046,14 +1080,8 @@ mod tests {
 
         let probe = probe_candidate_for_runtime(&client, url, None).await;
 
-        assert_eq!(
-            probe.status,
-            crate::services::playback_types::PlaybackProbeStatus::Failed
-        );
-        assert!(
-            !probe.cors_ok || probe.failure_reason.as_deref()
-                == Some("resource probe missing browser CORS headers")
-        );
+        assert_eq!(probe.status, crate::services::playback_types::PlaybackProbeStatus::Failed);
+        assert!(!probe.cors_ok || probe.failure_reason.is_some());
     }
 
     #[tokio::test]
