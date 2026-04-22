@@ -1035,6 +1035,28 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live upstream access"]
+    async fn rejects_dead_manifest_without_browser_cors_runtime_probe() {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .expect("client");
+        let url = "https://vip.dytt-kan.com/20260320/12512_74a8f422/index.m3u8";
+
+        let probe = probe_candidate_for_runtime(&client, url, None).await;
+
+        assert_eq!(
+            probe.status,
+            crate::services::playback_types::PlaybackProbeStatus::Failed
+        );
+        assert!(
+            !probe.cors_ok || probe.failure_reason.as_deref()
+                == Some("resource probe missing browser CORS headers")
+        );
+    }
+
+    #[tokio::test]
     #[ignore = "requires a live upstream failure response"]
     async fn rejects_dead_direct_hls_links() {
         let url = "https://vip.dytt-kan.com/20260320/12512_74a8f422/index.m3u8";
