@@ -63,6 +63,11 @@ pub fn parse_jpys_detail_payload(
         .get("vod_content")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let item_type = entry
+        .get("type_name")
+        .and_then(Value::as_str)
+        .map(infer_item_type)
+        .unwrap_or("movie");
     let play_from = entry.get("vod_play_from")?.as_str()?;
     let play_url = entry.get("vod_play_url")?.as_str()?;
 
@@ -88,11 +93,7 @@ pub fn parse_jpys_detail_payload(
             else {
                 continue;
             };
-            let mut ids = encoded.split('-');
-            let Some(source_id) = ids.next().filter(|value| !value.is_empty()) else {
-                continue;
-            };
-            let Some(episode_id) = ids.next().filter(|value| !value.is_empty()) else {
+            let Some((source_id, episode_id)) = split_guard_episode_token(encoded) else {
                 continue;
             };
 
@@ -103,8 +104,8 @@ pub fn parse_jpys_detail_payload(
                     "csp_JpysGuard",
                     site_key,
                     item_id,
-                    source_id,
-                    episode_id,
+                    &source_id,
+                    &episode_id,
                 ),
                 order_index: episodes.len() as i64,
             });
@@ -114,12 +115,12 @@ pub fn parse_jpys_detail_payload(
     Some(ScrapedCatalogItem {
         source_item_key: format!("guard:{}:{}", site_key, item_id),
         title,
-        item_type: "movie".to_string(),
+        item_type: item_type.to_string(),
         poster,
         summary,
         detail_json: Some(format!(
-            r#"{{"source":"guard","guard_key":"csp_JpysGuard","site_key":"{}","item_id":"{}","item_type":"movie"}}"#,
-            site_key, item_id
+            r#"{{"source":"guard","guard_key":"csp_JpysGuard","site_key":"{}","item_id":"{}","item_type":"{}"}}"#,
+            site_key, item_id, item_type
         )),
         episodes,
     })
@@ -127,12 +128,73 @@ pub fn parse_jpys_detail_payload(
 
 pub fn parse_jpys_play_payload(payload: &str) -> Option<String> {
     let root: Value = serde_json::from_str(payload).ok()?;
-    root.get("url").and_then(Value::as_str).map(str::to_string)
+    let url = root.get("url").and_then(Value::as_str)?.trim();
+    if !is_playable_media_url(url) {
+        return None;
+    }
+
+    Some(url.to_string())
+}
+
+fn split_guard_episode_token(token: &str) -> Option<(String, String)> {
+    let mut segments = token
+        .split('-')
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let source_id = segments.next()?.to_string();
+    let remainder: Vec<_> = segments.collect();
+    if remainder.is_empty() {
+        return None;
+    }
+
+    Some((source_id, remainder.join("-")))
+}
+
+fn infer_item_type(type_name: &str) -> &'static str {
+    if ["剧", "连续剧", "电视剧", "短剧"]
+        .iter()
+        .any(|needle| type_name.contains(needle))
+    {
+        "series"
+    } else if ["综艺", "真人秀", "脱口秀"]
+        .iter()
+        .any(|needle| type_name.contains(needle))
+    {
+        "variety"
+    } else if ["动漫", "动画", "番剧"]
+        .iter()
+        .any(|needle| type_name.contains(needle))
+    {
+        "anime"
+    } else {
+        "movie"
+    }
+}
+
+fn is_playable_media_url(url: &str) -> bool {
+    let normalized = url.trim().to_lowercase();
+    if !(normalized.starts_with("http://") || normalized.starts_with("https://")) {
+        return false;
+    }
+    if [
+        "pan.baidu.com",
+        "drive.uc.cn",
+        "pan.quark.cn",
+        "aliyundrive.com",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+    {
+        return false;
+    }
+
+    normalized.contains(".m3u8") || normalized.contains(".mp4")
 }
 
 #[cfg(test)]
 mod tests {
     use super::{parse_jpys_detail_payload, parse_jpys_list_payload, parse_jpys_play_payload};
+    use crate::services::guard::decode_guard_play_target;
 
     #[test]
     fn parses_jpys_category_list() {
@@ -168,12 +230,56 @@ mod tests {
         assert_eq!(detail.title, "复仇双雄");
         assert_eq!(detail.episodes.len(), 3);
         assert!(detail.episodes[0].play_url.starts_with("guard://"));
+        assert_ne!(detail.episodes[0].play_url, detail.episodes[1].play_url);
+
+        let first = decode_guard_play_target(&detail.episodes[0].play_url).expect("decode first");
+        let second = decode_guard_play_target(&detail.episodes[1].play_url).expect("decode second");
+        assert_eq!(first.source_id, "1");
+        assert_eq!(first.episode_id, "1-1");
+        assert_eq!(second.source_id, "1");
+        assert_eq!(second.episode_id, "1-2");
     }
 
     #[test]
-    fn parses_jpys_play_payload() {
+    fn infers_non_movie_item_type_for_detail_payload() {
+        let payload = r#"{
+          "list":[
+            {
+              "vod_id":"2001",
+              "vod_name":"厨房秘事",
+              "vod_pic":"https://img.example.com/series.jpg",
+              "vod_content":"剧集简介",
+              "type_name":"电视剧",
+              "vod_play_from":"线路A",
+              "vod_play_url":"第1集$2-1-1"
+            }
+          ]
+        }"#;
+
+        let detail =
+            parse_jpys_detail_payload("文采", "2001", payload).expect("detail should parse");
+        assert_eq!(detail.item_type, "series");
+        assert_eq!(
+            detail.detail_json.as_deref(),
+            Some(
+                r#"{"source":"guard","guard_key":"csp_JpysGuard","site_key":"文采","item_id":"2001","item_type":"series"}"#
+            )
+        );
+    }
+
+    #[test]
+    fn parses_jpys_play_payload_for_playable_media() {
         let payload = r#"{"url":"https://media.example.com/demo/index.m3u8"}"#;
         let resolved = parse_jpys_play_payload(payload).expect("play payload should parse");
         assert_eq!(resolved, "https://media.example.com/demo/index.m3u8");
+    }
+
+    #[test]
+    fn rejects_non_playable_or_external_required_jpys_play_payloads() {
+        let external = r#"{"url":"https://pan.baidu.com/s/1-demo"}"#;
+        let html_page = r#"{"url":"https://media.example.com/player/share?id=42"}"#;
+
+        assert_eq!(parse_jpys_play_payload(external), None);
+        assert_eq!(parse_jpys_play_payload(html_page), None);
     }
 }
