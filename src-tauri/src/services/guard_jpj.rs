@@ -37,6 +37,7 @@ pub fn parse_jpj_detail_payload(
     let title = string_field(entry, "title")?.to_string();
     let poster = optional_string_field(entry, "cover");
     let summary = optional_string_field(entry, "intro");
+    let item_type = infer_item_type(entry);
     let mut episodes = Vec::new();
 
     for source in entry.get("play_sources")?.as_array()? {
@@ -75,12 +76,12 @@ pub fn parse_jpj_detail_payload(
     Some(ScrapedCatalogItem {
         source_item_key: format!("guard:{}:{}", site_key, item_id),
         title,
-        item_type: "movie".to_string(),
+        item_type: item_type.to_string(),
         poster,
         summary,
         detail_json: Some(format!(
-            r#"{{"source":"guard","guard_key":"csp_JPJGuard","site_key":"{}","item_id":"{}","item_type":"movie"}}"#,
-            site_key, item_id
+            r#"{{"source":"guard","guard_key":"csp_JPJGuard","site_key":"{}","item_id":"{}","item_type":"{}"}}"#,
+            site_key, item_id, item_type
         )),
         episodes,
     })
@@ -137,9 +138,42 @@ fn is_playable_media_url(url: &str) -> bool {
     normalized.contains(".m3u8") || normalized.contains(".mp4")
 }
 
+fn infer_item_type(entry: &Value) -> &'static str {
+    let type_hints = [
+        string_field(entry, "type_name"),
+        string_field(entry, "category"),
+        string_field(entry, "channel"),
+        string_field(entry, "class"),
+    ];
+
+    for value in type_hints.into_iter().flatten() {
+        if ["剧", "连续剧", "电视剧", "短剧"]
+            .iter()
+            .any(|needle| value.contains(needle))
+        {
+            return "series";
+        }
+        if ["综艺", "真人秀", "脱口秀"]
+            .iter()
+            .any(|needle| value.contains(needle))
+        {
+            return "variety";
+        }
+        if ["动漫", "动画", "番剧"]
+            .iter()
+            .any(|needle| value.contains(needle))
+        {
+            return "anime";
+        }
+    }
+
+    "movie"
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_jpj_detail_payload, parse_jpj_list_payload, parse_jpj_play_payload};
+    use crate::services::guard::decode_guard_play_target;
 
     #[test]
     fn parses_jpj_category_list() {
@@ -163,6 +197,7 @@ mod tests {
             "title":"龙之家族 第二季",
             "cover":"https://img.example.com/b.jpg",
             "intro":"剧情简介",
+            "type_name":"电视剧",
             "play_sources":[
               {"id":"1","name":"荐片A","episodes":[{"id":"1","name":"第01集"},{"id":"2","name":"第02集"}]}
             ]
@@ -171,8 +206,41 @@ mod tests {
 
         let detail = parse_jpj_detail_payload("贱贱", "71483", payload).expect("detail should parse");
         assert_eq!(detail.title, "龙之家族 第二季");
+        assert_eq!(detail.item_type, "series");
+        assert_eq!(
+            detail.detail_json.as_deref(),
+            Some(r#"{"source":"guard","guard_key":"csp_JPJGuard","site_key":"贱贱","item_id":"71483","item_type":"series"}"#)
+        );
         assert_eq!(detail.episodes.len(), 2);
-        assert!(detail.episodes[0].play_url.starts_with("guard://"));
+        let decoded = decode_guard_play_target(&detail.episodes[0].play_url).expect("decode guard target");
+        assert_eq!(decoded.guard_key, "csp_JPJGuard");
+        assert_eq!(decoded.site_key, "贱贱");
+        assert_eq!(decoded.item_id, "71483");
+        assert_eq!(decoded.source_id, "1");
+        assert_eq!(decoded.episode_id, "1");
+    }
+
+    #[test]
+    fn infers_non_movie_item_type_for_detail_payload() {
+        let payload = r#"{
+          "data":{
+            "id":"3301",
+            "title":"爆笑喜剧人",
+            "cover":"https://img.example.com/v.jpg",
+            "intro":"综艺简介",
+            "category":"综艺",
+            "play_sources":[
+              {"id":"7","name":"荐片综艺","episodes":[{"id":"11","name":"2026-04-20"}]}
+            ]
+          }
+        }"#;
+
+        let detail = parse_jpj_detail_payload("贱贱", "3301", payload).expect("detail should parse");
+        assert_eq!(detail.item_type, "variety");
+        assert_eq!(
+            detail.detail_json.as_deref(),
+            Some(r#"{"source":"guard","guard_key":"csp_JPJGuard","site_key":"贱贱","item_id":"3301","item_type":"variety"}"#)
+        );
     }
 
     #[test]
@@ -180,5 +248,16 @@ mod tests {
         let payload = r#"{"data":{"url":"https://media.example.com/demo.mp4"}}"#;
         let resolved = parse_jpj_play_payload(payload).expect("play payload should parse");
         assert_eq!(resolved, "https://media.example.com/demo.mp4");
+    }
+
+    #[test]
+    fn rejects_non_playable_jpj_play_payloads() {
+        let pan_payload = r#"{"data":{"url":"https://pan.baidu.com/s/1example"}}"#;
+        let shell_payload = r#"{"data":{"url":"https://www.vodjp.com/jpvod/71483.html"}}"#;
+        let relative_payload = r#"{"data":{"url":"/player/71483-1-1.html"}}"#;
+
+        assert_eq!(parse_jpj_play_payload(pan_payload), None);
+        assert_eq!(parse_jpj_play_payload(shell_payload), None);
+        assert_eq!(parse_jpj_play_payload(relative_payload), None);
     }
 }
