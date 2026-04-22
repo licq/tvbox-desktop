@@ -70,17 +70,27 @@ pub(crate) fn parse_listing_page(
 }
 
 pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedCatalogItem> {
-    let title_regex = Regex::new(r#"<h1[^>]*>([^<]+)</h1>"#).unwrap();
+    let title_regex = Regex::new(r#"(?s)<h[13][^>]*>(.*?)</h[13]>"#).unwrap();
     let section_regex = Regex::new(
         r#"(?s)<div class="switch-box-item"[^>]*>(.*?)</div>\s*<div class="anthology-list-box"[^>]*>(.*?)</div>"#,
     )
     .unwrap();
     let anchor_regex = Regex::new(r#"<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+    let tab_regex =
+        Regex::new(r##"(?s)<li[^>]*>\s*<a href="#([^"]+)"[^>]*>([^<]+)</a>\s*</li>"##).unwrap();
+    let playlist_regex = Regex::new(
+        r#"(?s)<div id="([^"]+)"[^>]*>\s*<ul class="stui-content__playlist[^"]*"[^>]*>(.*?)</ul>"#,
+    )
+    .unwrap();
+
+    let score_regex = Regex::new(r#"(?s)<span[^>]*class="[^"]*score[^"]*"[^>]*>.*?</span>"#).unwrap();
 
     let title = title_regex
         .captures(html)
         .and_then(|capture| capture.get(1))
-        .map(|value| html_escape_decode(value.as_str()).trim().to_string())?;
+        .map(|value| score_regex.replace_all(value.as_str(), "").to_string())
+        .map(|value| strip_tags(&value))
+        .map(|value| html_escape_decode(&value).trim().to_string())?;
 
     let mut episodes = Vec::new();
     let mut seen = HashSet::new();
@@ -95,7 +105,10 @@ pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedC
         if is_external_source(&source_name) {
             continue;
         }
-        let body = section.get(2).map(|value| value.as_str()).unwrap_or_default();
+        let body = section
+            .get(2)
+            .map(|value| value.as_str())
+            .unwrap_or_default();
 
         for anchor in anchor_regex.captures_iter(body) {
             let Some(href) = anchor.get(1).map(|value| value.as_str()) else {
@@ -118,6 +131,60 @@ pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedC
                 play_url,
                 order_index: episodes.len() as i64,
             });
+        }
+    }
+
+    if episodes.is_empty() {
+        let mut playlists = std::collections::HashMap::new();
+        for playlist in playlist_regex.captures_iter(html) {
+            let Some(playlist_id) = playlist.get(1).map(|value| value.as_str().to_string()) else {
+                continue;
+            };
+            let Some(body) = playlist.get(2).map(|value| value.as_str().to_string()) else {
+                continue;
+            };
+            playlists.insert(playlist_id, body);
+        }
+
+        for tab in tab_regex.captures_iter(html) {
+            let Some(playlist_id) = tab.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(source_name) = tab
+                .get(2)
+                .map(|value| html_escape_decode(value.as_str()).trim().to_string())
+            else {
+                continue;
+            };
+            if is_external_source(&source_name) {
+                continue;
+            }
+            let Some(body) = playlists.get(playlist_id) else {
+                continue;
+            };
+
+            for anchor in anchor_regex.captures_iter(body) {
+                let Some(href) = anchor.get(1).map(|value| value.as_str()) else {
+                    continue;
+                };
+                let play_url = absolutize_url(detail_url, href);
+                if !is_play_url(&play_url) || !seen.insert(play_url.clone()) {
+                    continue;
+                }
+                let Some(episode_label) = anchor
+                    .get(2)
+                    .map(|value| html_escape_decode(value.as_str()).trim().to_string())
+                else {
+                    continue;
+                };
+
+                episodes.push(ScrapedCatalogEpisode {
+                    source_name: source_name.clone(),
+                    episode_label,
+                    play_url,
+                    order_index: episodes.len() as i64,
+                });
+            }
         }
     }
 
@@ -163,7 +230,7 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 }
 
 fn is_play_url(play_url: &str) -> bool {
-    play_url.contains("/play/") || play_url.contains("/vodplay/")
+    play_url.contains("/play/") || play_url.contains("/vodplay/") || play_url.contains("/jpplay/")
 }
 
 fn infer_item_type(detail_url: &str) -> String {
@@ -203,6 +270,10 @@ fn html_escape_decode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{extract_player_url, parse_detail_page, parse_listing_page};
+    use reqwest::Client;
+    use std::time::Duration;
+
+    const DEFAULT_JIANPIAN_DETAIL_URL: &str = "https://www.vodjp.com/jpvod/71483.html";
 
     #[test]
     fn parses_jianpian_listing_entries() {
@@ -219,12 +290,18 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].title, "示例电影");
         assert_eq!(entries[0].item_type, "movie");
-        assert_eq!(entries[0].detail_url, "https://www.jianpian.example/voddetail/123.html");
+        assert_eq!(
+            entries[0].detail_url,
+            "https://www.jianpian.example/voddetail/123.html"
+        );
         assert_eq!(
             entries[0].poster.as_deref(),
             Some("https://img.example.com/poster.jpg")
         );
-        assert_eq!(entries[1].detail_url, "https://www.jianpian.example/voddetail/456.html");
+        assert_eq!(
+            entries[1].detail_url,
+            "https://www.jianpian.example/voddetail/456.html"
+        );
     }
 
     #[test]
@@ -253,10 +330,36 @@ mod tests {
         assert_eq!(item.item_type, "movie");
         assert_eq!(item.episodes.len(), 3);
         assert_eq!(item.episodes[0].source_name, "荐片线路A");
-        assert_eq!(item.episodes[0].play_url, "https://www.jianpian.example/play/123-1-1.html");
+        assert_eq!(
+            item.episodes[0].play_url,
+            "https://www.jianpian.example/play/123-1-1.html"
+        );
         assert_eq!(
             item.episodes[2].play_url,
             "https://www.jianpian.example/vodplay/123-2-1.html"
+        );
+    }
+
+    #[test]
+    fn parses_jianpian_vodjp_style_detail_page() {
+        let html = r##"
+            <h3 class="title">哪吒之魔童闹海<span class="score text-red">8.0</span></h3>
+            <li><a href="#playlist1" data-toggle="tab">索尼</a></li>
+            <div id="playlist1" class="tab-pane fade in active clearfix">
+              <ul class="stui-content__playlist playlink clearfix">
+                <li><a href="/jpplay/71483-1-1.html">HD</a></li>
+              </ul>
+            </div>
+        "##;
+
+        let item = parse_detail_page("https://www.vodjp.com/jpvod/71483.html", html)
+            .expect("detail should parse");
+        assert_eq!(item.title, "哪吒之魔童闹海");
+        assert_eq!(item.episodes.len(), 1);
+        assert_eq!(item.episodes[0].source_name, "索尼");
+        assert_eq!(
+            item.episodes[0].play_url,
+            "https://www.vodjp.com/jpplay/71483-1-1.html"
         );
     }
 
@@ -267,5 +370,38 @@ mod tests {
             extract_player_url(html).as_deref(),
             Some("https://media.example.com/demo/index.m3u8")
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live network and DNS access"]
+    async fn scrapes_real_jianpian_detail_page() {
+        let url = std::env::var("JIANPIAN_DETAIL_URL")
+            .unwrap_or_else(|_| DEFAULT_JIANPIAN_DETAIL_URL.to_string());
+        let html = fetch_live_html(&url).await;
+        let item = parse_detail_page(&url, &html).expect("jianpian detail should parse");
+        println!("jianpian url={url} episodes={}", item.episodes.len());
+        assert!(
+            !item.episodes.is_empty(),
+            "expected jianpian detail to produce episodes"
+        );
+    }
+
+    async fn fetch_live_html(url: &str) -> String {
+        Client::builder()
+            .no_proxy()
+            .http1_only()
+            .timeout(Duration::from_secs(60))
+            .user_agent("Mozilla/5.0")
+            .build()
+            .expect("client should build")
+            .get(url)
+            .send()
+            .await
+            .expect("request should succeed")
+            .error_for_status()
+            .expect("response should be successful")
+            .text()
+            .await
+            .expect("body should decode")
     }
 }
