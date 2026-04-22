@@ -2,6 +2,8 @@ use crate::services::tvbox::TvboxSiteRecord;
 
 #[path = "guard_jpys.rs"]
 pub mod guard_jpys;
+#[path = "guard_jpj.rs"]
+pub mod guard_jpj;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardPlayTarget {
