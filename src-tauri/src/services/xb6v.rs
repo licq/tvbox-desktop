@@ -1,6 +1,14 @@
 use crate::services::auete::{is_auete_site, scrape_auete_catalog, scrape_auete_detail};
+use crate::services::jianpian::{
+    is_jianpian_site, parse_detail_page as parse_jianpian_detail_page,
+    parse_listing_page as parse_jianpian_listing_page, JianpianListingEntry,
+};
 use crate::services::libvio::{is_libvio_site, scrape_libvio_catalog, scrape_libvio_detail};
 use crate::services::tvbox::TvboxSiteRecord;
+use crate::services::wencai::{
+    is_wencai_site, parse_detail_page as parse_wencai_detail_page,
+    parse_listing_page as parse_wencai_listing_page, WencaiListingEntry,
+};
 use crate::services::zxzj::{is_zxzj_site, scrape_zxzj_catalog, scrape_zxzj_detail};
 use regex::Regex;
 use serde_json::Value;
@@ -49,6 +57,12 @@ pub async fn scrape_supported_tvbox_catalogs(
     if sites.iter().any(is_zxzj_site) {
         items.extend(scrape_zxzj_catalog().await?);
     }
+    if sites.iter().any(is_wencai_site) {
+        items.extend(scrape_wencai_catalog(sites).await?);
+    }
+    if sites.iter().any(is_jianpian_site) {
+        items.extend(scrape_jianpian_catalog(sites).await?);
+    }
     Ok(items)
 }
 
@@ -87,6 +101,24 @@ pub async fn scrape_catalog_detail_from_json(
         }
         "zxzj" => {
             let mut item = scrape_zxzj_detail(url).await?;
+            if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
+                if let Some(item) = item.as_mut() {
+                    item.item_type = expected_type.to_string();
+                }
+            }
+            Ok(item)
+        }
+        "wencai" => {
+            let mut item = scrape_wencai_detail(url).await?;
+            if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
+                if let Some(item) = item.as_mut() {
+                    item.item_type = expected_type.to_string();
+                }
+            }
+            Ok(item)
+        }
+        "jianpian" => {
+            let mut item = scrape_jianpian_detail(url).await?;
             if let Some(expected_type) = detail.get("item_type").and_then(|value| value.as_str()) {
                 if let Some(item) = item.as_mut() {
                     item.item_type = expected_type.to_string();
@@ -181,6 +213,70 @@ async fn scrape_xb6v_detail(detail_url: &str) -> Result<Option<ScrapedCatalogIte
     Ok(parse_detail_page(detail_url, &html, &entry))
 }
 
+pub async fn scrape_wencai_catalog(
+    sites: &[TvboxSiteRecord],
+) -> Result<Vec<ScrapedCatalogItem>, String> {
+    let client = build_client()?;
+    let pages = collect_site_roots(sites, is_wencai_site)
+        .into_iter()
+        .flat_map(|root| {
+            [
+                ("movie".to_string(), root.clone()),
+                ("series".to_string(), format!("{root}dianshiju/")),
+                ("variety".to_string(), format!("{root}zongyi/")),
+                ("anime".to_string(), format!("{root}dongman/")),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    scrape_shallow_catalog_pages(
+        &client,
+        pages,
+        parse_wencai_listing_page,
+        shallow_item_from_wencai_entry,
+    )
+    .await
+}
+
+pub async fn scrape_wencai_detail(detail_url: &str) -> Result<Option<ScrapedCatalogItem>, String> {
+    let client = build_client()?;
+    let html = fetch_text(&client, detail_url).await?;
+    Ok(parse_wencai_detail_page(detail_url, &html))
+}
+
+pub async fn scrape_jianpian_catalog(
+    sites: &[TvboxSiteRecord],
+) -> Result<Vec<ScrapedCatalogItem>, String> {
+    let client = build_client()?;
+    let pages = collect_site_roots(sites, is_jianpian_site)
+        .into_iter()
+        .flat_map(|root| {
+            [
+                ("movie".to_string(), format!("{root}type/1.html")),
+                ("series".to_string(), format!("{root}type/2.html")),
+                ("variety".to_string(), format!("{root}type/3.html")),
+                ("anime".to_string(), format!("{root}type/4.html")),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    scrape_shallow_catalog_pages(
+        &client,
+        pages,
+        parse_jianpian_listing_page,
+        shallow_item_from_jianpian_entry,
+    )
+    .await
+}
+
+pub async fn scrape_jianpian_detail(
+    detail_url: &str,
+) -> Result<Option<ScrapedCatalogItem>, String> {
+    let client = build_client()?;
+    let html = fetch_text(&client, detail_url).await?;
+    Ok(parse_jianpian_detail_page(detail_url, &html))
+}
+
 fn build_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .no_proxy()
@@ -188,6 +284,33 @@ fn build_client() -> Result<reqwest::Client, String> {
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| e.to_string())
+}
+
+async fn scrape_shallow_catalog_pages<Entry, ParseListing, BuildItem>(
+    client: &reqwest::Client,
+    pages: Vec<(String, String)>,
+    parse_listing: ParseListing,
+    build_item: BuildItem,
+) -> Result<Vec<ScrapedCatalogItem>, String>
+where
+    Entry: Clone,
+    ParseListing: Fn(&str, &str, &str) -> Vec<Entry>,
+    BuildItem: Fn(Entry) -> ScrapedCatalogItem,
+{
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+
+    for (item_type, page_url) in pages {
+        let html = fetch_text(client, &page_url).await?;
+        for entry in parse_listing(&page_url, &item_type, &html) {
+            let item = build_item(entry);
+            if seen.insert(item.source_item_key.clone()) {
+                items.push(item);
+            }
+        }
+    }
+
+    Ok(items)
 }
 
 async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
@@ -201,6 +324,48 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, Strin
         .await
         .map_err(|e| e.to_string())?;
     response.text().await.map_err(|e| e.to_string())
+}
+
+fn collect_site_roots(
+    sites: &[TvboxSiteRecord],
+    matcher: fn(&TvboxSiteRecord) -> bool,
+) -> Vec<String> {
+    let mut roots = Vec::new();
+    let mut seen = HashSet::new();
+
+    for site in sites.iter().filter(|site| matcher(site)) {
+        for candidate in [
+            site.ext.as_deref(),
+            site.api.as_deref(),
+            extract_first_url(&site.raw_json).as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let normalized = normalize_site_root(candidate);
+            if seen.insert(normalized.clone()) {
+                roots.push(normalized);
+            }
+        }
+    }
+
+    roots
+}
+
+fn normalize_site_root(candidate: &str) -> String {
+    let trimmed = candidate.trim();
+    if trimmed.ends_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
+fn extract_first_url(raw_json: &str) -> Option<String> {
+    let regex = Regex::new(r#"https?://[^"'\s,}]+""#).unwrap();
+    regex
+        .find(raw_json)
+        .map(|matched| matched.as_str().trim_end_matches('"').to_string())
 }
 
 async fn fetch_detail_item(
@@ -388,10 +553,43 @@ fn html_escape_decode(value: &str) -> String {
         .replace("&gt;", ">")
 }
 
+fn shallow_item_from_wencai_entry(entry: WencaiListingEntry) -> ScrapedCatalogItem {
+    let item_type = entry.item_type.clone();
+    ScrapedCatalogItem {
+        source_item_key: entry.detail_url.clone(),
+        title: entry.title,
+        item_type: item_type.clone(),
+        poster: entry.poster,
+        summary: None,
+        detail_json: Some(format!(
+            r#"{{"source":"wencai","url":"{}","item_type":"{}"}}"#,
+            entry.detail_url, item_type
+        )),
+        episodes: Vec::new(),
+    }
+}
+
+fn shallow_item_from_jianpian_entry(entry: JianpianListingEntry) -> ScrapedCatalogItem {
+    let item_type = entry.item_type.clone();
+    ScrapedCatalogItem {
+        source_item_key: entry.detail_url.clone(),
+        title: entry.title,
+        item_type: item_type.clone(),
+        poster: entry.poster,
+        summary: None,
+        detail_json: Some(format!(
+            r#"{{"source":"jianpian","url":"{}","item_type":"{}"}}"#,
+            entry.detail_url, item_type
+        )),
+        episodes: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        infer_item_type, parse_detail_page, parse_listing_page, parse_play_episodes, ListingEntry,
+        collect_site_roots, infer_item_type, parse_detail_page, parse_listing_page,
+        parse_play_episodes, ListingEntry,
     };
 
     #[test]
@@ -489,6 +687,48 @@ mod tests {
         assert_eq!(
             infer_item_type("https://www.xb6v.com/juqingpian/28598.html"),
             "movie"
+        );
+    }
+
+    #[test]
+    fn selects_wencai_source_from_tvbox_sites() {
+        let site = crate::services::tvbox::TvboxSiteRecord {
+            site_key: "文采".to_string(),
+            site_name: "💮文采┃秒播".to_string(),
+            api: None,
+            ext: Some("https://www.wencai.example/".to_string()),
+            searchable: true,
+            quick_search: false,
+            filterable: false,
+            source_type: "custom".to_string(),
+            raw_json: "{}".to_string(),
+        };
+
+        assert!(crate::services::is_wencai_site(&site));
+        assert_eq!(
+            collect_site_roots(&[site], crate::services::is_wencai_site),
+            vec!["https://www.wencai.example/".to_string()]
+        );
+    }
+
+    #[test]
+    fn selects_jianpian_source_from_tvbox_sites() {
+        let site = crate::services::tvbox::TvboxSiteRecord {
+            site_key: "荐片".to_string(),
+            site_name: "⚔️荐片┃手机".to_string(),
+            api: None,
+            ext: Some("https://www.jianpian.example".to_string()),
+            searchable: true,
+            quick_search: false,
+            filterable: false,
+            source_type: "custom".to_string(),
+            raw_json: "{}".to_string(),
+        };
+
+        assert!(crate::services::is_jianpian_site(&site));
+        assert_eq!(
+            collect_site_roots(&[site], crate::services::is_jianpian_site),
+            vec!["https://www.jianpian.example/".to_string()]
         );
     }
 }
