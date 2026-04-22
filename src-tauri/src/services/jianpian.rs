@@ -4,10 +4,10 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct JianpianListingEntry {
-    title: String,
-    detail_url: String,
-    item_type: String,
-    poster: Option<String>,
+    pub title: String,
+    pub detail_url: String,
+    pub item_type: String,
+    pub poster: Option<String>,
 }
 
 pub fn is_jianpian_site(site: &crate::services::tvbox::TvboxSiteRecord) -> bool {
@@ -28,7 +28,7 @@ pub(crate) fn parse_listing_page(
     let anchor_regex = Regex::new(r#"(?s)<a class="public-list-exp"([^>]*)>(.*?)</a>"#).unwrap();
     let href_regex = Regex::new(r#"href="([^"]+)""#).unwrap();
     let title_regex = Regex::new(r#"title="([^"]+)""#).unwrap();
-    let poster_regex = Regex::new(r#"(?:data-original|src)="([^"]+)""#).unwrap();
+    let poster_regex = Regex::new(r#"(?:data-original|data-src|src)="([^"]+)""#).unwrap();
 
     anchor_regex
         .captures_iter(html)
@@ -36,18 +36,24 @@ pub(crate) fn parse_listing_page(
             let attrs = capture.get(1)?.as_str();
             let body = capture.get(2)?.as_str();
 
-            let href = href_regex
+            let Some(href) = href_regex
                 .captures(attrs)
                 .and_then(|capture| capture.get(1))
-                .map(|value| value.as_str())?;
+                .map(|value| value.as_str())
+            else {
+                return None;
+            };
             if !href.contains("/voddetail/") && !href.contains("/detail/") {
                 return None;
             }
 
-            let title = title_regex
+            let Some(title) = title_regex
                 .captures(attrs)
                 .and_then(|capture| capture.get(1))
-                .map(|value| html_escape_decode(value.as_str()).trim().to_string())?;
+                .map(|value| html_escape_decode(value.as_str()).trim().to_string())
+            else {
+                return None;
+            };
             let poster = poster_regex
                 .captures(body)
                 .and_then(|capture| capture.get(1))
@@ -64,7 +70,7 @@ pub(crate) fn parse_listing_page(
 }
 
 pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedCatalogItem> {
-    let title_regex = Regex::new(r#"<h1 class="title">([^<]+)</h1>"#).unwrap();
+    let title_regex = Regex::new(r#"<h1[^>]*>([^<]+)</h1>"#).unwrap();
     let section_regex = Regex::new(
         r#"(?s)<div class="switch-box-item"[^>]*>(.*?)</div>\s*<div class="anthology-list-box"[^>]*>(.*?)</div>"#,
     )
@@ -79,24 +85,32 @@ pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedC
     let mut episodes = Vec::new();
     let mut seen = HashSet::new();
     for section in section_regex.captures_iter(html) {
-        let source_name = section
+        let Some(source_name) = section
             .get(1)
             .map(|value| strip_tags(value.as_str()))
-            .map(|value| html_escape_decode(&value).trim().to_string())?;
+            .map(|value| html_escape_decode(&value).trim().to_string())
+        else {
+            continue;
+        };
         if is_external_source(&source_name) {
             continue;
         }
         let body = section.get(2).map(|value| value.as_str()).unwrap_or_default();
 
         for anchor in anchor_regex.captures_iter(body) {
-            let href = anchor.get(1).map(|value| value.as_str())?;
+            let Some(href) = anchor.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
             let play_url = absolutize_url(detail_url, href);
-            if !play_url.contains("/play/") || !seen.insert(play_url.clone()) {
+            if !is_play_url(&play_url) || !seen.insert(play_url.clone()) {
                 continue;
             }
-            let episode_label = anchor
+            let Some(episode_label) = anchor
                 .get(2)
-                .map(|value| html_escape_decode(value.as_str()).trim().to_string())?;
+                .map(|value| html_escape_decode(value.as_str()).trim().to_string())
+            else {
+                continue;
+            };
 
             episodes.push(ScrapedCatalogEpisode {
                 source_name: source_name.clone(),
@@ -148,6 +162,10 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
     }
 }
 
+fn is_play_url(play_url: &str) -> bool {
+    play_url.contains("/play/") || play_url.contains("/vodplay/")
+}
+
 fn infer_item_type(detail_url: &str) -> String {
     let normalized = detail_url.to_lowercase();
 
@@ -190,7 +208,7 @@ mod tests {
     fn parses_jianpian_listing_entries() {
         let html = r#"
             <a class="public-list-exp" href="/voddetail/123.html" title="示例电影">
-              <img src="https://img.example.com/poster.jpg" />
+              <img data-src="https://img.example.com/poster.jpg" />
             </a>
             <a class="public-list-exp" href="https://www.jianpian.example/voddetail/456.html" title="第二部">
               <img src="https://img.example.com/poster-2.jpg" />
@@ -206,16 +224,22 @@ mod tests {
             entries[0].poster.as_deref(),
             Some("https://img.example.com/poster.jpg")
         );
+        assert_eq!(entries[1].detail_url, "https://www.jianpian.example/voddetail/456.html");
     }
 
     #[test]
     fn parses_jianpian_detail_page_and_keeps_play_pages_only() {
         let html = r#"
-            <h1 class="title">示例电影</h1>
+            <h1>示例电影</h1>
             <div class="switch-box-item">荐片线路A</div>
             <div class="anthology-list-box">
               <a href="/play/123-1-1.html">正片</a>
               <a href="/play/123-1-2.html">正片2</a>
+            </div>
+            <div class="switch-box-item">荐片线路B</div>
+            <div class="anthology-list-box">
+              <a href="/vodplay/123-2-1.html">正片3</a>
+              <a href="broken-link">坏链接</a>
             </div>
             <div class="switch-box-item">夸克网盘</div>
             <div class="anthology-list-box">
@@ -227,9 +251,13 @@ mod tests {
             .expect("detail should parse");
         assert_eq!(item.title, "示例电影");
         assert_eq!(item.item_type, "movie");
-        assert_eq!(item.episodes.len(), 2);
+        assert_eq!(item.episodes.len(), 3);
         assert_eq!(item.episodes[0].source_name, "荐片线路A");
         assert_eq!(item.episodes[0].play_url, "https://www.jianpian.example/play/123-1-1.html");
+        assert_eq!(
+            item.episodes[2].play_url,
+            "https://www.jianpian.example/vodplay/123-2-1.html"
+        );
     }
 
     #[test]
