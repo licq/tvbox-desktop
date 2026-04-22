@@ -1,5 +1,6 @@
 pub mod auete;
 pub mod douban;
+pub mod guard;
 pub mod jianpian;
 pub mod libvio;
 pub mod parser;
@@ -15,6 +16,10 @@ pub use auete::{
     scrape_auete_detail,
 };
 pub use douban::DoubanCrawler;
+pub use guard::{
+    decode_guard_play_target, encode_guard_play_target, guard_adapter_key,
+    is_guard_site_supported, GuardPlayTarget,
+};
 pub use jianpian::{extract_player_url as extract_jianpian_player_url, is_jianpian_site};
 pub use libvio::{
     extract_player_url as extract_libvio_player_url, is_libvio_site, scrape_libvio_catalog,
