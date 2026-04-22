@@ -1,6 +1,7 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 use crate::services::{
     decode_guard_play_target,
+    playback_types::{PlaybackProbeResult, PlaybackProbeStatus},
     extract_auete_player_url, extract_jianpian_player_url, extract_libvio_player_url,
     extract_wencai_player_url,
 };
@@ -105,7 +106,7 @@ pub fn classify_playback_target(input: &str) -> &'static str {
 }
 
 pub fn is_visible_playback_target(input: &str) -> bool {
-    matches!(classify_playback_target(input), "direct" | "resolvable")
+    map_target_kind_to_probe_gate(classify_playback_target(input))
 }
 
 pub fn playback_sort_rank(input: &str) -> i32 {
@@ -115,6 +116,10 @@ pub fn playback_sort_rank(input: &str) -> i32 {
         "embedded" => 2,
         _ => 3,
     }
+}
+
+pub fn map_target_kind_to_probe_gate(kind: &str) -> bool {
+    matches!(kind, "direct" | "resolvable")
 }
 
 fn external_required(message: &str, input: &str) -> ResolvedPlayback {
@@ -683,73 +688,90 @@ async fn probe_media_candidate(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
-    if url.contains(".m3u8") {
-        return probe_hls_playlist(client, url, headers).await;
+    let probe = probe_media_candidate_result(client, url, headers).await;
+    if matches!(probe.status, PlaybackProbeStatus::Playable) {
+        Ok(())
+    } else {
+        Err(probe
+            .failure_reason
+            .unwrap_or_else(|| "stream probe failed".to_string()))
     }
-
-    let request = client
-        .get(url)
-        .header(reqwest::header::RANGE, "bytes=0-1")
-        .header(
-            reqwest::header::USER_AGENT,
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        );
-    let response = apply_request_headers(request, headers)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
-    {
-        return Err(format!("stream probe failed: {}", response.status()));
-    }
-
-    Ok(())
 }
 
-async fn probe_hls_playlist(
+pub async fn probe_candidate_for_runtime(
     client: &reqwest::Client,
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
-) -> Result<(), String> {
-    let body = fetch_hls_playlist_with_headers(client, url, headers).await?;
-    if !body.contains("#EXTM3U") {
-        return Err("playlist missing EXTM3U header".to_string());
-    }
-
-    let media_playlist_url = if body.contains("#EXT-X-STREAM-INF") {
-        let variant_url = first_playlist_resource(url, &body)
-            .ok_or_else(|| "master playlist missing variant url".to_string())?;
-        let variant_body = fetch_hls_playlist_with_headers(client, &variant_url, headers).await?;
-        if !variant_body.contains("#EXTM3U") {
-            return Err("variant playlist missing EXTM3U header".to_string());
-        }
-        probe_hls_media_playlist(client, &variant_url, &variant_body, headers).await?;
-        variant_url
-    } else {
-        probe_hls_media_playlist(client, url, &body, headers).await?;
-        url.to_string()
-    };
-
-    if media_playlist_url.is_empty() {
-        return Err("media playlist probe failed".to_string());
-    }
-
-    Ok(())
+) -> PlaybackProbeResult {
+    probe_media_candidate_result(client, url, headers).await
 }
 
-async fn probe_hls_media_playlist(
+async fn probe_media_candidate_result(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> PlaybackProbeResult {
+    if url.contains(".m3u8") {
+        return probe_hls_playlist_result(client, url, headers).await;
+    }
+
+    probe_binary_resource_result(client, url, headers).await
+}
+
+async fn probe_hls_playlist_result(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> PlaybackProbeResult {
+    let body = match fetch_hls_playlist_with_headers(client, url, headers).await {
+        Ok(body) => body,
+        Err(error) => return PlaybackProbeResult::failed(error, None),
+    };
+    if !body.contains("#EXTM3U") {
+        return failed_hls_probe("playlist missing EXTM3U header", Some(200), false, false);
+    }
+
+    if body.contains("#EXT-X-STREAM-INF") {
+        let variant_url = match first_playlist_resource(url, &body) {
+            Some(url) => url,
+            None => return failed_hls_probe("master playlist missing variant url", Some(200), true, false),
+        };
+        let variant_body = match fetch_hls_playlist_with_headers(client, &variant_url, headers).await {
+            Ok(body) => body,
+            Err(error) => return PlaybackProbeResult::failed(error, None),
+        };
+        if !variant_body.contains("#EXTM3U") {
+            return failed_hls_probe("variant playlist missing EXTM3U header", Some(200), true, false);
+        }
+        return probe_hls_media_playlist_result(client, &variant_url, &variant_body, headers)
+            .await;
+    }
+
+    probe_hls_media_playlist_result(client, url, &body, headers).await
+}
+
+async fn probe_hls_media_playlist_result(
     client: &reqwest::Client,
     playlist_url: &str,
     body: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
-) -> Result<(), String> {
+) -> PlaybackProbeResult {
     if let Some(key_url) = extract_hls_key_url(playlist_url, body) {
-        probe_binary_resource(client, &key_url, headers).await?;
+        let probe = probe_binary_resource_result(client, &key_url, headers).await;
+        if matches!(probe.status, PlaybackProbeStatus::Failed) {
+            return probe;
+        }
     }
 
-    let segment_url = first_playlist_resource(playlist_url, body)
-        .ok_or_else(|| "media playlist missing segment url".to_string())?;
-    probe_binary_resource(client, &segment_url, headers).await
+    let Some(segment_url) = first_playlist_resource(playlist_url, body) else {
+        return failed_hls_probe("media playlist missing segment url", Some(200), true, false);
+    };
+    let probe = probe_binary_resource_result(client, &segment_url, headers).await;
+    if matches!(probe.status, PlaybackProbeStatus::Failed) {
+        return probe;
+    }
+
+    PlaybackProbeResult::playable()
 }
 
 fn extract_hls_key_url(base_url: &str, body: &str) -> Option<String> {
@@ -768,11 +790,11 @@ fn first_playlist_resource(base_url: &str, body: &str) -> Option<String> {
         .map(|line| absolutize_url(base_url, line))
 }
 
-async fn probe_binary_resource(
+async fn probe_binary_resource_result(
     client: &reqwest::Client,
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
-) -> Result<(), String> {
+) -> PlaybackProbeResult {
     let request = client
         .get(url)
         .header(reqwest::header::RANGE, "bytes=0-1")
@@ -780,19 +802,41 @@ async fn probe_binary_resource(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    let response = apply_request_headers(request, headers)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = match apply_request_headers(request, headers).send().await {
+        Ok(response) => response,
+        Err(error) => return PlaybackProbeResult::failed(error.to_string(), None),
+    };
+    let http_status = Some(i64::from(response.status().as_u16()));
 
     if response.status().is_success() || response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
         if !has_browser_cors(&response) {
-            return Err("resource probe missing browser CORS headers".to_string());
+            let mut probe =
+                PlaybackProbeResult::failed("resource probe missing browser CORS headers", http_status);
+            probe.manifest_ok = true;
+            probe.segment_ok = true;
+            return probe;
         }
-        Ok(())
+        let mut probe = PlaybackProbeResult::playable();
+        probe.http_status = http_status;
+        probe
     } else {
-        Err(format!("resource probe failed: {}", response.status()))
+        let mut probe =
+            PlaybackProbeResult::failed(format!("resource probe failed: {}", response.status()), http_status);
+        probe.manifest_ok = true;
+        probe
     }
+}
+
+fn failed_hls_probe(
+    reason: impl Into<String>,
+    http_status: Option<i64>,
+    manifest_ok: bool,
+    segment_ok: bool,
+) -> PlaybackProbeResult {
+    let mut probe = PlaybackProbeResult::failed(reason, http_status);
+    probe.manifest_ok = manifest_ok;
+    probe.segment_ok = segment_ok;
+    probe
 }
 
 fn has_browser_cors(response: &reqwest::Response) -> bool {
@@ -925,7 +969,8 @@ mod tests {
         extract_wencai_play_page_candidates, guard_play_page_url,
         first_playlist_resource, looks_like_auete_play_page, looks_like_jianpian_play_page,
         looks_like_libvio_play_page, looks_like_wencai_play_page, looks_like_xb6v_play_page,
-        looks_like_zxzj_play_page, probe_media_candidate, PlaybackResolver,
+        looks_like_zxzj_play_page, map_target_kind_to_probe_gate, probe_media_candidate,
+        PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
     use crate::services::{decode_guard_play_target, encode_guard_play_target};
@@ -945,6 +990,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resolved.status, "external_required");
+    }
+
+    #[test]
+    fn classifies_embedded_targets_as_not_playable() {
+        assert!(!map_target_kind_to_probe_gate("embedded"));
+        assert!(map_target_kind_to_probe_gate("direct"));
     }
 
     #[tokio::test]
