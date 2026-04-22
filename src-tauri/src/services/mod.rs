@@ -26,7 +26,6 @@ pub use storage::Storage;
 pub use tvbox::TvboxConfigParser;
 pub use wencai::{extract_player_url as extract_wencai_player_url, is_wencai_site};
 pub use xb6v::{
-    scrape_catalog_detail_from_json, scrape_jianpian_catalog, scrape_jianpian_detail,
-    scrape_supported_tvbox_catalogs, scrape_wencai_catalog, scrape_wencai_detail,
-    ScrapedCatalogEpisode, ScrapedCatalogItem,
+    scrape_catalog_detail_from_json, scrape_supported_tvbox_catalogs, ScrapedCatalogEpisode,
+    ScrapedCatalogItem,
 };

@@ -213,7 +213,7 @@ async fn scrape_xb6v_detail(detail_url: &str) -> Result<Option<ScrapedCatalogIte
     Ok(parse_detail_page(detail_url, &html, &entry))
 }
 
-pub async fn scrape_wencai_catalog(
+async fn scrape_wencai_catalog(
     sites: &[TvboxSiteRecord],
 ) -> Result<Vec<ScrapedCatalogItem>, String> {
     let client = build_client()?;
@@ -238,13 +238,13 @@ pub async fn scrape_wencai_catalog(
     .await
 }
 
-pub async fn scrape_wencai_detail(detail_url: &str) -> Result<Option<ScrapedCatalogItem>, String> {
+async fn scrape_wencai_detail(detail_url: &str) -> Result<Option<ScrapedCatalogItem>, String> {
     let client = build_client()?;
     let html = fetch_text(&client, detail_url).await?;
     Ok(parse_wencai_detail_page(detail_url, &html))
 }
 
-pub async fn scrape_jianpian_catalog(
+async fn scrape_jianpian_catalog(
     sites: &[TvboxSiteRecord],
 ) -> Result<Vec<ScrapedCatalogItem>, String> {
     let client = build_client()?;
@@ -269,9 +269,7 @@ pub async fn scrape_jianpian_catalog(
     .await
 }
 
-pub async fn scrape_jianpian_detail(
-    detail_url: &str,
-) -> Result<Option<ScrapedCatalogItem>, String> {
+async fn scrape_jianpian_detail(detail_url: &str) -> Result<Option<ScrapedCatalogItem>, String> {
     let client = build_client()?;
     let html = fetch_text(&client, detail_url).await?;
     Ok(parse_jianpian_detail_page(detail_url, &html))
@@ -342,9 +340,10 @@ fn collect_site_roots(
         .into_iter()
         .flatten()
         {
-            let normalized = normalize_site_root(candidate);
-            if seen.insert(normalized.clone()) {
-                roots.push(normalized);
+            if let Some(root) = derive_browse_root(candidate) {
+                if seen.insert(root.clone()) {
+                    roots.push(root);
+                }
             }
         }
     }
@@ -352,13 +351,72 @@ fn collect_site_roots(
     roots
 }
 
-fn normalize_site_root(candidate: &str) -> String {
-    let trimmed = candidate.trim();
-    if trimmed.ends_with('/') {
-        trimmed.to_string()
-    } else {
-        format!("{trimmed}/")
+fn derive_browse_root(candidate: &str) -> Option<String> {
+    let url = reqwest::Url::parse(candidate.trim()).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
     }
+
+    let mut kept_segments = Vec::new();
+    let path_segments = url
+        .path_segments()
+        .into_iter()
+        .flatten()
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_string())
+        .collect::<Vec<_>>();
+
+    for segment in path_segments {
+        let normalized = segment.to_ascii_lowercase();
+        if is_catalog_boundary_segment(&normalized) || is_file_like_segment(&normalized) {
+            break;
+        }
+        kept_segments.push(segment);
+    }
+
+    let mut root = url;
+    root.set_query(None);
+    root.set_fragment(None);
+    let new_path = if kept_segments.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}/", kept_segments.join("/"))
+    };
+    root.set_path(&new_path);
+    Some(root.to_string())
+}
+
+fn is_catalog_boundary_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "detail"
+            | "voddetail"
+            | "play"
+            | "vodplay"
+            | "type"
+            | "list"
+            | "movie"
+            | "tv"
+            | "series"
+            | "variety"
+            | "anime"
+            | "show"
+            | "dianshiju"
+            | "zongyi"
+            | "dongman"
+            | "donghua"
+    )
+}
+
+fn is_file_like_segment(segment: &str) -> bool {
+    segment.ends_with(".html")
+        || segment.ends_with(".php")
+        || segment.ends_with(".json")
+        || segment.ends_with(".js")
+        || segment.ends_with(".txt")
+        || segment.ends_with(".xml")
+        || segment.ends_with(".m3u")
+        || segment.ends_with(".m3u8")
 }
 
 fn extract_first_url(raw_json: &str) -> Option<String> {
@@ -588,8 +646,8 @@ fn shallow_item_from_jianpian_entry(entry: JianpianListingEntry) -> ScrapedCatal
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_site_roots, infer_item_type, parse_detail_page, parse_listing_page,
-        parse_play_episodes, ListingEntry,
+        collect_site_roots, derive_browse_root, infer_item_type, parse_detail_page,
+        parse_listing_page, parse_play_episodes, ListingEntry,
     };
 
     #[test]
@@ -729,6 +787,38 @@ mod tests {
         assert_eq!(
             collect_site_roots(&[site], crate::services::is_jianpian_site),
             vec!["https://www.jianpian.example/".to_string()]
+        );
+    }
+
+    #[test]
+    fn derives_browse_root_from_config_and_api_urls() {
+        assert_eq!(
+            derive_browse_root("https://www.wencai.example/config.json").as_deref(),
+            Some("https://www.wencai.example/")
+        );
+        assert_eq!(
+            derive_browse_root("https://www.jianpian.example/api.php?ac=list").as_deref(),
+            Some("https://www.jianpian.example/")
+        );
+        assert_eq!(
+            derive_browse_root("https://cdn.example.com/tvbox/wencai/config.js").as_deref(),
+            Some("https://cdn.example.com/tvbox/wencai/")
+        );
+    }
+
+    #[test]
+    fn derives_browse_root_from_catalog_and_detail_urls() {
+        assert_eq!(
+            derive_browse_root("https://www.jianpian.example/type/1.html").as_deref(),
+            Some("https://www.jianpian.example/")
+        );
+        assert_eq!(
+            derive_browse_root("https://www.jianpian.example/voddetail/888.html").as_deref(),
+            Some("https://www.jianpian.example/")
+        );
+        assert_eq!(
+            derive_browse_root("https://www.wencai.example/dianshiju/123.html").as_deref(),
+            Some("https://www.wencai.example/")
         );
     }
 }
