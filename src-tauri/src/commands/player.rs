@@ -29,5 +29,5 @@ pub async fn get_play_history(state: State<'_, AppState>) -> Result<Vec<PlayHist
 
 #[tauri::command]
 pub async fn resolve_playback(input: String) -> Result<ResolvedPlayback, String> {
-    crate::services::resolver::PlaybackResolver::resolve(&input).await
+    crate::services::playback_runtime::resolve_playback_for_input(&input).await
 }

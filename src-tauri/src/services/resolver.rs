@@ -847,7 +847,7 @@ fn has_browser_cors(response: &reqwest::Response) -> bool {
         .is_some_and(|value| !value.trim().is_empty())
 }
 
-fn build_client() -> Result<reqwest::Client, String> {
+pub(crate) fn build_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .no_proxy()
         .connect_timeout(std::time::Duration::from_secs(20))
