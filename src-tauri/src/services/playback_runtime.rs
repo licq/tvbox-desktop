@@ -5,8 +5,14 @@ use crate::services::playback_types::{
 use crate::services::resolver::{
     build_client, classify_playback_target, probe_candidate_for_runtime, PlaybackResolver,
 };
-use crate::services::storage::{playback_cache::list_playback_targets, Storage};
+use crate::services::storage::{
+    playback_cache::{
+        get_playback_health, hash_playback_target, list_playback_targets, upsert_playback_health,
+    },
+    Storage,
+};
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct RuntimeResolvedCandidate {
@@ -14,10 +20,13 @@ pub struct RuntimeResolvedCandidate {
     pub probe: PlaybackProbeResult,
 }
 
-pub async fn resolve_playback_for_input(input: &str) -> Result<ResolvedPlayback, String> {
+pub async fn resolve_playback_for_input(
+    storage: &Storage,
+    input: &str,
+) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
     let normalized = discover_initial_targets(input);
-    let resolved = resolve_and_probe_targets(&client, normalized).await?;
+    let resolved = resolve_and_probe_targets(storage, &client, normalized).await?;
     Ok(to_resolved_playback(resolved))
 }
 
@@ -73,6 +82,7 @@ pub fn maybe_cached_targets_for_episode(
 }
 
 pub async fn resolve_and_probe_targets(
+    storage: &Storage,
     client: &reqwest::Client,
     targets: Vec<PlaybackTarget>,
 ) -> Result<Vec<RuntimeResolvedCandidate>, String> {
@@ -81,14 +91,12 @@ pub async fn resolve_and_probe_targets(
     for target in targets {
         match target.target_kind {
             PlaybackTargetKind::Direct => {
-                let probe =
-                    probe_candidate_for_runtime(client, &target.target_url, target.headers.as_ref())
-                        .await;
+                let probe = cached_or_probed_result(storage, client, &target).await?;
                 resolved.push(RuntimeResolvedCandidate { target, probe });
             }
             PlaybackTargetKind::Resolvable => {
                 let playback = PlaybackResolver::resolve(&target.target_url).await?;
-                resolved.extend(expand_resolved_playback(client, &target, playback).await);
+                resolved.extend(expand_resolved_playback(storage, client, &target, playback).await?);
             }
             PlaybackTargetKind::Embedded | PlaybackTargetKind::ExternalRequired => {
                 resolved.push(RuntimeResolvedCandidate {
@@ -174,10 +182,11 @@ fn runtime_candidate_key(candidate: &RuntimeResolvedCandidate) -> (String, Optio
 }
 
 async fn expand_resolved_playback(
+    storage: &Storage,
     client: &reqwest::Client,
     parent: &PlaybackTarget,
     resolved: ResolvedPlayback,
-) -> Vec<RuntimeResolvedCandidate> {
+) -> Result<Vec<RuntimeResolvedCandidate>, String> {
     let mut expanded = Vec::new();
 
     for (index, candidate) in resolved.candidates.into_iter().enumerate() {
@@ -194,7 +203,7 @@ async fn expand_resolved_playback(
         };
 
         let probe = if target.is_desktop_playable_kind() {
-            probe_candidate_for_runtime(client, &target.target_url, target.headers.as_ref()).await
+            cached_or_probed_result(storage, client, &target).await?
         } else {
             PlaybackProbeResult::failed("target kind is not desktop playable", None)
         };
@@ -202,7 +211,7 @@ async fn expand_resolved_playback(
         expanded.push(RuntimeResolvedCandidate { target, probe });
     }
 
-    expanded
+    Ok(expanded)
 }
 
 fn parse_candidate_kind(value: &str, url: &str) -> PlaybackTargetKind {
@@ -236,6 +245,78 @@ fn parse_headers_json(value: Option<&str>) -> Result<Option<HashMap<String, Stri
             .map_err(|e| e.to_string()),
         _ => Ok(None),
     }
+}
+
+async fn cached_or_probed_result(
+    storage: &Storage,
+    client: &reqwest::Client,
+    target: &PlaybackTarget,
+) -> Result<PlaybackProbeResult, String> {
+    let target_hash = hash_playback_target(&target.target_url, target.headers.as_ref());
+    if let Some(probe) = cached_probe_result(storage, &target_hash)? {
+        return Ok(probe);
+    }
+
+    let probe = probe_candidate_for_runtime(client, &target.target_url, target.headers.as_ref()).await;
+    persist_probe_result(storage, &target_hash, &probe)?;
+    Ok(probe)
+}
+
+fn cached_probe_result(storage: &Storage, target_hash: &str) -> Result<Option<PlaybackProbeResult>, String> {
+    let Some(record) = get_playback_health(storage, target_hash).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    if record.expires_at <= now_epoch_seconds() {
+        return Ok(None);
+    }
+
+    Ok(Some(PlaybackProbeResult {
+        status: if record.status == "playable" {
+            PlaybackProbeStatus::Playable
+        } else {
+            PlaybackProbeStatus::Failed
+        },
+        manifest_ok: record.manifest_ok,
+        segment_ok: record.segment_ok,
+        cors_ok: record.cors_ok,
+        http_status: record.http_status,
+        failure_reason: record.failure_reason,
+    }))
+}
+
+fn persist_probe_result(
+    storage: &Storage,
+    target_hash: &str,
+    probe: &PlaybackProbeResult,
+) -> Result<(), String> {
+    let ttl_seconds = match probe.status {
+        PlaybackProbeStatus::Playable => 3600,
+        PlaybackProbeStatus::Failed => 600,
+    };
+
+    upsert_playback_health(
+        storage,
+        target_hash,
+        if matches!(probe.status, PlaybackProbeStatus::Playable) {
+            "playable"
+        } else {
+            "failed"
+        },
+        probe.manifest_ok,
+        probe.segment_ok,
+        probe.cors_ok,
+        probe.http_status,
+        probe.failure_reason.as_deref(),
+        ttl_seconds,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn now_epoch_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_secs() as i64
 }
 
 fn to_playback_candidate(candidate: RuntimeResolvedCandidate) -> PlaybackCandidate {
@@ -385,5 +466,29 @@ mod tests {
             headers.get("Referer").map(String::as_str),
             Some("https://jpvod.com/")
         );
+    }
+
+    #[test]
+    fn prefers_cached_playable_target_over_failing_candidate() {
+        let cached_ok = RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/ok/index.m3u8",
+            ),
+            probe: PlaybackProbeResult::playable(),
+        };
+
+        let failing = RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/bad/index.m3u8",
+            ),
+            probe: PlaybackProbeResult::failed("manifest failed", Some(404)),
+        };
+
+        let ranked = sort_runtime_candidates(vec![failing, cached_ok]);
+        assert!(ranked[0].probe.failure_reason.is_none());
     }
 }

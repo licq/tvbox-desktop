@@ -1,5 +1,7 @@
 use super::Storage;
 use rusqlite::{params, Result as SqliteResult};
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +178,23 @@ pub fn list_playback_targets(
     })?;
 
     rows.collect()
+}
+
+pub fn hash_playback_target(
+    target_url: &str,
+    headers: Option<&HashMap<String, String>>,
+) -> String {
+    let mut hasher = DefaultHasher::new();
+    target_url.hash(&mut hasher);
+    if let Some(headers) = headers {
+        let mut entries: Vec<_> = headers.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, value) in entries {
+            key.hash(&mut hasher);
+            value.hash(&mut hasher);
+        }
+    }
+    format!("{:x}", hasher.finish())
 }
 
 fn now_epoch_seconds() -> i64 {
