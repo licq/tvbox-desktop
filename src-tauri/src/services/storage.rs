@@ -1586,6 +1586,69 @@ mod tests {
     }
 
     #[test]
+    fn library_queries_keep_wencai_and_jianpian_visible_while_excluding_zxzj() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        let conn = storage.conn.lock().expect("storage lock should succeed");
+        for (id, title, item_type, source) in [
+            (211_i64, "文采电影", "movie", "wencai"),
+            (212_i64, "荐片剧场", "series", "jianpian"),
+            (213_i64, "嵌页剧场", "series", "zxzj"),
+        ] {
+            conn.execute(
+                "INSERT INTO catalog_items (
+                    id, subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
+                 ) VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, ?5, '2026-04-20 00:00:00')",
+                rusqlite::params![
+                    id,
+                    subscription.id,
+                    title,
+                    item_type,
+                    Some(format!(r#"{{"source":"{}"}}"#, source))
+                ],
+            )
+            .expect("catalog item should insert");
+        }
+        drop(conn);
+
+        let home = storage
+            .get_library_home()
+            .expect("library home should query");
+        let catalog = storage
+            .get_catalog_items(None, None)
+            .expect("catalog items should query");
+        let series_catalog = storage
+            .get_catalog_items(Some("series".to_string()), None)
+            .expect("series catalog should query");
+        let keyword_catalog = storage
+            .get_catalog_items(None, Some("文采".to_string()))
+            .expect("keyword catalog should query");
+
+        let latest_titles: Vec<&str> = home
+            .latest_updates
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect();
+        let featured_titles: Vec<&str> = home
+            .featured
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect();
+        let catalog_titles: Vec<&str> = catalog.iter().map(|item| item.title.as_str()).collect();
+
+        assert_eq!(latest_titles, vec!["荐片剧场", "文采电影"]);
+        assert_eq!(featured_titles, vec!["荐片剧场", "文采电影"]);
+        assert_eq!(catalog_titles, vec!["荐片剧场", "文采电影"]);
+        assert_eq!(series_catalog.len(), 1);
+        assert_eq!(series_catalog[0].title, "荐片剧场");
+        assert_eq!(keyword_catalog.len(), 1);
+        assert_eq!(keyword_catalog[0].title, "文采电影");
+    }
+
+    #[test]
     fn simple_json_refresh_keeps_source_lives_in_sync() {
         let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
         let subscription = storage
