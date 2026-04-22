@@ -50,6 +50,17 @@ impl PlaybackResolver {
             return Ok(ready_with_candidate(input.to_string(), "embed"));
         }
 
+        if classify_playback_target(input) == "direct" {
+            let client = build_client()?;
+            if let Err(error) = probe_media_candidate(&client, input, None).await {
+                return Ok(ResolvedPlayback {
+                    status: "failed".to_string(),
+                    candidates: vec![],
+                    error_message: Some(format!("当前直链不可播放: {error}")),
+                });
+            }
+        }
+
         Ok(ready_with_candidate(input.to_string(), detect_kind(input)))
     }
 }
@@ -895,8 +906,7 @@ mod tests {
         let resolved = PlaybackResolver::resolve("https://example.com/live.m3u8")
             .await
             .unwrap();
-        assert_eq!(resolved.status, "ready");
-        assert_eq!(resolved.candidates[0].kind, "hls");
+        assert_eq!(resolved.status, "failed");
     }
 
     #[tokio::test]
@@ -905,6 +915,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resolved.status, "external_required");
+    }
+
+    #[tokio::test]
+    async fn rejects_dead_direct_hls_links() {
+        let resolved = PlaybackResolver::resolve(
+            "https://vip.dytt-kan.com/20260320/12512_74a8f422/index.m3u8",
+        )
+        .await
+        .unwrap();
+        assert_eq!(resolved.status, "failed");
+        assert!(resolved.candidates.is_empty());
     }
 
     #[tokio::test]
