@@ -343,11 +343,15 @@ fn to_playback_candidate(candidate: RuntimeResolvedCandidate) -> PlaybackCandida
 mod tests {
     use super::{
         build_runtime_target, filter_presentable_targets, parse_headers_json,
-        sort_runtime_candidates, to_resolved_playback, RuntimeResolvedCandidate,
+        resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
+        RuntimeResolvedCandidate,
     };
     use crate::services::playback_types::{
         PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
     };
+    use crate::services::Storage;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn target(kind: PlaybackTargetKind, source_key: &str, url: &str) -> PlaybackTarget {
         PlaybackTarget {
@@ -490,5 +494,28 @@ mod tests {
 
         let ranked = sort_runtime_candidates(vec![failing, cached_ok]);
         assert!(ranked[0].probe.failure_reason.is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live upstream access"]
+    async fn dead_direct_hls_is_filtered_by_runtime() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let resolved = resolve_playback_for_input(
+            &storage,
+            "https://example.invalid/runtime-dead/index.m3u8",
+        )
+        .await
+        .expect("runtime should resolve");
+
+        assert_eq!(resolved.status, "failed");
+        assert!(resolved.candidates.is_empty());
+    }
+
+    fn unique_test_dir() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("tvbox-playback-runtime-test-{}", nanos))
     }
 }

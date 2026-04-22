@@ -20,4 +20,19 @@ describe('playback store', () => {
     expect(store.currentCandidate?.label).toBe('线路2')
     expect(store.status).toBe('ready')
   })
+
+  it('keeps failed runtime state when no playable lines are returned', () => {
+    setActivePinia(createPinia())
+    const store = usePlaybackStore()
+
+    store.applyResolved({
+      status: 'failed',
+      candidates: [],
+      errorMessage: '当前集未找到通过探测的可播线路'
+    })
+
+    expect(store.status).toBe('failed')
+    expect(store.candidates).toEqual([])
+    expect(store.errorMessage).toContain('可播线路')
+  })
 })
