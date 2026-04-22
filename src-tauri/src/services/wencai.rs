@@ -11,7 +11,17 @@ pub(crate) struct WencaiListingEntry {
 }
 
 pub fn is_wencai_site(site: &crate::services::tvbox::TvboxSiteRecord) -> bool {
-    site.site_key.contains("文采") || site.site_name.contains("文采") || site.raw_json.contains("文采")
+    site.site_key.contains("文采")
+        || site.site_name.contains("文采")
+        || site.raw_json.contains("文采")
+        || site
+            .api
+            .as_deref()
+            .is_some_and(|api| api.contains("wencai") || api.contains("文采"))
+        || site
+            .ext
+            .as_deref()
+            .is_some_and(|ext| ext.contains("wencai") || ext.contains("文采"))
 }
 
 pub(crate) fn parse_listing_page(
@@ -91,7 +101,7 @@ pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedC
     Some(ScrapedCatalogItem {
         source_item_key: detail_url.to_string(),
         title,
-        item_type: "movie".to_string(),
+        item_type: infer_item_type(detail_url),
         poster: None,
         summary,
         detail_json: Some(format!(r#"{{"source":"wencai","url":"{}"}}"#, detail_url)),
@@ -124,9 +134,23 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
     }
 }
 
+fn infer_item_type(detail_url: &str) -> String {
+    if detail_url.contains("/dianshiju/") {
+        "series".to_string()
+    } else if detail_url.contains("/zongyi/") || detail_url.contains("/ZongYi/") {
+        "variety".to_string()
+    } else if detail_url.contains("/donghua/") || detail_url.contains("/anime/") {
+        "anime".to_string()
+    } else {
+        "movie".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_player_url, parse_detail_page, parse_listing_page};
+    use super::{
+        extract_player_url, infer_item_type, is_wencai_site, parse_detail_page, parse_listing_page,
+    };
 
     #[test]
     fn parses_wencai_listing_entries() {
@@ -164,6 +188,7 @@ mod tests {
         assert_eq!(item.episodes.len(), 1);
         assert_eq!(item.episodes[0].source_name, "文采线路A");
         assert_eq!(item.episodes[0].play_url, "https://www.wencai.example/play/123-1-1.html");
+        assert_eq!(item.item_type, "movie");
     }
 
     #[test]
@@ -173,5 +198,42 @@ mod tests {
             extract_player_url(html).as_deref(),
             Some("https://media.example.com/demo/index.m3u8")
         );
+    }
+
+    #[test]
+    fn infers_wencai_item_type_from_detail_url() {
+        assert_eq!(
+            infer_item_type("https://www.wencai.example/dianshiju/123.html"),
+            "series"
+        );
+        assert_eq!(
+            infer_item_type("https://www.wencai.example/zongyi/123.html"),
+            "variety"
+        );
+        assert_eq!(
+            infer_item_type("https://www.wencai.example/anime/123.html"),
+            "anime"
+        );
+        assert_eq!(
+            infer_item_type("https://www.wencai.example/detail/123.html"),
+            "movie"
+        );
+    }
+
+    #[test]
+    fn detects_wencai_site_from_metadata_fields() {
+        let site = crate::services::tvbox::TvboxSiteRecord {
+            site_key: "Other".to_string(),
+            site_name: "Other".to_string(),
+            api: Some("https://api.example.com/wencai/api.php".to_string()),
+            ext: Some("https://cdn.example.com/wencai.json".to_string()),
+            searchable: true,
+            quick_search: false,
+            filterable: false,
+            source_type: "custom".to_string(),
+            raw_json: "{}".to_string(),
+        };
+
+        assert!(is_wencai_site(&site));
     }
 }
