@@ -245,7 +245,7 @@ async fn resolve_auete_play_page(input: &str) -> Result<ResolvedPlayback, String
         let Some(source_url) = extract_auete_player_url(&page_body) else {
             continue;
         };
-        if probe_media_candidate(&client, &source_url).await.is_err() {
+        if probe_media_candidate(&client, &source_url, None).await.is_err() {
             continue;
         }
 
@@ -356,7 +356,8 @@ async fn resolve_multi_candidate_page(
         let Some(source_url) = extract_player_url(&page_body) else {
             continue;
         };
-        if probe_media_candidate(&client, &source_url).await.is_err() {
+        let headers = playback_headers_for_page(&play_page.url);
+        if probe_media_candidate(&client, &source_url, headers.as_ref()).await.is_err() {
             continue;
         }
 
@@ -364,7 +365,7 @@ async fn resolve_multi_candidate_page(
             url: source_url.clone(),
             label: play_page.label,
             kind: detect_kind(&source_url).to_string(),
-            headers: None,
+            headers,
         });
     }
 
@@ -643,18 +644,46 @@ fn strip_html(value: &str) -> String {
     tag_regex.replace_all(&decoded, " ").to_string()
 }
 
-async fn probe_media_candidate(client: &reqwest::Client, url: &str) -> Result<(), String> {
+fn playback_headers_for_page(page_url: &str) -> Option<std::collections::HashMap<String, String>> {
+    let url = reqwest::Url::parse(page_url).ok()?;
+    let host = url.host_str()?;
+    let origin = format!("{}://{}", url.scheme(), host);
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("Referer".to_string(), format!("{origin}/"));
+    headers.insert("Origin".to_string(), origin);
+    Some(headers)
+}
+
+fn apply_request_headers(
+    request: reqwest::RequestBuilder,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> reqwest::RequestBuilder {
+    let mut request = request;
+    if let Some(headers) = headers {
+        for (key, value) in headers {
+            request = request.header(key, value);
+        }
+    }
+    request
+}
+
+async fn probe_media_candidate(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
     if url.contains(".m3u8") {
-        return probe_hls_playlist(client, url).await;
+        return probe_hls_playlist(client, url, headers).await;
     }
 
-    let response = client
+    let request = client
         .get(url)
         .header(reqwest::header::RANGE, "bytes=0-1")
         .header(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        )
+        );
+    let response = apply_request_headers(request, headers)
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -666,8 +695,12 @@ async fn probe_media_candidate(client: &reqwest::Client, url: &str) -> Result<()
     Ok(())
 }
 
-async fn probe_hls_playlist(client: &reqwest::Client, url: &str) -> Result<(), String> {
-    let body = fetch_text(client, url).await?;
+async fn probe_hls_playlist(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
+    let body = fetch_text_with_headers(client, url, headers).await?;
     if !body.contains("#EXTM3U") {
         return Err("playlist missing EXTM3U header".to_string());
     }
@@ -675,14 +708,14 @@ async fn probe_hls_playlist(client: &reqwest::Client, url: &str) -> Result<(), S
     let media_playlist_url = if body.contains("#EXT-X-STREAM-INF") {
         let variant_url = first_playlist_resource(url, &body)
             .ok_or_else(|| "master playlist missing variant url".to_string())?;
-        let variant_body = fetch_text(client, &variant_url).await?;
+        let variant_body = fetch_text_with_headers(client, &variant_url, headers).await?;
         if !variant_body.contains("#EXTM3U") {
             return Err("variant playlist missing EXTM3U header".to_string());
         }
-        probe_hls_media_playlist(client, &variant_url, &variant_body).await?;
+        probe_hls_media_playlist(client, &variant_url, &variant_body, headers).await?;
         variant_url
     } else {
-        probe_hls_media_playlist(client, url, &body).await?;
+        probe_hls_media_playlist(client, url, &body, headers).await?;
         url.to_string()
     };
 
@@ -697,14 +730,15 @@ async fn probe_hls_media_playlist(
     client: &reqwest::Client,
     playlist_url: &str,
     body: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
     if let Some(key_url) = extract_hls_key_url(playlist_url, body) {
-        probe_binary_resource(client, &key_url).await?;
+        probe_binary_resource(client, &key_url, headers).await?;
     }
 
     let segment_url = first_playlist_resource(playlist_url, body)
         .ok_or_else(|| "media playlist missing segment url".to_string())?;
-    probe_binary_resource(client, &segment_url).await
+    probe_binary_resource(client, &segment_url, headers).await
 }
 
 fn extract_hls_key_url(base_url: &str, body: &str) -> Option<String> {
@@ -723,14 +757,19 @@ fn first_playlist_resource(base_url: &str, body: &str) -> Option<String> {
         .map(|line| absolutize_url(base_url, line))
 }
 
-async fn probe_binary_resource(client: &reqwest::Client, url: &str) -> Result<(), String> {
-    let response = client
+async fn probe_binary_resource(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
+    let request = client
         .get(url)
         .header(reqwest::header::RANGE, "bytes=0-1")
         .header(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        )
+        );
+    let response = apply_request_headers(request, headers)
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -752,12 +791,21 @@ fn build_client() -> Result<reqwest::Client, String> {
 }
 
 async fn fetch_text(client: &reqwest::Client, input: &str) -> Result<String, String> {
-    client
+    fetch_text_with_headers(client, input, None).await
+}
+
+async fn fetch_text_with_headers(
+    client: &reqwest::Client,
+    input: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<String, String> {
+    let request = client
         .get(input)
         .header(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        )
+        );
+    apply_request_headers(request, headers)
         .send()
         .await
         .map_err(|e| e.to_string())?

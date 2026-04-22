@@ -6,6 +6,7 @@ import Hls from 'hls.js'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
+import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +18,7 @@ type PlayerSource = {
   url: string
   label: string
   kind: 'hls' | 'http' | 'external' | 'embed'
+  headers?: Record<string, string>
 }
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -26,6 +28,7 @@ const duration = ref(0)
 const volume = ref(1)
 const fullscreen = ref(false)
 const errorMsg = ref('')
+const pendingAutoplay = ref(false)
 
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
@@ -64,7 +67,8 @@ onMounted(async () => {
     sources.value = resolved.candidates.map(candidate => ({
       url: candidate.url,
       label: candidate.label,
-      kind: candidate.kind
+      kind: candidate.kind,
+      headers: candidate.headers
     }))
     currentSourceIndex.value = 0
 
@@ -116,8 +120,7 @@ function togglePlay() {
     return
   }
 
-  void videoRef.value.play()
-  playing.value = true
+  void attemptPlayback(true)
 }
 
 function seek(time: number) {
@@ -171,6 +174,7 @@ function resetVideoElement() {
     videoRef.value.load()
   }
   playing.value = false
+  pendingAutoplay.value = false
 }
 
 async function switchToSource(index: number) {
@@ -196,10 +200,10 @@ async function playSource(source: PlayerSource) {
     return
   }
 
-  initHlsPlayer(url)
+  initHlsPlayer(url, source.headers)
 }
 
-function initHlsPlayer(url: string) {
+function initHlsPlayer(url: string, headers?: Record<string, string>) {
   if (!videoRef.value) return
 
   if (hlsInstance) {
@@ -209,7 +213,14 @@ function initHlsPlayer(url: string) {
 
   if (url.includes('.m3u8')) {
     if (Hls.isSupported()) {
-      const hls = new Hls()
+      const hls = new Hls({
+        xhrSetup: (xhr) => {
+          if (!headers) return
+          Object.entries(headers).forEach(([key, value]) => {
+            xhr.setRequestHeader(key, value)
+          })
+        }
+      })
       hlsInstance = hls
       hls.loadSource(url)
       hls.attachMedia(videoRef.value)
@@ -220,16 +231,12 @@ function initHlsPlayer(url: string) {
         if (currentSourceIndex.value < sources.value.length - 1) {
           void switchToSource(currentSourceIndex.value + 1)
         } else {
-          errorMsg.value = '所有线路均不可用'
+          errorMsg.value = data.error?.message || '所有线路均不可用'
         }
       })
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        videoRef.value?.play().then(() => {
-          playing.value = true
-        }).catch(() => {
-          errorMsg.value = '自动播放失败，请手动开始播放'
-        })
+        void attemptPlayback(false)
       })
 
       return
@@ -237,21 +244,61 @@ function initHlsPlayer(url: string) {
 
     if (videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
       videoRef.value.src = url
-      videoRef.value.play().then(() => {
-        playing.value = true
-      }).catch(() => {
-        errorMsg.value = '自动播放失败，请手动开始播放'
-      })
+      videoRef.value.load()
+      pendingAutoplay.value = true
       return
     }
   }
 
   videoRef.value.src = url
-  videoRef.value.play().then(() => {
+  videoRef.value.load()
+  pendingAutoplay.value = true
+}
+
+async function attemptPlayback(manual: boolean) {
+  if (!videoRef.value) return
+
+  try {
+    await videoRef.value.play()
+    errorMsg.value = ''
     playing.value = true
-  }).catch(() => {
-    errorMsg.value = '无法直接播放当前地址'
-  })
+    pendingAutoplay.value = false
+  } catch (error) {
+    playing.value = false
+    pendingAutoplay.value = false
+    errorMsg.value = manual ? describePlaybackFailure(error) : describePlaybackFailure(error)
+    if (!manual && isAutoplayBlocked(error)) {
+      return
+    }
+  }
+}
+
+function handleCanPlay() {
+  if (!pendingAutoplay.value) return
+  void attemptPlayback(false)
+}
+
+function handleVideoPlay() {
+  playing.value = true
+  errorMsg.value = ''
+}
+
+function handleVideoPause() {
+  playing.value = false
+}
+
+function handleVideoError() {
+  pendingAutoplay.value = false
+  const mediaError = videoRef.value?.error
+  const message = describeMediaErrorCode(mediaError?.code)
+
+  if (currentSourceIndex.value < sources.value.length - 1) {
+    errorMsg.value = `${message}，正在切换下一条线路`
+    void switchToSource(currentSourceIndex.value + 1)
+    return
+  }
+
+  errorMsg.value = message
 }
 </script>
 
@@ -280,7 +327,12 @@ function initHlsPlayer(url: string) {
               ref="videoRef"
               class="aspect-video w-full bg-black"
               :title="currentSource?.url || ''"
+              playsinline
               @click="togglePlay"
+              @canplay="handleCanPlay"
+              @play="handleVideoPlay"
+              @pause="handleVideoPause"
+              @error="handleVideoError"
             ></video>
             <iframe
               v-if="isEmbedSource && currentSource"
