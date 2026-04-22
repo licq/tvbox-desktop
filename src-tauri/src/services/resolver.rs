@@ -22,6 +22,9 @@ impl PlaybackResolver {
         {
             return Ok(external_required("当前资源需要交给外部下载工具处理", input));
         }
+        if looks_like_cloud_disk_link(input) {
+            return Ok(external_required("当前资源需要交给外部网盘工具处理", input));
+        }
 
         if looks_like_xb6v_play_page(input) {
             return resolve_xb6v_play_page(input).await;
@@ -731,6 +734,16 @@ mod tests {
             .unwrap();
         assert_eq!(resolved.status, "external_required");
         assert_eq!(resolved.candidates[0].kind, "external");
+    }
+
+    #[tokio::test]
+    async fn marks_cloud_disk_urls_as_external_required() {
+        let resolved = PlaybackResolver::resolve("https://pan.baidu.com/s/example")
+            .await
+            .unwrap();
+        assert_eq!(resolved.status, "external_required");
+        assert_eq!(resolved.candidates[0].kind, "external");
+        assert_eq!(resolved.candidates[0].url, "https://pan.baidu.com/s/example");
     }
 
     #[test]
