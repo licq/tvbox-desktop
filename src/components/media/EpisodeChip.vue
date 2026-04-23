@@ -13,7 +13,12 @@ const props = withDefaults(
 </script>
 
 <template>
-  <button :class="['episode-chip', `episode-chip-${props.state}`]" type="button">
+  <button
+    :class="['episode-chip', `episode-chip-${props.state}`]"
+    :disabled="props.state === 'unavailable'"
+    :aria-disabled="props.state === 'unavailable'"
+    type="button"
+  >
     <span class="episode-chip-label">{{ label }}</span>
   </button>
 </template>

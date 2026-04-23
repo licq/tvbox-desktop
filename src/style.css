@@ -231,6 +231,23 @@ body::-webkit-scrollbar-track {
     border-color: rgba(255, 255, 255, 0.14);
   }
 
+  .episode-chip:disabled,
+  .episode-chip-unavailable {
+    cursor: not-allowed;
+  }
+
+  .episode-chip:disabled:hover,
+  .episode-chip-unavailable:hover {
+    transform: none;
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .episode-chip:disabled:active,
+  .episode-chip-unavailable:active {
+    transform: none;
+  }
+
   .episode-chip-label {
     @apply text-sm font-medium;
     line-height: 1.35;
