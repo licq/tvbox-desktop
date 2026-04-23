@@ -32,7 +32,9 @@ pub use libvio::{
     scrape_libvio_detail,
 };
 pub use parser::Parser;
-pub use resolver::{is_visible_playback_target, playback_sort_rank, PlaybackResolver};
+pub use resolver::{
+    classify_playback_target, is_visible_playback_target, playback_sort_rank, PlaybackResolver,
+};
 pub use storage::Storage;
 pub use tvbox::TvboxConfigParser;
 pub use wencai::{extract_player_url as extract_wencai_player_url, is_wencai_site};

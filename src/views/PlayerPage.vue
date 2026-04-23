@@ -40,6 +40,11 @@ const episodeUrl = computed(() => {
   const value = route.query.episode
   return typeof value === 'string' ? value : null
 })
+const episodeId = computed(() => {
+  const value = route.query.episodeId
+  const numeric = typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined
+})
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
 
 let hlsInstance: Hls | null = null
@@ -62,7 +67,7 @@ onMounted(async () => {
     }
   } else if (mode.value === 'vod' && episodeUrl.value) {
     const url = decodeURIComponent(episodeUrl.value)
-    const resolved = await playbackStore.resolve(url)
+    const resolved = await playbackStore.resolve(url, episodeId.value)
     sources.value = resolved.candidates.map(candidate => ({
       url: candidate.url,
       label: candidate.label,

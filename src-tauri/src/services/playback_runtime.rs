@@ -23,9 +23,19 @@ pub struct RuntimeResolvedCandidate {
 pub async fn resolve_playback_for_input(
     storage: &Storage,
     input: &str,
+    episode_id: Option<i64>,
 ) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
-    let normalized = discover_initial_targets(input);
+    let normalized = if let Some(episode_id) = episode_id {
+        let cached = maybe_cached_targets_for_episode(storage, episode_id)?;
+        if cached.is_empty() {
+            discover_initial_targets(input)
+        } else {
+            cached
+        }
+    } else {
+        discover_initial_targets(input)
+    };
     let resolved = resolve_and_probe_targets(storage, &client, normalized).await?;
     Ok(to_resolved_playback(resolved))
 }
@@ -503,6 +513,7 @@ mod tests {
         let resolved = resolve_playback_for_input(
             &storage,
             "https://example.invalid/runtime-dead/index.m3u8",
+            None,
         )
         .await
         .expect("runtime should resolve");

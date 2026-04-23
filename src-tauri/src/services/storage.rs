@@ -12,7 +12,8 @@ use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
 };
 use crate::services::xb6v::ScrapedCatalogItem;
-use crate::services::{is_visible_playback_target, playback_sort_rank};
+use crate::services::{classify_playback_target, is_visible_playback_target, playback_sort_rank};
+use self::playback_cache::PlaybackTargetRecord;
 
 #[path = "playback_cache.rs"]
 pub(crate) mod playback_cache;
@@ -718,6 +719,7 @@ impl Storage {
              FROM catalog_items ci
              INNER JOIN subscriptions s ON ci.subscription_id = s.id
              WHERE s.enabled = 1
+               AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
              ORDER BY ci.updated_at DESC, ci.id DESC
              LIMIT 12",
             [],
@@ -728,6 +730,7 @@ impl Storage {
              FROM catalog_items ci
              INNER JOIN subscriptions s ON ci.subscription_id = s.id
              WHERE s.enabled = 1
+               AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
              ORDER BY ci.id DESC
              LIMIT 12",
             [],
@@ -753,6 +756,7 @@ impl Storage {
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
+                   AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
                    AND ci.item_type = ?1
                    AND ci.title LIKE ?2
                  ORDER BY ci.updated_at DESC, ci.id DESC
@@ -765,6 +769,7 @@ impl Storage {
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
+                   AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
                    AND ci.item_type = ?1
                  ORDER BY ci.updated_at DESC, ci.id DESC
                  LIMIT 240",
@@ -776,6 +781,7 @@ impl Storage {
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
+                   AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
                    AND ci.title LIKE ?1
                  ORDER BY ci.updated_at DESC, ci.id DESC
                  LIMIT 240",
@@ -787,6 +793,7 @@ impl Storage {
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
+                   AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
                  ORDER BY ci.updated_at DESC, ci.id DESC
                  LIMIT 240",
                 [],
@@ -840,10 +847,12 @@ impl Storage {
         let mut grouped = std::collections::BTreeMap::<String, Vec<CatalogEpisode>>::new();
         for row in rows {
             let (source_name, episode) = row?;
-            if !is_visible_playback_target(&episode.play_url) {
-                continue;
+            if is_visible_playback_target(&episode.play_url) {
+                grouped
+                    .entry(source_name.clone())
+                    .or_default()
+                    .push(episode.clone());
             }
-            grouped.entry(source_name).or_default().push(episode);
         }
 
         let mut episode_groups: Vec<_> = grouped
@@ -1042,12 +1051,23 @@ impl Storage {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
+            "DELETE FROM playback_targets
+             WHERE episode_id IN (
+                SELECT ce.id
+                FROM catalog_episodes ce
+                INNER JOIN catalog_items ci ON ce.catalog_item_id = ci.id
+                WHERE ci.subscription_id = ?1
+             )",
+            [subscription_id],
+        )?;
+        tx.execute(
             "DELETE FROM catalog_items WHERE subscription_id = ?1",
             [subscription_id],
         )?;
 
         let updated_at = chrono_now();
         for item in items {
+            let source_key = source_key_from_detail_json(item.detail_json.as_deref());
             tx.execute(
                 "INSERT INTO catalog_items (
                     subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
@@ -1077,6 +1097,16 @@ impl Storage {
                         episode.play_url,
                         episode.order_index
                     ],
+                )?;
+                let episode_id = tx.last_insert_rowid();
+                insert_playback_target(
+                    &tx,
+                    playback_target_record(
+                        episode_id,
+                        &source_key,
+                        &episode.play_url,
+                        episode.order_index as i32,
+                    ),
                 )?;
             }
         }
@@ -1114,10 +1144,18 @@ impl Storage {
             ],
         )?;
         tx.execute(
+            "DELETE FROM playback_targets
+             WHERE episode_id IN (
+                SELECT id FROM catalog_episodes WHERE catalog_item_id = ?1
+             )",
+            [item_id],
+        )?;
+        tx.execute(
             "DELETE FROM catalog_episodes WHERE catalog_item_id = ?1",
             [item_id],
         )?;
 
+        let source_key = source_key_from_detail_json(item.detail_json.as_deref());
         for episode in &item.episodes {
             tx.execute(
                 "INSERT INTO catalog_episodes (
@@ -1130,6 +1168,16 @@ impl Storage {
                     episode.play_url,
                     episode.order_index
                 ],
+            )?;
+            let episode_id = tx.last_insert_rowid();
+            insert_playback_target(
+                &tx,
+                playback_target_record(
+                    episode_id,
+                    &source_key,
+                    &episode.play_url,
+                    episode.order_index as i32,
+                ),
             )?;
         }
 
@@ -1467,11 +1515,176 @@ fn insert_tvbox_lives(
     Ok(())
 }
 
+fn playback_target_record(
+    episode_id: i64,
+    source_key: &str,
+    play_url: &str,
+    sort_hint: i32,
+) -> PlaybackTargetRecord {
+    PlaybackTargetRecord {
+        episode_id,
+        source_key: source_key.to_string(),
+        target_url: play_url.to_string(),
+        target_kind: normalized_target_kind(play_url).to_string(),
+        resolver_key: None,
+        headers_json: None,
+        sort_hint,
+    }
+}
+
+fn normalized_target_kind(play_url: &str) -> &'static str {
+    match classify_playback_target(play_url) {
+        "direct" => "direct",
+        "resolvable" => "resolvable",
+        "embedded" => "embedded",
+        _ => "external_required",
+    }
+}
+
+fn source_key_from_detail_json(detail_json: Option<&str>) -> String {
+    detail_json
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|value| {
+            value
+                .get("source")
+                .and_then(|source| source.as_str())
+                .map(|source| source.to_string())
+        })
+        .unwrap_or_else(|| "default".to_string())
+}
+
+fn insert_playback_target(
+    tx: &rusqlite::Transaction<'_>,
+    target: PlaybackTargetRecord,
+) -> SqliteResult<()> {
+    tx.execute(
+        r#"
+        INSERT INTO playback_targets (
+            episode_id,
+            source_key,
+            target_url,
+            target_kind,
+            resolver_key,
+            headers_json,
+            sort_hint
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+        rusqlite::params![
+            target.episode_id,
+            target.source_key,
+            target.target_url,
+            target.target_kind,
+            target.resolver_key,
+            target.headers_json,
+            target.sort_hint,
+        ],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::Storage;
+    use super::playback_cache::{
+        get_playback_health, list_playback_targets, replace_playback_targets,
+        upsert_playback_health, PlaybackTargetRecord,
+    };
+    use crate::services::{ScrapedCatalogEpisode, ScrapedCatalogItem};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn persists_playback_health_with_ttl() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        upsert_playback_health(
+            &storage,
+            "hash-1",
+            "playable",
+            true,
+            true,
+            true,
+            Some(200),
+            None,
+            1800,
+        )
+        .expect("health should save");
+
+        let health = get_playback_health(&storage, "hash-1")
+            .expect("health query should succeed")
+            .expect("health row should exist");
+
+        assert_eq!(health.status, "playable");
+        assert!(health.expires_at > health.checked_at);
+    }
+
+    #[test]
+    fn persists_playback_targets_for_episode() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        replace_playback_targets(
+            &storage,
+            77,
+            vec![PlaybackTargetRecord {
+                episode_id: 77,
+                source_key: "jianpian".to_string(),
+                target_url: "https://cdn.example.com/ok/index.m3u8".to_string(),
+                target_kind: "direct".to_string(),
+                resolver_key: None,
+                headers_json: None,
+                sort_hint: 0,
+            }],
+        )
+        .expect("targets should save");
+
+        let targets = list_playback_targets(&storage, 77).expect("target query should succeed");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].target_kind, "direct");
+    }
+
+    #[test]
+    fn replace_catalog_item_detail_persists_runtime_targets_for_new_episodes() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_catalog_item_with_source(&storage, subscription.id, 301, "缓存影片", "series", "guard");
+
+        let scraped = ScrapedCatalogItem {
+            source_item_key: "guard:荐片:97910".to_string(),
+            title: "缓存影片".to_string(),
+            item_type: "series".to_string(),
+            poster: None,
+            summary: None,
+            detail_json: Some(
+                r#"{"source":"guard","guard_key":"csp_JPJGuard","site_key":"贱贱","item_id":"97910","item_type":"series"}"#
+                    .to_string(),
+            ),
+            episodes: vec![ScrapedCatalogEpisode {
+                source_name: "荐片".to_string(),
+                episode_label: "第1集".to_string(),
+                play_url: "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1".to_string(),
+                order_index: 1,
+            }],
+        };
+
+        storage
+            .replace_catalog_item_detail(301, &scraped)
+            .expect("catalog detail should update");
+
+        let detail = storage
+            .get_catalog_detail(301)
+            .expect("catalog detail should query");
+        let episode_id = detail.episode_groups[0].episodes[0].id;
+        let targets =
+            list_playback_targets(&storage, episode_id).expect("runtime targets should query");
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].source_key, "guard");
+        assert_eq!(targets[0].target_kind, "resolvable");
+        assert!(targets[0].target_url.starts_with("guard://"));
+    }
 
     #[test]
     fn records_refresh_failure_without_overwriting_last_success_timestamp() {
@@ -1586,27 +1799,25 @@ mod tests {
             "https://a.example/live.m3u8",
         );
         storage
-            .record_subscription_refresh_failure(subscription.id, "tvbox_config", "upstream blocked")
+            .record_subscription_refresh_failure(
+                subscription.id,
+                "tvbox_config",
+                "upstream blocked",
+            )
             .expect("failure state should record");
 
-        assert!(
-            storage
-                .get_live_categories()
-                .expect("live categories should query")
-                .is_empty()
-        );
-        assert!(
-            storage
-                .get_live_channel_groups()
-                .expect("live groups should query")
-                .is_empty()
-        );
-        assert!(
-            storage
-                .get_merged_live_channels()
-                .expect("merged live channels should query")
-                .is_empty()
-        );
+        assert!(storage
+            .get_live_categories()
+            .expect("live categories should query")
+            .is_empty());
+        assert!(storage
+            .get_live_channel_groups()
+            .expect("live groups should query")
+            .is_empty());
+        assert!(storage
+            .get_merged_live_channels()
+            .expect("merged live channels should query")
+            .is_empty());
     }
 
     #[test]
@@ -1628,6 +1839,30 @@ mod tests {
         assert!(home.continue_watching.is_empty());
         assert_eq!(home.latest_updates.len(), 1);
         assert_eq!(home.featured.len(), 1);
+    }
+
+    #[test]
+    fn library_queries_hide_embedded_only_catalog_sources() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_catalog_item_with_source(&storage, subscription.id, 111, "可播影片", "movie", "auete");
+        seed_catalog_item_with_source(&storage, subscription.id, 112, "嵌页影片", "series", "zxzj");
+
+        let home = storage
+            .get_library_home()
+            .expect("library home should query");
+        let catalog = storage
+            .get_catalog_items(None, None)
+            .expect("catalog items should query");
+
+        assert_eq!(home.latest_updates.len(), 1);
+        assert_eq!(home.featured.len(), 1);
+        assert_eq!(home.latest_updates[0].title, "可播影片");
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(catalog[0].title, "可播影片");
     }
 
     #[test]
@@ -1796,12 +2031,14 @@ mod tests {
 
         assert_eq!(detail.episode_groups.len(), 2);
         assert_eq!(detail.episode_groups[0].source_name, "直链线路");
-        assert_eq!(detail.episode_groups[0].episodes[0].play_url, "https://media.example.com/demo/index.m3u8");
+        assert_eq!(
+            detail.episode_groups[0].episodes[0].play_url,
+            "https://media.example.com/demo/index.m3u8"
+        );
         assert_eq!(detail.episode_groups[1].source_name, "可解析线路");
-        assert!(detail
-            .episode_groups
-            .iter()
-            .all(|group| !group.source_name.contains("嵌入") && !group.source_name.contains("外部")));
+        assert!(detail.episode_groups.iter().all(
+            |group| !group.source_name.contains("嵌入") && !group.source_name.contains("外部")
+        ));
     }
 
     fn seed_live_source(
@@ -1836,12 +2073,33 @@ mod tests {
         title: &str,
         item_type: &str,
     ) {
+        seed_catalog_item_with_source(storage, subscription_id, id, title, item_type, "");
+    }
+
+    fn seed_catalog_item_with_source(
+        storage: &Storage,
+        subscription_id: i64,
+        id: i64,
+        title: &str,
+        item_type: &str,
+        source: &str,
+    ) {
         let conn = storage.conn.lock().expect("storage lock should succeed");
         conn.execute(
             "INSERT INTO catalog_items (
                 id, subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
-             ) VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, NULL, '2026-04-20 00:00:00')",
-            rusqlite::params![id, subscription_id, title, item_type],
+             ) VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, ?5, '2026-04-20 00:00:00')",
+            rusqlite::params![
+                id,
+                subscription_id,
+                title,
+                item_type,
+                if source.is_empty() {
+                    None::<String>
+                } else {
+                    Some(format!(r#"{{"source":"{}"}}"#, source))
+                }
+            ],
         )
         .expect("catalog item should insert");
     }
@@ -1878,56 +2136,3 @@ mod tests {
         std::env::temp_dir().join(format!("tvbox-storage-test-{}", nanos))
     }
 }
-    use super::playback_cache::{
-        get_playback_health, list_playback_targets, replace_playback_targets,
-        upsert_playback_health, PlaybackTargetRecord,
-    };
-    #[test]
-    fn persists_playback_health_with_ttl() {
-        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
-
-        upsert_playback_health(
-            &storage,
-            "hash-1",
-            "playable",
-            true,
-            true,
-            true,
-            Some(200),
-            None,
-            1800,
-        )
-        .expect("health should save");
-
-        let health = get_playback_health(&storage, "hash-1")
-            .expect("health query should succeed")
-            .expect("health row should exist");
-
-        assert_eq!(health.status, "playable");
-        assert!(health.expires_at > health.checked_at);
-    }
-
-    #[test]
-    fn persists_playback_targets_for_episode() {
-        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
-
-        replace_playback_targets(
-            &storage,
-            77,
-            vec![PlaybackTargetRecord {
-                episode_id: 77,
-                source_key: "jianpian".to_string(),
-                target_url: "https://cdn.example.com/ok/index.m3u8".to_string(),
-                target_kind: "direct".to_string(),
-                resolver_key: None,
-                headers_json: None,
-                sort_hint: 0,
-            }],
-        )
-        .expect("targets should save");
-
-        let targets = list_playback_targets(&storage, 77).expect("target query should succeed");
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].target_kind, "direct");
-    }
-

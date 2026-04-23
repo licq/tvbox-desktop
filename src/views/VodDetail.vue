@@ -33,7 +33,7 @@ onMounted(loadDetail)
 watch(itemId, loadDetail)
 
 function handlePlay(episode: CatalogEpisode) {
-  router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}`)
+  router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
 }
 </script>
 
