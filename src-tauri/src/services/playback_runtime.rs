@@ -133,7 +133,8 @@ pub async fn resolve_and_probe_targets(
         }
     }
 
-    Ok(sort_runtime_candidates(resolved))
+    let sorted = sort_runtime_candidates(resolved);
+    prioritize_recently_successful_candidates(storage, sorted)
 }
 
 pub fn sort_runtime_candidates(
@@ -165,6 +166,43 @@ pub fn sort_runtime_candidates(
     }
 
     sorted
+}
+
+fn prioritize_recently_successful_candidates(
+    storage: &Storage,
+    candidates: Vec<RuntimeResolvedCandidate>,
+) -> Result<Vec<RuntimeResolvedCandidate>, String> {
+    let mut ranked = Vec::with_capacity(candidates.len());
+
+    for (index, candidate) in candidates.into_iter().enumerate() {
+        let recent_success = recent_success_timestamp(storage, &candidate.target)?;
+        ranked.push((recent_success, index, candidate));
+    }
+
+    ranked.sort_by(|left, right| {
+        right
+            .0
+            .cmp(&left.0)
+            .then_with(|| left.1.cmp(&right.1))
+    });
+
+    Ok(ranked.into_iter().map(|(_, _, candidate)| candidate).collect())
+}
+
+fn recent_success_timestamp(
+    storage: &Storage,
+    target: &PlaybackTarget,
+) -> Result<Option<i64>, String> {
+    let target_hash = hash_playback_target(&target.target_url, target.headers.as_ref());
+    let Some(record) = get_playback_health(storage, &target_hash).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+
+    if record.status == "playable" {
+        return Ok(Some(record.checked_at));
+    }
+
+    Ok(None)
 }
 
 pub fn filter_presentable_targets(
@@ -600,7 +638,7 @@ mod tests {
     use super::{
         build_runtime_target, classify_probe_failure, dedupe_presentable_targets,
         filter_presentable_targets, parse_headers_json, failed_probe_ttl_seconds,
-        maybe_cached_targets_for_episode,
+        maybe_cached_targets_for_episode, prioritize_recently_successful_candidates,
         persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
         resolved_failure_status, summarize_runtime_failures, target_kind_label, ProbeFailureClass,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
@@ -609,7 +647,7 @@ mod tests {
     use crate::services::playback_types::{
         PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
     };
-    use crate::services::storage::playback_cache::list_playback_targets;
+    use crate::services::storage::playback_cache::{list_playback_targets, upsert_playback_health};
     use crate::services::Storage;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -778,6 +816,86 @@ mod tests {
         ]);
 
         assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
+    fn prioritizes_recently_successful_candidates_ahead_of_current_order() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let first = target(
+            PlaybackTargetKind::Direct,
+            "jianpian",
+            "https://cdn.example.com/first/index.m3u8",
+        );
+        let second = target(
+            PlaybackTargetKind::Direct,
+            "libvio",
+            "https://cdn.example.com/second/index.m3u8",
+        );
+        let second_hash = crate::services::storage::playback_cache::hash_playback_target(
+            &second.target_url,
+            second.headers.as_ref(),
+        );
+        upsert_playback_health(
+            &storage,
+            &second_hash,
+            "playable",
+            true,
+            true,
+            true,
+            Some(200),
+            None,
+            3600,
+        )
+        .expect("playback health should persist");
+
+        let prioritized = prioritize_recently_successful_candidates(
+            &storage,
+            vec![
+                RuntimeResolvedCandidate {
+                    target: first,
+                    probe: PlaybackProbeResult::playable(),
+                },
+                RuntimeResolvedCandidate {
+                    target: second,
+                    probe: PlaybackProbeResult::playable(),
+                },
+            ],
+        )
+        .expect("candidate prioritization should succeed");
+
+        assert_eq!(prioritized[0].target.source_key, "libvio");
+        assert_eq!(prioritized[1].target.source_key, "jianpian");
+    }
+
+    #[test]
+    fn keeps_existing_order_when_no_recent_success_history_exists() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        let prioritized = prioritize_recently_successful_candidates(
+            &storage,
+            vec![
+                RuntimeResolvedCandidate {
+                    target: target(
+                        PlaybackTargetKind::Direct,
+                        "jianpian",
+                        "https://cdn.example.com/first/index.m3u8",
+                    ),
+                    probe: PlaybackProbeResult::playable(),
+                },
+                RuntimeResolvedCandidate {
+                    target: target(
+                        PlaybackTargetKind::Direct,
+                        "libvio",
+                        "https://cdn.example.com/second/index.m3u8",
+                    ),
+                    probe: PlaybackProbeResult::playable(),
+                },
+            ],
+        )
+        .expect("candidate prioritization should succeed");
+
+        assert_eq!(prioritized[0].target.source_key, "jianpian");
+        assert_eq!(prioritized[1].target.source_key, "libvio");
     }
 
     #[test]
