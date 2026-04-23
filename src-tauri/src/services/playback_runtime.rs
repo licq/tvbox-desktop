@@ -605,7 +605,8 @@ fn persist_runtime_targets_for_episode(
 ) -> Result<(), String> {
     let records = candidates
         .iter()
-        .map(|candidate| PlaybackTargetRecord {
+        .enumerate()
+        .map(|(index, candidate)| PlaybackTargetRecord {
             episode_id,
             source_key: candidate.target.source_key.clone(),
             target_url: candidate.target.target_url.clone(),
@@ -617,7 +618,7 @@ fn persist_runtime_targets_for_episode(
                 .as_ref()
                 .and_then(|headers| serde_json::to_string(headers).ok()),
             meta_text: candidate.target.meta.clone(),
-            sort_hint: candidate.target.sort_hint,
+            sort_hint: index as i32,
         })
         .collect();
 
@@ -1098,6 +1099,53 @@ mod tests {
             .as_deref()
             .is_some_and(|value| value.contains("Referer")));
         assert_eq!(records[0].meta_text.as_deref(), Some("无尽线路"));
+        assert_eq!(records[0].sort_hint, 0);
+    }
+
+    #[test]
+    fn persists_runtime_targets_using_current_resolved_order_for_sort_hint() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        persist_runtime_targets_for_episode(
+            &storage,
+            66,
+            &[
+                RuntimeResolvedCandidate {
+                    target: PlaybackTarget {
+                        episode_id: Some(66),
+                        source_key: "libvio".to_string(),
+                        target_url: "https://cdn.example.com/second/index.m3u8".to_string(),
+                        target_kind: PlaybackTargetKind::Direct,
+                        resolver_key: Some("libvio".to_string()),
+                        headers: None,
+                        sort_hint: 9,
+                        meta: Some("第二条".to_string()),
+                    },
+                    probe: PlaybackProbeResult::playable(),
+                },
+                RuntimeResolvedCandidate {
+                    target: PlaybackTarget {
+                        episode_id: Some(66),
+                        source_key: "jianpian".to_string(),
+                        target_url: "https://cdn.example.com/first/index.m3u8".to_string(),
+                        target_kind: PlaybackTargetKind::Direct,
+                        resolver_key: Some("jianpian".to_string()),
+                        headers: None,
+                        sort_hint: 1,
+                        meta: Some("第一条".to_string()),
+                    },
+                    probe: PlaybackProbeResult::playable(),
+                },
+            ],
+        )
+        .expect("runtime targets should persist");
+
+        let records = list_playback_targets(&storage, 66).expect("target query should succeed");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].target_url, "https://cdn.example.com/second/index.m3u8");
+        assert_eq!(records[0].sort_hint, 0);
+        assert_eq!(records[1].target_url, "https://cdn.example.com/first/index.m3u8");
+        assert_eq!(records[1].sort_hint, 1);
     }
 
     #[test]
