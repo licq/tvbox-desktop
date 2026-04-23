@@ -91,6 +91,50 @@ describe('library store', () => {
     expect(store.featured[0].update_badge).toBe('推荐')
   })
 
+  it('keeps featured card available as hero source and continue watching as separate rail', () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
+    const payload = {
+      continue_watching: [
+        { id: 1, title: 'Arcane', item_type: 'series' as const, progress: 40 }
+      ],
+      latest_updates: [
+        { id: 2, title: 'The Bear', item_type: 'series' as const }
+      ],
+      featured: [
+        { id: 3, title: 'Dune', item_type: 'movie' as const }
+      ]
+    }
+
+    store.applyHomePayload(payload)
+    store.catalogItems = [
+      ...store.continueWatching,
+      ...store.latestUpdates,
+      ...store.featured,
+      { id: 4, title: 'Series Rail', item_type: 'series' },
+      { id: 5, title: 'Series Rail 2', item_type: 'series' },
+      { id: 6, title: 'Series Rail 3', item_type: 'series' },
+      { id: 7, title: 'Series Rail 4', item_type: 'series' },
+      { id: 8, title: 'Series Rail 5', item_type: 'series' },
+      { id: 9, title: 'Series Rail 6', item_type: 'series' },
+      { id: 10, title: 'Series Rail 7', item_type: 'series' },
+      { id: 11, title: 'Series Rail 8', item_type: 'series' },
+      { id: 12, title: 'Series Rail 9', item_type: 'series' },
+      { id: 13, title: 'Series Rail 10', item_type: 'series' },
+      { id: 14, title: 'Series Rail 11', item_type: 'series' },
+      { id: 15, title: 'Series Rail 12', item_type: 'series' },
+      { id: 16, title: 'Series Rail 13', item_type: 'series' }
+    ]
+
+    expect(store.hero?.title).toBe('Dune')
+    expect(store.continueWatching[0].title).toBe('Arcane')
+    expect(store.latestUpdates[0].title).toBe('The Bear')
+    expect(store.getRail('series')).toHaveLength(12)
+    expect(store.getRail('series')[0].title).toBe('Arcane')
+    expect(store.getRail('series')[1].title).toBe('The Bear')
+  })
+
   it('rejects malformed cards without an item type', () => {
     setActivePinia(createPinia())
     const store = useLibraryStore()

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { CatalogDetail, CatalogDetailItem, CatalogEpisodeGroup } from '@/types'
 
@@ -8,6 +8,7 @@ export const useDetailStore = defineStore('detail', () => {
   const episodeGroups = ref<CatalogEpisodeGroup[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const recommendedGroup = computed(() => episodeGroups.value[0] ?? null)
 
   async function fetchDetail(itemId: number) {
     loading.value = true
@@ -36,6 +37,7 @@ export const useDetailStore = defineStore('detail', () => {
   return {
     item,
     episodeGroups,
+    recommendedGroup,
     loading,
     error,
     fetchDetail,
