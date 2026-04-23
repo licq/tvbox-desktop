@@ -2,11 +2,11 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { open } from '@tauri-apps/plugin-shell'
-import Hls from 'hls.js'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
+import type Hls from 'hls.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +48,7 @@ const episodeId = computed(() => {
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
 
 let hlsInstance: Hls | null = null
+let hlsConstructorPromise: Promise<typeof import('hls.js').default> | null = null
 let progressUpdateInterval: number | null = null
 
 onMounted(async () => {
@@ -180,6 +181,14 @@ function resetVideoElement() {
   pendingAutoplay.value = false
 }
 
+async function getHlsConstructor() {
+  if (!hlsConstructorPromise) {
+    hlsConstructorPromise = import('hls.js').then(module => module.default)
+  }
+
+  return hlsConstructorPromise
+}
+
 async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
   currentSourceIndex.value = index
@@ -203,10 +212,10 @@ async function playSource(source: PlayerSource) {
     return
   }
 
-  initHlsPlayer(url)
+  await initHlsPlayer(url)
 }
 
-function initHlsPlayer(url: string) {
+async function initHlsPlayer(url: string) {
   if (!videoRef.value) return
 
   if (hlsInstance) {
@@ -215,6 +224,8 @@ function initHlsPlayer(url: string) {
   }
 
   if (url.includes('.m3u8')) {
+    const Hls = await getHlsConstructor()
+
     if (Hls.isSupported()) {
       const hls = new Hls()
       hlsInstance = hls
