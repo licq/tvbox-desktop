@@ -59,8 +59,6 @@ export interface PlayHistory {
 
 export type SourceKind = 'simple_json' | 'tvbox_config';
 
-export type EpisodeAvailabilityState = 'playable' | 'resolving' | 'unavailable';
-
 export interface SourceSubscription {
   id: number;
   name: string;
