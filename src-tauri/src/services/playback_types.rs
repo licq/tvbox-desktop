@@ -87,9 +87,22 @@ pub fn rank_targets(
             PlaybackProbeStatus::Playable => 0,
             PlaybackProbeStatus::Failed => 1,
         };
-        (probe_rank, kind_rank, target.sort_hint)
+        let source_rank = playback_source_rank(&target.source_key);
+        (probe_rank, kind_rank, source_rank, target.sort_hint)
     });
     entries
+}
+
+fn playback_source_rank(source_key: &str) -> i32 {
+    let normalized = source_key.trim().to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "libvio" | "auete" | "wencai" | "jianpian" | "csp_jpysguard" | "csp_jpjguard" => 0,
+        "xb6v" => 1,
+        "default" | "guard" => 2,
+        "zxzj" => 3,
+        _ => 2,
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +139,40 @@ mod tests {
 
         assert_eq!(ranked[0].0.target_kind, PlaybackTargetKind::Direct);
         assert_eq!(ranked[1].0.target_kind, PlaybackTargetKind::Resolvable);
+    }
+
+    #[test]
+    fn ranks_preferred_source_families_ahead_of_generic_sources() {
+        let mut generic = target(PlaybackTargetKind::Direct, 0);
+        generic.source_key = "default".to_string();
+
+        let mut preferred = target(PlaybackTargetKind::Direct, 0);
+        preferred.source_key = "csp_JPJGuard".to_string();
+
+        let ranked = rank_targets(vec![
+            (generic, PlaybackProbeStatus::Playable),
+            (preferred, PlaybackProbeStatus::Playable),
+        ]);
+
+        assert_eq!(ranked[0].0.source_key, "csp_JPJGuard");
+        assert_eq!(ranked[1].0.source_key, "default");
+    }
+
+    #[test]
+    fn ranks_zxzj_after_preferred_source_families_when_probe_status_matches() {
+        let mut preferred = target(PlaybackTargetKind::Resolvable, 0);
+        preferred.source_key = "libvio".to_string();
+
+        let mut zxzj = target(PlaybackTargetKind::Resolvable, 0);
+        zxzj.source_key = "zxzj".to_string();
+
+        let ranked = rank_targets(vec![
+            (zxzj, PlaybackProbeStatus::Playable),
+            (preferred, PlaybackProbeStatus::Playable),
+        ]);
+
+        assert_eq!(ranked[0].0.source_key, "libvio");
+        assert_eq!(ranked[1].0.source_key, "zxzj");
     }
 
     #[test]
