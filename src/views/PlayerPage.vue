@@ -5,6 +5,8 @@ import { open } from '@tauri-apps/plugin-shell'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
+import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
+import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
 import type Hls from 'hls.js'
 
@@ -31,6 +33,7 @@ const pendingAutoplay = ref(false)
 
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
+const failedSourceIndexes = ref<number[]>([])
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
 const isEmbedSource = computed(() => currentSource.value?.kind === 'embed')
@@ -46,6 +49,15 @@ const episodeId = computed(() => {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined
 })
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
+const playerStatusText = computed(() => {
+  if (errorMsg.value) return '需要处理'
+  if (pendingAutoplay.value) return '等待播放'
+  if (playing.value) return '播放中'
+  if (playbackStore.status === 'resolving') return '解析中'
+  return playbackStore.status === 'idle' ? '就绪' : playbackStore.status
+})
+const playerModeLabel = computed(() => mode.value === 'live' ? '直播' : '点播')
+const noticeTone = computed(() => playbackStore.status === 'failed' ? 'danger' : 'warning')
 
 let hlsInstance: Hls | null = null
 let hlsConstructorPromise: Promise<typeof import('hls.js').default> | null = null
@@ -195,6 +207,12 @@ async function switchToSource(index: number) {
   await playSource(sources.value[index])
 }
 
+function markCurrentSourceFailed() {
+  if (!failedSourceIndexes.value.includes(currentSourceIndex.value)) {
+    failedSourceIndexes.value = [...failedSourceIndexes.value, currentSourceIndex.value]
+  }
+}
+
 async function playSource(source: PlayerSource) {
   errorMsg.value = ''
   const url = source.url
@@ -234,6 +252,7 @@ async function initHlsPlayer(url: string) {
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
+        markCurrentSourceFailed()
 
         if (currentSourceIndex.value < sources.value.length - 1) {
           void switchToSource(currentSourceIndex.value + 1)
@@ -298,6 +317,7 @@ function handleVideoError() {
   pendingAutoplay.value = false
   const mediaError = videoRef.value?.error
   const message = describeMediaErrorCode(mediaError?.code)
+  markCurrentSourceFailed()
 
   if (currentSourceIndex.value < sources.value.length - 1) {
     errorMsg.value = `${message}，正在切换下一条线路`
@@ -310,29 +330,26 @@ function handleVideoError() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#05070b] px-4 py-4 text-white md:px-6">
-    <div class="mx-auto max-w-[1500px]">
-      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <button class="action-button action-button-secondary" @click="router.back()">
+  <div class="player-shell">
+    <div class="player-frame">
+      <header class="player-topbar">
+        <button class="action-button action-button-secondary" type="button" @click="router.back()">
           返回
         </button>
-        <div class="flex items-center gap-2">
-          <div class="rounded-full bg-white/8 px-3 py-2 text-[11px] uppercase tracking-[0.28em] text-white/50">
-            {{ mode }}
-          </div>
-          <div class="rounded-full bg-white/8 px-3 py-2 text-[11px] uppercase tracking-[0.28em] text-white/50">
-            {{ sourceLabel }}
-          </div>
+        <div class="player-context">
+          <span>{{ playerModeLabel }}</span>
+          <span>{{ sourceLabel }}</span>
+          <span>{{ playerStatusText }}</span>
         </div>
-      </div>
+      </header>
 
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <section class="surface-panel overflow-hidden rounded-[2rem]">
-          <div class="relative">
+      <div class="player-layout">
+        <section class="player-stage">
+          <div class="player-video-wrap">
             <video
               v-show="!isEmbedSource"
               ref="videoRef"
-              class="aspect-video w-full bg-black"
+              class="player-video"
               :title="currentSource?.url || ''"
               playsinline
               @click="togglePlay"
@@ -343,89 +360,67 @@ function handleVideoError() {
             ></video>
             <iframe
               v-if="isEmbedSource && currentSource"
-              class="aspect-video w-full bg-black"
+              class="player-video"
               :src="currentSource.url"
               allow="autoplay; fullscreen"
               referrerpolicy="no-referrer"
             ></iframe>
 
-            <div class="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent"></div>
-            <div class="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/85 via-black/40 to-transparent"></div>
+            <div class="player-vignette-top"></div>
+            <div class="player-vignette-bottom"></div>
 
-            <div class="absolute inset-x-0 bottom-0 p-5 md:p-6">
-              <div v-if="errorMsg" class="mb-4 rounded-[1.25rem] border border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                {{ errorMsg }}
-              </div>
+            <div class="player-overlay">
+              <PlaybackNotice v-if="errorMsg" :message="errorMsg" :tone="noticeTone" />
 
-              <div class="space-y-4">
-                <div class="flex items-center gap-3 text-xs text-white/60">
+              <div class="player-controls">
+                <div class="player-progress">
                   <span>{{ formatTime(currentTime) }}</span>
                   <input
                     type="range"
                     :value="currentTime"
                     :max="duration || 100"
-                    class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-white/15"
+                    class="player-range"
                     @input="seek(parseFloat(($event.target as HTMLInputElement).value))"
                   />
                   <span>{{ formatTime(duration) }}</span>
                 </div>
 
-                <div class="flex flex-wrap items-center justify-between gap-4">
-                  <div class="flex flex-wrap items-center gap-3">
-                    <button class="action-button action-button-primary" @click="togglePlay">
+                <div class="player-control-row">
+                  <div class="player-control-actions">
+                    <button class="action-button action-button-primary" type="button" @click="togglePlay">
                       {{ playing ? '暂停' : '播放' }}
                     </button>
-                    <button class="action-button action-button-secondary" @click="toggleFullscreen">
+                    <button class="action-button action-button-secondary" type="button" @click="toggleFullscreen">
                       {{ fullscreen ? '退出全屏' : '全屏' }}
                     </button>
                   </div>
 
-                  <div class="flex items-center gap-3 rounded-full bg-white/8 px-4 py-2">
-                    <span class="text-xs uppercase tracking-[0.28em] text-white/38">Volume</span>
+                  <label class="player-volume">
+                    <span>Volume</span>
                     <input
                       type="range"
                       :value="volume"
                       min="0"
                       max="1"
                       step="0.1"
-                      class="h-1 w-24 cursor-pointer appearance-none rounded-full bg-white/15"
+                      class="player-range player-volume-range"
                       @input="handleVolumeChange"
                     />
-                  </div>
+                  </label>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <aside class="surface-panel rounded-[2rem] px-5 py-5">
-          <div class="section-title">线路面板</div>
-          <p class="mt-2 text-sm text-white/48">线路切换、模式和失败反馈统一放到视频右侧，避免遮住关键画面。</p>
-
-          <div class="mt-6 space-y-3">
-            <button
-              v-for="(_, index) in sources"
-              :key="index"
-              :class="[
-                'w-full rounded-[1.2rem] border px-4 py-3 text-left transition',
-                index === currentSourceIndex
-                  ? 'border-[#d89a57]/40 bg-[#d89a57]/12 text-white'
-                  : 'border-white/6 bg-white/[0.03] text-white/68 hover:bg-white/[0.06]'
-              ]"
-              @click="switchToSource(index)"
-            >
-              <div class="text-[10px] uppercase tracking-[0.28em] text-white/35">Line {{ index + 1 }}</div>
-              <div class="mt-2 text-sm font-medium">{{ sources[index].url ? '内置地址' : '占位线路' }}</div>
-            </button>
-          </div>
-
-          <div class="mt-6 rounded-[1.4rem] border border-white/6 bg-white/[0.03] p-4">
-            <div class="text-[11px] uppercase tracking-[0.28em] text-white/34">Current Url</div>
-            <div class="mt-3 break-all text-xs leading-6 text-white/52">
-              {{ currentSource?.url || '当前没有可用地址' }}
-            </div>
-          </div>
-        </aside>
+        <PlaybackDrawer
+          :sources="sources"
+          :current-index="currentSourceIndex"
+          :failed-indexes="failedSourceIndexes"
+          :status="playerStatusText"
+          :error-message="errorMsg || playbackStore.errorMessage"
+          @select="switchToSource"
+        />
       </div>
     </div>
   </div>

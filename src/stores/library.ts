@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { CatalogCard, CatalogCardInput, HomePayloadInput } from '@/types'
+import type { CatalogCard, CatalogCardInput, CatalogItemType, HomePayloadInput } from '@/types'
 
 function resolveItemType(card: CatalogCardInput) {
   const itemType = card.item_type ?? card.itemType
@@ -27,6 +27,10 @@ function normalizeCards(cards?: CatalogCardInput[]) {
   return (cards ?? []).map(card => normalizeCatalogCard(card))
 }
 
+function sliceRail(items: CatalogCard[], limit = 12) {
+  return items.slice(0, limit)
+}
+
 export const useLibraryStore = defineStore('library', () => {
   const continueWatching = ref<CatalogCard[]>([])
   const latestUpdates = ref<CatalogCard[]>([])
@@ -34,6 +38,7 @@ export const useLibraryStore = defineStore('library', () => {
   const catalogItems = ref<CatalogCard[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const hero = computed(() => featured.value[0] ?? latestUpdates.value[0] ?? continueWatching.value[0] ?? null)
 
   function applyHomePayload(payload: HomePayloadInput) {
     continueWatching.value = normalizeCards(payload.continue_watching ?? payload.continueWatching)
@@ -72,15 +77,21 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
+  function getRail(itemType: CatalogItemType) {
+    return sliceRail(catalogItems.value.filter(card => card.item_type === itemType))
+  }
+
   return {
     continueWatching,
     latestUpdates,
     featured,
     catalogItems,
+    hero,
     loading,
     error,
     applyHomePayload,
     fetchHome,
-    fetchCatalog
+    fetchCatalog,
+    getRail
   }
 })

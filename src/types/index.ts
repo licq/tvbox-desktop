@@ -81,6 +81,31 @@ export interface CatalogCard {
   update_badge?: string;
 }
 
+export type SourceConfidence = 'high' | 'medium' | 'low' | 'unknown'
+
+export interface SourceBadge {
+  label: string
+  confidence?: SourceConfidence
+  tone?: 'warm' | 'cool' | 'neutral' | 'danger'
+}
+
+export interface HeroMetric {
+  label: string
+  value: string
+}
+
+export interface HomeHeroCard extends CatalogCard {
+  summary?: string
+  primary_badge?: string
+}
+
+export type EpisodeAvailabilityState = 'playable' | 'resolving' | 'unavailable'
+
+export interface DetailEpisodeView extends CatalogEpisode {
+  availability?: EpisodeAvailabilityState
+  source_badge?: string
+}
+
 interface CatalogCardInputBase {
   id: number;
   title: string;
