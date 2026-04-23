@@ -89,7 +89,7 @@ pub fn maybe_cached_targets_for_episode(
                 resolver_key: record.resolver_key,
                 headers: parse_headers_json(record.headers_json.as_deref())?,
                 sort_hint: record.sort_hint,
-                meta: None,
+                meta: record.meta_text,
             })
         })
         .collect()
@@ -371,6 +371,7 @@ fn persist_runtime_targets_for_episode(
                 .headers
                 .as_ref()
                 .and_then(|headers| serde_json::to_string(headers).ok()),
+            meta_text: candidate.target.meta.clone(),
             sort_hint: candidate.target.sort_hint,
         })
         .collect();
@@ -391,7 +392,7 @@ fn target_kind_label(kind: &PlaybackTargetKind) -> &'static str {
 mod tests {
     use super::{
         build_runtime_target, filter_presentable_targets, parse_headers_json,
-        persist_runtime_targets_for_episode, target_kind_label,
+        maybe_cached_targets_for_episode, persist_runtime_targets_for_episode, target_kind_label,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
         RuntimeResolvedCandidate,
     };
@@ -579,6 +580,38 @@ mod tests {
             .headers_json
             .as_deref()
             .is_some_and(|value| value.contains("Referer")));
+        assert_eq!(records[0].meta_text.as_deref(), Some("无尽线路"));
+    }
+
+    #[test]
+    fn restores_cached_runtime_target_metadata_for_episode_cache() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        persist_runtime_targets_for_episode(
+            &storage,
+            88,
+            &[RuntimeResolvedCandidate {
+                target: PlaybackTarget {
+                    episode_id: Some(88),
+                    source_key: "wencai".to_string(),
+                    target_url: "https://cdn.example.com/play/index.m3u8".to_string(),
+                    target_kind: PlaybackTargetKind::Direct,
+                    resolver_key: Some("wencai".to_string()),
+                    headers: None,
+                    sort_hint: 2,
+                    meta: Some("文采线路A:第1集".to_string()),
+                },
+                probe: PlaybackProbeResult::playable(),
+            }],
+        )
+        .expect("runtime targets should persist");
+
+        let restored =
+            maybe_cached_targets_for_episode(&storage, 88).expect("cached targets should restore");
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].meta.as_deref(), Some("文采线路A:第1集"));
+        assert_eq!(restored[0].resolver_key.as_deref(), Some("wencai"));
     }
 
     #[test]

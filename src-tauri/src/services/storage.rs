@@ -239,12 +239,15 @@ impl Storage {
                 target_kind TEXT NOT NULL,
                 resolver_key TEXT,
                 headers_json TEXT,
+                meta_text TEXT,
                 sort_hint INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )",
             [],
         )?;
+        conn.execute("ALTER TABLE playback_targets ADD COLUMN meta_text TEXT", [])
+            .ok();
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS playback_health (
@@ -1515,6 +1518,7 @@ fn playback_target_record(
             .headers
             .as_ref()
             .and_then(|headers| serde_json::to_string(headers).ok()),
+        meta_text: target.meta.clone(),
         sort_hint: target.sort_hint,
     }
 }
@@ -1622,6 +1626,7 @@ mod tests {
                 target_kind: "direct".to_string(),
                 resolver_key: None,
                 headers_json: None,
+                meta_text: Some("荐片线路".to_string()),
                 sort_hint: 0,
             }],
         )
@@ -1629,6 +1634,7 @@ mod tests {
 
         let targets = list_playback_targets(&storage, 77).expect("target query should succeed");
         assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].meta_text.as_deref(), Some("荐片线路"));
         assert_eq!(targets[0].target_kind, "direct");
     }
 
