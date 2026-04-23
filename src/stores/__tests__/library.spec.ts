@@ -52,6 +52,9 @@ describe('library store', () => {
   })
 
   it('normalizes home payload into hero and rail-friendly card fields', () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
     const payload = {
       continue_watching: [
         {
@@ -77,8 +80,15 @@ describe('library store', () => {
       ]
     }
 
-    expect(payload.featured[0].item_type).toBe('movie')
-    expect(payload.continue_watching[0].progress).toBe(52)
+    store.applyHomePayload(payload)
+
+    expect(store.continueWatching[0].item_type).toBe('series')
+    expect(store.continueWatching[0].progress).toBe(52)
+    expect(store.continueWatching[0].source_badge).toBe('荐片')
+    expect(store.continueWatching[0].update_badge).toBe('继续观看')
+    expect(store.featured[0].item_type).toBe('movie')
+    expect(store.featured[0].source_badge).toBe('Auete')
+    expect(store.featured[0].update_badge).toBe('推荐')
   })
 
   it('rejects malformed cards without an item type', () => {
