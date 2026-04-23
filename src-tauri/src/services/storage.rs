@@ -11,9 +11,8 @@ use crate::models::{
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
 };
-use crate::services::playback_runtime::build_runtime_target;
-use crate::services::xb6v::ScrapedCatalogItem;
-use crate::services::{classify_playback_target, is_visible_playback_target, playback_sort_rank};
+use crate::services::xb6v::{runtime_targets_for_item, ScrapedCatalogItem};
+use crate::services::{is_visible_playback_target, playback_sort_rank};
 use self::playback_cache::PlaybackTargetRecord;
 
 #[path = "playback_cache.rs"]
@@ -1069,6 +1068,7 @@ impl Storage {
         let updated_at = chrono_now();
         for item in items {
             let source_key = source_key_from_detail_json(item.detail_json.as_deref());
+            let runtime_targets = runtime_targets_for_item(item, &source_key);
             tx.execute(
                 "INSERT INTO catalog_items (
                     subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
@@ -1086,7 +1086,7 @@ impl Storage {
             )?;
 
             let catalog_item_id = tx.last_insert_rowid();
-            for episode in &item.episodes {
+            for (episode, target) in item.episodes.iter().zip(runtime_targets.iter()) {
                 tx.execute(
                     "INSERT INTO catalog_episodes (
                         catalog_item_id, source_name, season_label, episode_label, play_url, order_index, extra_json
@@ -1100,15 +1100,7 @@ impl Storage {
                     ],
                 )?;
                 let episode_id = tx.last_insert_rowid();
-                insert_playback_target(
-                    &tx,
-                    playback_target_record(
-                        episode_id,
-                        &source_key,
-                        &episode.play_url,
-                        episode.order_index as i32,
-                    ),
-                )?;
+                insert_playback_target(&tx, playback_target_record(episode_id, target))?;
             }
         }
 
@@ -1157,7 +1149,8 @@ impl Storage {
         )?;
 
         let source_key = source_key_from_detail_json(item.detail_json.as_deref());
-        for episode in &item.episodes {
+        let runtime_targets = runtime_targets_for_item(item, &source_key);
+        for (episode, target) in item.episodes.iter().zip(runtime_targets.iter()) {
             tx.execute(
                 "INSERT INTO catalog_episodes (
                     catalog_item_id, source_name, season_label, episode_label, play_url, order_index, extra_json
@@ -1171,15 +1164,7 @@ impl Storage {
                 ],
             )?;
             let episode_id = tx.last_insert_rowid();
-            insert_playback_target(
-                &tx,
-                playback_target_record(
-                    episode_id,
-                    &source_key,
-                    &episode.play_url,
-                    episode.order_index as i32,
-                ),
-            )?;
+            insert_playback_target(&tx, playback_target_record(episode_id, target))?;
         }
 
         tx.commit()?;
@@ -1518,31 +1503,19 @@ fn insert_tvbox_lives(
 
 fn playback_target_record(
     episode_id: i64,
-    source_key: &str,
-    play_url: &str,
-    sort_hint: i32,
+    target: &crate::services::PlaybackTarget,
 ) -> PlaybackTargetRecord {
-    let target = build_runtime_target(play_url, source_key, Some(episode_id));
     PlaybackTargetRecord {
         episode_id,
-        source_key: target.source_key,
-        target_url: target.target_url,
-        target_kind: normalized_target_kind(play_url).to_string(),
-        resolver_key: target.resolver_key,
+        source_key: target.source_key.clone(),
+        target_url: target.target_url.clone(),
+        target_kind: target_kind_label(&target.target_kind).to_string(),
+        resolver_key: target.resolver_key.clone(),
         headers_json: target
             .headers
             .as_ref()
             .and_then(|headers| serde_json::to_string(headers).ok()),
-        sort_hint,
-    }
-}
-
-fn normalized_target_kind(play_url: &str) -> &'static str {
-    match classify_playback_target(play_url) {
-        "direct" => "direct",
-        "resolvable" => "resolvable",
-        "embedded" => "embedded",
-        _ => "external_required",
+        sort_hint: target.sort_hint,
     }
 }
 
@@ -1587,14 +1560,26 @@ fn insert_playback_target(
     Ok(())
 }
 
+fn target_kind_label(kind: &crate::services::PlaybackTargetKind) -> &'static str {
+    match kind {
+        crate::services::PlaybackTargetKind::Direct => "direct",
+        crate::services::PlaybackTargetKind::Resolvable => "resolvable",
+        crate::services::PlaybackTargetKind::Embedded => "embedded",
+        crate::services::PlaybackTargetKind::ExternalRequired => "external_required",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{playback_target_record, Storage};
+    use super::{playback_target_record, target_kind_label, Storage};
     use super::playback_cache::{
         get_playback_health, list_playback_targets, replace_playback_targets,
         upsert_playback_health, PlaybackTargetRecord,
     };
-    use crate::services::{ScrapedCatalogEpisode, ScrapedCatalogItem};
+    use crate::services::playback_runtime::build_runtime_target;
+    use crate::services::{
+        PlaybackTargetKind, ScrapedCatalogEpisode, ScrapedCatalogItem,
+    };
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1649,16 +1634,23 @@ mod tests {
 
     #[test]
     fn playback_target_record_preserves_resolver_key_for_resolvable_sources() {
-        let record = playback_target_record(
-            88,
-            "guard",
+        let mut target = build_runtime_target(
             "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1",
-            0,
+            "guard",
+            Some(88),
         );
+        target.sort_hint = 0;
+        let record = playback_target_record(88, &target);
 
         assert_eq!(record.target_kind, "resolvable");
         assert_eq!(record.resolver_key.as_deref(), Some("guard"));
         assert_eq!(record.headers_json, None);
+    }
+
+    #[test]
+    fn target_kind_label_matches_runtime_kind() {
+        assert_eq!(target_kind_label(&PlaybackTargetKind::Direct), "direct");
+        assert_eq!(target_kind_label(&PlaybackTargetKind::Embedded), "embedded");
     }
 
     #[test]
