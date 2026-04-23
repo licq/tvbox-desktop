@@ -179,12 +179,15 @@ pub fn filter_presentable_targets(
 }
 
 pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> ResolvedPlayback {
+    let failure_message = summarize_runtime_failures(&candidates);
     let visible = filter_presentable_targets(candidates);
     if visible.is_empty() {
         return ResolvedPlayback {
             status: "failed".to_string(),
             candidates: vec![],
-            error_message: Some("当前集未找到通过探测的可播线路".to_string()),
+            error_message: Some(
+                failure_message.unwrap_or_else(|| "当前集未找到通过探测的可播线路".to_string()),
+            ),
         };
     }
 
@@ -422,6 +425,73 @@ fn classify_probe_failure(target: &PlaybackTarget, probe: &PlaybackProbeResult) 
     ProbeFailureClass::Unknown
 }
 
+fn summarize_runtime_failures(candidates: &[RuntimeResolvedCandidate]) -> Option<String> {
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let mut dead_link = 0;
+    let mut browser_cors = 0;
+    let mut transient = 0;
+    let mut embedded = 0;
+    let mut external = 0;
+    let mut unsupported = 0;
+    let mut unknown = 0;
+
+    for candidate in candidates {
+        match classify_probe_failure(&candidate.target, &candidate.probe) {
+            ProbeFailureClass::DeadLink => dead_link += 1,
+            ProbeFailureClass::BrowserCors => browser_cors += 1,
+            ProbeFailureClass::UpstreamTransient => transient += 1,
+            ProbeFailureClass::Embedded => embedded += 1,
+            ProbeFailureClass::ExternalRequired => external += 1,
+            ProbeFailureClass::Unsupported => unsupported += 1,
+            ProbeFailureClass::Unknown => unknown += 1,
+        }
+    }
+
+    let classified_total =
+        dead_link + browser_cors + transient + embedded + external + unsupported + unknown;
+    if classified_total == 0 {
+        return None;
+    }
+
+    let top = [
+        (
+            dead_link,
+            "当前集可解析到的线路大多已失效",
+        ),
+        (
+            browser_cors,
+            "当前集线路返回了资源，但浏览器环境无法直接访问",
+        ),
+        (
+            transient,
+            "当前集线路暂时不可用，可能是上游波动",
+        ),
+        (
+            embedded,
+            "当前集只有站内嵌页线路，桌面端未直接展示",
+        ),
+        (
+            external,
+            "当前集只有外部工具线路，桌面端未直接展示",
+        ),
+        (
+            unsupported,
+            "当前集线路类型当前桌面端不支持直接播放",
+        ),
+        (
+            unknown,
+            "当前集未找到通过探测的可播线路",
+        ),
+    ]
+    .into_iter()
+    .max_by_key(|(count, _)| *count)?;
+
+    Some(top.1.to_string())
+}
+
 fn now_epoch_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -490,7 +560,7 @@ mod tests {
         build_runtime_target, classify_probe_failure, filter_presentable_targets, parse_headers_json,
         failed_probe_ttl_seconds, maybe_cached_targets_for_episode,
         persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
-        target_kind_label, ProbeFailureClass,
+        summarize_runtime_failures, target_kind_label, ProbeFailureClass,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
         RuntimeResolvedCandidate,
     };
@@ -565,6 +635,46 @@ mod tests {
             Some("当前集未找到通过探测的可播线路")
         );
         assert!(resolved.candidates.is_empty());
+    }
+
+    #[test]
+    fn summarizes_dead_link_failures_for_failed_runtime_result() {
+        let candidates = vec![RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/dead/index.m3u8",
+            ),
+            probe: PlaybackProbeResult::failed("manifest failed", Some(404)),
+        }];
+
+        assert_eq!(
+            summarize_runtime_failures(&candidates).as_deref(),
+            Some("当前集可解析到的线路大多已失效")
+        );
+
+        let resolved = to_resolved_playback(candidates);
+        assert_eq!(
+            resolved.error_message.as_deref(),
+            Some("当前集可解析到的线路大多已失效")
+        );
+    }
+
+    #[test]
+    fn summarizes_embedded_only_failures_for_failed_runtime_result() {
+        let candidates = vec![RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::Embedded,
+                "zxzj",
+                "https://www.zxzjhd.com/vodplay/4627-1-1.html",
+            ),
+            probe: PlaybackProbeResult::failed("target kind is not desktop playable", None),
+        }];
+
+        assert_eq!(
+            summarize_runtime_failures(&candidates).as_deref(),
+            Some("当前集只有站内嵌页线路，桌面端未直接展示")
+        );
     }
 
     #[test]
