@@ -13,7 +13,7 @@ use crate::services::storage::{
     },
     Storage,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -186,12 +186,14 @@ pub fn filter_presentable_targets(
         return visible;
     };
 
-    visible
+    let source_filtered: Vec<_> = visible
         .into_iter()
         .filter(|candidate| {
             playback_source_rank(&candidate.target.source_key) == best_source_rank
         })
-        .collect()
+        .collect();
+
+    dedupe_presentable_targets(source_filtered)
 }
 
 pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> ResolvedPlayback {
@@ -508,6 +510,22 @@ fn summarize_runtime_failures(candidates: &[RuntimeResolvedCandidate]) -> Option
     Some(top.1.to_string())
 }
 
+fn dedupe_presentable_targets(
+    candidates: Vec<RuntimeResolvedCandidate>,
+) -> Vec<RuntimeResolvedCandidate> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::new();
+
+    for candidate in candidates {
+        let key = hash_playback_target(&candidate.target.target_url, candidate.target.headers.as_ref());
+        if seen.insert(key) {
+            deduped.push(candidate);
+        }
+    }
+
+    deduped
+}
+
 fn resolved_failure_status(failure_message: &Option<String>) -> &'static str {
     match failure_message.as_deref() {
         Some("当前集只有外部工具线路，桌面端未直接展示") => "external_required",
@@ -580,8 +598,9 @@ fn target_kind_label(kind: &PlaybackTargetKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_runtime_target, classify_probe_failure, filter_presentable_targets, parse_headers_json,
-        failed_probe_ttl_seconds, maybe_cached_targets_for_episode,
+        build_runtime_target, classify_probe_failure, dedupe_presentable_targets,
+        filter_presentable_targets, parse_headers_json, failed_probe_ttl_seconds,
+        maybe_cached_targets_for_episode,
         persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
         resolved_failure_status, summarize_runtime_failures, target_kind_label, ProbeFailureClass,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
@@ -700,6 +719,65 @@ mod tests {
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().any(|candidate| candidate.target.source_key == "jianpian"));
         assert!(filtered.iter().any(|candidate| candidate.target.source_key == "libvio"));
+    }
+
+    #[test]
+    fn dedupes_presentable_candidates_with_same_url_and_headers() {
+        let candidates = vec![
+            RuntimeResolvedCandidate {
+                target: target(
+                    PlaybackTargetKind::Direct,
+                    "jianpian",
+                    "https://cdn.example.com/shared/index.m3u8",
+                ),
+                probe: PlaybackProbeResult::playable(),
+            },
+            RuntimeResolvedCandidate {
+                target: target(
+                    PlaybackTargetKind::Direct,
+                    "libvio",
+                    "https://cdn.example.com/shared/index.m3u8",
+                ),
+                probe: PlaybackProbeResult::playable(),
+            },
+        ];
+
+        let deduped = dedupe_presentable_targets(candidates);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].target.target_url, "https://cdn.example.com/shared/index.m3u8");
+    }
+
+    #[test]
+    fn keeps_candidates_with_same_url_but_different_headers() {
+        let mut first = target(
+            PlaybackTargetKind::Direct,
+            "jianpian",
+            "https://cdn.example.com/shared/index.m3u8",
+        );
+        let mut second = target(
+            PlaybackTargetKind::Direct,
+            "libvio",
+            "https://cdn.example.com/shared/index.m3u8",
+        );
+        let mut first_headers = std::collections::HashMap::new();
+        first_headers.insert("Referer".to_string(), "https://jpvod.com/".to_string());
+        let mut second_headers = std::collections::HashMap::new();
+        second_headers.insert("Referer".to_string(), "https://www.libvio.me/".to_string());
+        first.headers = Some(first_headers);
+        second.headers = Some(second_headers);
+
+        let deduped = dedupe_presentable_targets(vec![
+            RuntimeResolvedCandidate {
+                target: first,
+                probe: PlaybackProbeResult::playable(),
+            },
+            RuntimeResolvedCandidate {
+                target: second,
+                probe: PlaybackProbeResult::playable(),
+            },
+        ]);
+
+        assert_eq!(deduped.len(), 2);
     }
 
     #[test]
