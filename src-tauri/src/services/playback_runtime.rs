@@ -1354,6 +1354,40 @@ mod tests {
         assert!(!resolved.candidates.is_empty());
     }
 
+    #[tokio::test]
+    #[ignore = "requires live upstream access"]
+    async fn reflects_live_xb6v_runtime_request_failure() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let play_url =
+            "https://www.xb6v.com/e/DownSys/play/?classid=8&id=28379&pathid1=0&bf=0";
+
+        let error = resolve_playback_for_input(&storage, play_url, None)
+            .await
+            .expect_err("xb6v runtime should currently fail at request time");
+
+        println!("xb6v runtime error={error}");
+        assert!(error.contains("error sending request"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live upstream access"]
+    async fn resolves_live_guard_jianpian_runtime_to_playable_candidates() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let play_url = "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/77083/1/1";
+
+        let resolved = resolve_playback_for_input(&storage, play_url, None)
+            .await
+            .expect("runtime should resolve guard jianpian play url");
+
+        println!(
+            "guard_jianpian runtime status={} candidates={}",
+            resolved.status,
+            resolved.candidates.len()
+        );
+        assert_eq!(resolved.status, "ready");
+        assert!(!resolved.candidates.is_empty());
+    }
+
     fn unique_test_dir() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
