@@ -272,7 +272,7 @@ async fn cached_or_probed_result(
     }
 
     let probe = probe_candidate_for_runtime(client, &target.target_url, target.headers.as_ref()).await;
-    persist_probe_result(storage, &target_hash, &probe)?;
+    persist_probe_result(storage, target, &target_hash, &probe)?;
     Ok(probe)
 }
 
@@ -300,13 +300,11 @@ fn cached_probe_result(storage: &Storage, target_hash: &str) -> Result<Option<Pl
 
 fn persist_probe_result(
     storage: &Storage,
+    target: &PlaybackTarget,
     target_hash: &str,
     probe: &PlaybackProbeResult,
 ) -> Result<(), String> {
-    let ttl_seconds = match probe.status {
-        PlaybackProbeStatus::Playable => 3600,
-        PlaybackProbeStatus::Failed => 600,
-    };
+    let ttl_seconds = probe_ttl_seconds(target, probe);
 
     upsert_playback_health(
         storage,
@@ -324,6 +322,48 @@ fn persist_probe_result(
         ttl_seconds,
     )
     .map_err(|e| e.to_string())
+}
+
+fn probe_ttl_seconds(target: &PlaybackTarget, probe: &PlaybackProbeResult) -> i64 {
+    match probe.status {
+        PlaybackProbeStatus::Playable => playable_probe_ttl_seconds(&target.source_key),
+        PlaybackProbeStatus::Failed => failed_probe_ttl_seconds(target, probe),
+    }
+}
+
+fn playable_probe_ttl_seconds(source_key: &str) -> i64 {
+    let normalized = source_key.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "libvio" | "auete" | "wencai" | "jianpian" | "csp_jpysguard" | "csp_jpjguard" => 7200,
+        "xb6v" => 5400,
+        "zxzj" => 1800,
+        _ => 3600,
+    }
+}
+
+fn failed_probe_ttl_seconds(target: &PlaybackTarget, probe: &PlaybackProbeResult) -> i64 {
+    if matches!(probe.http_status, Some(403 | 404 | 410)) {
+        return failed_probe_penalty_ttl_seconds(&target.source_key);
+    }
+
+    if probe
+        .failure_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("cors") || reason.contains("CORS"))
+    {
+        return failed_probe_penalty_ttl_seconds(&target.source_key);
+    }
+
+    600
+}
+
+fn failed_probe_penalty_ttl_seconds(source_key: &str) -> i64 {
+    let normalized = source_key.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "libvio" | "auete" | "wencai" | "jianpian" | "csp_jpysguard" | "csp_jpjguard" => 1800,
+        "zxzj" => 900,
+        _ => 1200,
+    }
 }
 
 fn now_epoch_seconds() -> i64 {
@@ -392,7 +432,9 @@ fn target_kind_label(kind: &PlaybackTargetKind) -> &'static str {
 mod tests {
     use super::{
         build_runtime_target, filter_presentable_targets, parse_headers_json,
-        maybe_cached_targets_for_episode, persist_runtime_targets_for_episode, target_kind_label,
+        failed_probe_ttl_seconds, maybe_cached_targets_for_episode,
+        persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
+        target_kind_label,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
         RuntimeResolvedCandidate,
     };
@@ -621,6 +663,39 @@ mod tests {
             target_kind_label(&PlaybackTargetKind::ExternalRequired),
             "external_required"
         );
+    }
+
+    #[test]
+    fn gives_high_confidence_source_families_longer_playable_probe_ttl() {
+        assert_eq!(playable_probe_ttl_seconds("csp_JPJGuard"), 7200);
+        assert_eq!(playable_probe_ttl_seconds("libvio"), 7200);
+        assert_eq!(playable_probe_ttl_seconds("default"), 3600);
+    }
+
+    #[test]
+    fn gives_dead_links_longer_failure_ttl_for_high_confidence_source_families() {
+        let target = target(
+            PlaybackTargetKind::Direct,
+            "jianpian",
+            "https://cdn.example.com/dead/index.m3u8",
+        );
+        let probe = PlaybackProbeResult::failed("manifest failed", Some(404));
+
+        assert_eq!(failed_probe_ttl_seconds(&target, &probe), 1800);
+        assert_eq!(probe_ttl_seconds(&target, &probe), 1800);
+    }
+
+    #[test]
+    fn keeps_transient_failures_on_short_ttl() {
+        let target = target(
+            PlaybackTargetKind::Direct,
+            "default",
+            "https://cdn.example.com/transient/index.m3u8",
+        );
+        let probe = PlaybackProbeResult::failed("upstream timeout", Some(502));
+
+        assert_eq!(failed_probe_ttl_seconds(&target, &probe), 600);
+        assert_eq!(probe_ttl_seconds(&target, &probe), 600);
     }
 
     #[tokio::test]
