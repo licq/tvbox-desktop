@@ -35,4 +35,34 @@ describe('playback store', () => {
     expect(store.candidates).toEqual([])
     expect(store.errorMessage).toContain('可播线路')
   })
+
+  it('preserves external-required runtime state and message', () => {
+    setActivePinia(createPinia())
+    const store = usePlaybackStore()
+
+    store.applyResolved({
+      status: 'external_required',
+      candidates: [],
+      errorMessage: '当前集只有外部工具线路，桌面端未直接展示'
+    })
+
+    expect(store.status).toBe('external_required')
+    expect(store.candidates).toEqual([])
+    expect(store.errorMessage).toContain('外部工具')
+  })
+
+  it('marks playback as failed after the last candidate errors', () => {
+    setActivePinia(createPinia())
+    const store = usePlaybackStore()
+
+    store.applyResolved({
+      status: 'ready',
+      candidates: [{ url: 'https://a.example/1.m3u8', label: '线路1', kind: 'hls' }]
+    })
+
+    store.handleFatalPlaybackError('network')
+
+    expect(store.status).toBe('failed')
+    expect(store.errorMessage).toContain('network')
+  })
 })
