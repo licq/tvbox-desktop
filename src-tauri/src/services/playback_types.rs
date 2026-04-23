@@ -93,7 +93,7 @@ pub fn rank_targets(
     entries
 }
 
-fn playback_source_rank(source_key: &str) -> i32 {
+pub fn playback_source_rank(source_key: &str) -> i32 {
     let normalized = source_key.trim().to_ascii_lowercase();
 
     match normalized.as_str() {

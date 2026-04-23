@@ -1,6 +1,7 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 use crate::services::playback_types::{
-    PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
+    playback_source_rank, PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget,
+    PlaybackTargetKind,
 };
 use crate::services::resolver::{
     build_client, classify_playback_target, probe_candidate_for_runtime, PlaybackResolver,
@@ -169,11 +170,26 @@ pub fn sort_runtime_candidates(
 pub fn filter_presentable_targets(
     candidates: Vec<RuntimeResolvedCandidate>,
 ) -> Vec<RuntimeResolvedCandidate> {
-    candidates
+    let visible: Vec<_> = candidates
         .into_iter()
         .filter(|candidate| {
             candidate.target.is_desktop_playable_kind()
                 && matches!(candidate.probe.status, PlaybackProbeStatus::Playable)
+        })
+        .collect();
+
+    let Some(best_source_rank) = visible
+        .iter()
+        .map(|candidate| playback_source_rank(&candidate.target.source_key))
+        .min()
+    else {
+        return visible;
+    };
+
+    visible
+        .into_iter()
+        .filter(|candidate| {
+            playback_source_rank(&candidate.target.source_key) == best_source_rank
         })
         .collect()
 }
@@ -631,6 +647,59 @@ mod tests {
         let filtered = filter_presentable_targets(candidates);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].target.source_key, "jianpian");
+    }
+
+    #[test]
+    fn prefers_best_playable_source_family_when_multiple_candidates_are_playable() {
+        let candidates = vec![
+            RuntimeResolvedCandidate {
+                target: target(
+                    PlaybackTargetKind::Direct,
+                    "default",
+                    "https://cdn.example.com/default/index.m3u8",
+                ),
+                probe: PlaybackProbeResult::playable(),
+            },
+            RuntimeResolvedCandidate {
+                target: target(
+                    PlaybackTargetKind::Direct,
+                    "jianpian",
+                    "https://cdn.example.com/jianpian/index.m3u8",
+                ),
+                probe: PlaybackProbeResult::playable(),
+            },
+        ];
+
+        let filtered = filter_presentable_targets(candidates);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].target.source_key, "jianpian");
+    }
+
+    #[test]
+    fn keeps_multiple_playable_candidates_from_same_best_source_tier() {
+        let candidates = vec![
+            RuntimeResolvedCandidate {
+                target: target(
+                    PlaybackTargetKind::Direct,
+                    "jianpian",
+                    "https://cdn.example.com/jianpian/index.m3u8",
+                ),
+                probe: PlaybackProbeResult::playable(),
+            },
+            RuntimeResolvedCandidate {
+                target: target(
+                    PlaybackTargetKind::Direct,
+                    "libvio",
+                    "https://cdn.example.com/libvio/index.m3u8",
+                ),
+                probe: PlaybackProbeResult::playable(),
+            },
+        ];
+
+        let filtered = filter_presentable_targets(candidates);
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().any(|candidate| candidate.target.source_key == "jianpian"));
+        assert!(filtered.iter().any(|candidate| candidate.target.source_key == "libvio"));
     }
 
     #[test]
