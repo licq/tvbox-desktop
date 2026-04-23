@@ -747,8 +747,8 @@ mod tests {
             RuntimeResolvedCandidate {
                 target: target(
                     PlaybackTargetKind::Direct,
-                    "libvio",
-                    "https://cdn.example.com/libvio/index.m3u8",
+                    "auete",
+                    "https://cdn.example.com/auete/index.m3u8",
                 ),
                 probe: PlaybackProbeResult::playable(),
             },
@@ -757,7 +757,7 @@ mod tests {
         let filtered = filter_presentable_targets(candidates);
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().any(|candidate| candidate.target.source_key == "jianpian"));
-        assert!(filtered.iter().any(|candidate| candidate.target.source_key == "libvio"));
+        assert!(filtered.iter().any(|candidate| candidate.target.source_key == "auete"));
     }
 
     #[test]

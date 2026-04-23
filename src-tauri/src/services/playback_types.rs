@@ -97,11 +97,12 @@ pub fn playback_source_rank(source_key: &str) -> i32 {
     let normalized = source_key.trim().to_ascii_lowercase();
 
     match normalized.as_str() {
-        "libvio" | "auete" | "wencai" | "jianpian" | "csp_jpysguard" | "csp_jpjguard" => 0,
-        "xb6v" => 1,
-        "default" | "guard" => 2,
-        "zxzj" => 3,
-        _ => 2,
+        "auete" | "wencai" | "jianpian" | "csp_jpysguard" | "csp_jpjguard" => 0,
+        "libvio" => 1,
+        "xb6v" => 2,
+        "default" | "guard" => 3,
+        "zxzj" => 4,
+        _ => 3,
     }
 }
 
@@ -173,6 +174,23 @@ mod tests {
 
         assert_eq!(ranked[0].0.source_key, "libvio");
         assert_eq!(ranked[1].0.source_key, "zxzj");
+    }
+
+    #[test]
+    fn ranks_guard_and_auete_ahead_of_libvio() {
+        let mut top = target(PlaybackTargetKind::Direct, 0);
+        top.source_key = "csp_JPJGuard".to_string();
+
+        let mut lower = target(PlaybackTargetKind::Direct, 0);
+        lower.source_key = "libvio".to_string();
+
+        let ranked = rank_targets(vec![
+            (lower, PlaybackProbeStatus::Playable),
+            (top, PlaybackProbeStatus::Playable),
+        ]);
+
+        assert_eq!(ranked[0].0.source_key, "csp_JPJGuard");
+        assert_eq!(ranked[1].0.source_key, "libvio");
     }
 
     #[test]
