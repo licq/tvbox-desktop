@@ -37,21 +37,56 @@ pub struct ScrapedCatalogItem {
     pub episodes: Vec<ScrapedCatalogEpisode>,
 }
 
-pub fn runtime_targets_for_item(
-    item: &ScrapedCatalogItem,
-    source_key: &str,
-) -> Vec<PlaybackTarget> {
+pub fn runtime_targets_for_item(item: &ScrapedCatalogItem) -> Vec<PlaybackTarget> {
+    let source_key = runtime_source_key_for_item(item);
     item.episodes
         .iter()
         .enumerate()
         .map(|(index, episode)| {
             let mut target =
-                build_runtime_target(&episode.play_url, source_key, Some((index + 1) as i64));
+                build_runtime_target(&episode.play_url, &source_key, Some((index + 1) as i64));
             target.sort_hint = episode.order_index as i32;
-            target.meta = Some(format!("{}:{}", episode.source_name, episode.episode_label));
+            target.meta = Some(runtime_target_label(episode));
             target
         })
         .collect()
+}
+
+fn runtime_source_key_for_item(item: &ScrapedCatalogItem) -> String {
+    let Some(detail_json) = item.detail_json.as_deref() else {
+        return "default".to_string();
+    };
+    let Ok(detail) = serde_json::from_str::<Value>(detail_json) else {
+        return "default".to_string();
+    };
+    let source = detail
+        .get("source")
+        .and_then(|value| value.as_str())
+        .unwrap_or("default");
+
+    if source == "guard" {
+        return detail
+            .get("guard_key")
+            .and_then(|value| value.as_str())
+            .unwrap_or(source)
+            .to_string();
+    }
+
+    source.to_string()
+}
+
+fn runtime_target_label(episode: &ScrapedCatalogEpisode) -> String {
+    let source_name = episode.source_name.trim();
+    let episode_label = episode.episode_label.trim();
+
+    if source_name.is_empty() {
+        return episode_label.to_string();
+    }
+    if episode_label.is_empty() || source_name == episode_label {
+        return source_name.to_string();
+    }
+
+    format!("{source_name}:{episode_label}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1346,12 +1381,53 @@ mod tests {
             }],
         };
 
-        let guard_targets = runtime_targets_for_item(&guard_item, "guard");
-        let zxzj_targets = runtime_targets_for_item(&zxzj_item, "zxzj");
+        let guard_targets = runtime_targets_for_item(&guard_item);
+        let zxzj_targets = runtime_targets_for_item(&zxzj_item);
 
         assert_eq!(guard_targets.len(), 1);
+        assert_eq!(guard_targets[0].source_key, "csp_JPJGuard");
+        assert_eq!(guard_targets[0].resolver_key.as_deref(), Some("csp_JPJGuard"));
+        assert_eq!(guard_targets[0].meta.as_deref(), Some("荐片:第1集"));
         assert_eq!(guard_targets[0].target_kind, PlaybackTargetKind::Resolvable);
         assert_eq!(zxzj_targets.len(), 1);
+        assert_eq!(zxzj_targets[0].source_key, "zxzj");
+        assert_eq!(zxzj_targets[0].meta.as_deref(), Some("播放线路5:第1集"));
         assert_eq!(zxzj_targets[0].target_kind, PlaybackTargetKind::Embedded);
+    }
+
+    #[test]
+    fn keeps_clean_runtime_target_labels_without_duplicate_suffixes() {
+        let item = ScrapedCatalogItem {
+            source_item_key: "libvio:demo".to_string(),
+            title: "Label Demo".to_string(),
+            item_type: "movie".to_string(),
+            poster: None,
+            summary: None,
+            detail_json: Some(
+                r#"{"source":"libvio","url":"https://www.libvio.me/detail/123.html"}"#
+                    .to_string(),
+            ),
+            episodes: vec![
+                ScrapedCatalogEpisode {
+                    source_name: "默认播放".to_string(),
+                    episode_label: "立即播放".to_string(),
+                    play_url: "https://www.libvio.me/play/123-1-1.html".to_string(),
+                    order_index: 1,
+                },
+                ScrapedCatalogEpisode {
+                    source_name: "HD".to_string(),
+                    episode_label: "HD".to_string(),
+                    play_url: "https://cdn.example.com/video.mp4".to_string(),
+                    order_index: 2,
+                },
+            ],
+        };
+
+        let targets = runtime_targets_for_item(&item);
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].source_key, "libvio");
+        assert_eq!(targets[0].meta.as_deref(), Some("默认播放:立即播放"));
+        assert_eq!(targets[1].meta.as_deref(), Some("HD"));
     }
 }

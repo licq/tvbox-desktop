@@ -1070,8 +1070,7 @@ impl Storage {
 
         let updated_at = chrono_now();
         for item in items {
-            let source_key = source_key_from_detail_json(item.detail_json.as_deref());
-            let runtime_targets = runtime_targets_for_item(item, &source_key);
+            let runtime_targets = runtime_targets_for_item(item);
             tx.execute(
                 "INSERT INTO catalog_items (
                     subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
@@ -1151,8 +1150,7 @@ impl Storage {
             [item_id],
         )?;
 
-        let source_key = source_key_from_detail_json(item.detail_json.as_deref());
-        let runtime_targets = runtime_targets_for_item(item, &source_key);
+        let runtime_targets = runtime_targets_for_item(item);
         for (episode, target) in item.episodes.iter().zip(runtime_targets.iter()) {
             tx.execute(
                 "INSERT INTO catalog_episodes (
@@ -1523,18 +1521,6 @@ fn playback_target_record(
     }
 }
 
-fn source_key_from_detail_json(detail_json: Option<&str>) -> String {
-    detail_json
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-        .and_then(|value| {
-            value
-                .get("source")
-                .and_then(|source| source.as_str())
-                .map(|source| source.to_string())
-        })
-        .unwrap_or_else(|| "default".to_string())
-}
-
 fn insert_playback_target(
     tx: &rusqlite::Transaction<'_>,
     target: PlaybackTargetRecord,
@@ -1548,8 +1534,9 @@ fn insert_playback_target(
             target_kind,
             resolver_key,
             headers_json,
+            meta_text,
             sort_hint
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         "#,
         rusqlite::params![
             target.episode_id,
@@ -1558,6 +1545,7 @@ fn insert_playback_target(
             target.target_kind,
             target.resolver_key,
             target.headers_json,
+            target.meta_text,
             target.sort_hint,
         ],
     )?;
@@ -1642,14 +1630,14 @@ mod tests {
     fn playback_target_record_preserves_resolver_key_for_resolvable_sources() {
         let mut target = build_runtime_target(
             "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1",
-            "guard",
+            "csp_JPJGuard",
             Some(88),
         );
         target.sort_hint = 0;
         let record = playback_target_record(88, &target);
 
         assert_eq!(record.target_kind, "resolvable");
-        assert_eq!(record.resolver_key.as_deref(), Some("guard"));
+        assert_eq!(record.resolver_key.as_deref(), Some("csp_JPJGuard"));
         assert_eq!(record.headers_json, None);
     }
 
@@ -1698,7 +1686,9 @@ mod tests {
             list_playback_targets(&storage, episode_id).expect("runtime targets should query");
 
         assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].source_key, "guard");
+        assert_eq!(targets[0].source_key, "csp_JPJGuard");
+        assert_eq!(targets[0].resolver_key.as_deref(), Some("csp_JPJGuard"));
+        assert_eq!(targets[0].meta_text.as_deref(), Some("荐片:第1集"));
         assert_eq!(targets[0].target_kind, "resolvable");
         assert!(targets[0].target_url.starts_with("guard://"));
     }
