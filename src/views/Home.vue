@@ -13,7 +13,6 @@ import HomeHero from '@/components/home/HomeHero.vue'
 import ContinueRail from '@/components/home/ContinueRail.vue'
 import MediaRail from '@/components/home/MediaRail.vue'
 import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
-import SourceHealthPanel from '@/components/home/SourceHealthPanel.vue'
 import type { CatalogCard, CatalogItemType, HeroMetric, LiveChannel, VodItem } from '@/types'
 
 type HomeTabKey = 'live' | 'hot' | CatalogItemType
@@ -57,6 +56,8 @@ function formatTypeLabel(type: CatalogItemType | HomeTabKey) {
 const enabledSubscriptions = computed(() => subStore.subscriptions.filter(sub => sub.enabled))
 const failedSubscriptions = computed(() => subStore.subscriptions.filter(sub => sub.enabled && sub.last_error))
 const featuredHero = computed(() => libraryStore.hero)
+const isLandingTab = computed(() => activeTab.value === 'live')
+const isCatalogTab = computed(() => activeTab.value !== 'live' && activeTab.value !== 'hot')
 const heroMetrics = computed<HeroMetric[]>(() => [
   { label: '启用源', value: `${enabledSubscriptions.value.length}` },
   { label: '直播分组', value: `${liveStore.groups.length}` },
@@ -129,7 +130,7 @@ async function hydrateSources() {
     libraryStore.fetchCatalog()
   ])
 
-  if (activeTab.value !== 'live' && activeTab.value !== 'hot') {
+  if (isCatalogTab.value) {
     await libraryStore.fetchCatalog(activeTab.value)
   }
 }
@@ -228,41 +229,55 @@ function toggleChannelExpansion(category: string) {
         </button>
       </nav>
 
+      <RouterLink v-if="failedSubscriptions.length" to="/subscriptions" class="source-warning-banner">
+        {{ failedSubscriptions.length }} 个订阅源异常，去订阅管理查看
+      </RouterLink>
+
       <main class="home-landing">
-        <HomeHero
-          :item="featuredHero"
-          :metrics="heroMetrics"
-          title="打开就是可看的媒体中心"
-          summary="首页先呈现推荐、续看、分类片库、直播和源健康状态；分类搜索仍然可用，但不再抢占第一屏。"
-          @open="handleCatalogClick"
-        />
+        <template v-if="isLandingTab">
+          <HomeHero
+            :item="featuredHero"
+            :metrics="heroMetrics"
+            title="打开就是可看的媒体中心"
+            summary="首页先呈现推荐、续看、分类片库和直播，让常用入口直接可见。"
+            @open="handleCatalogClick"
+          />
 
-        <ContinueRail :items="libraryStore.continueWatching" @select="handleCatalogClick" />
+          <ContinueRail :items="libraryStore.continueWatching" @select="handleCatalogClick" />
 
-        <MediaRail
-          v-for="rail in rails"
-          :key="rail.type"
-          :title="rail.title"
-          :summary="rail.summary"
-          :items="rail.items"
-          @select="handleCatalogClick"
-        />
+          <MediaRail
+            v-for="rail in rails"
+            :key="rail.type"
+            :title="rail.title"
+            :summary="rail.summary"
+            :items="rail.items"
+            @select="handleCatalogClick"
+          />
 
-        <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
-
-        <SourceHealthPanel :subscriptions="subStore.subscriptions" />
+          <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
+        </template>
 
         <section class="home-secondary-browser">
           <div class="home-secondary-header">
             <div>
               <div class="eyebrow">{{ activeTabMeta.eyebrow }}</div>
-              <h2>{{ formatTypeLabel(activeTab) }}浏览</h2>
-              <p>保留原有路由分类、直播搜索和片库搜索，作为首页之后的快速筛选区。</p>
+              <template v-if="isCatalogTab">
+                <h2>{{ formatTypeLabel(activeTab) }}</h2>
+                <p>{{ libraryStore.catalogItems.length }} 个条目。搜索会在当前分类内筛选。</p>
+              </template>
+              <template v-else-if="activeTab === 'live'">
+                <h2>直播浏览</h2>
+                <p>保留频道分组和搜索，快速定位当前可播内容。</p>
+              </template>
+              <template v-else>
+                <h2>热映浏览</h2>
+                <p>豆瓣热度命中结果仍在这里，适合继续横向扫片。</p>
+              </template>
             </div>
 
             <div class="home-secondary-search">
               <SearchBar
-                :placeholder="activeTab === 'live' ? '搜索频道、卫视、央视频道...' : `搜索${formatTypeLabel(activeTab)}...`"
+                :placeholder="activeTab === 'live' ? '搜索频道、卫视、央视频道...' : activeTab === 'hot' ? '搜索热映片名...' : `搜索${formatTypeLabel(activeTab)}...`"
                 @search="activeTab === 'live' ? handleLiveSearch($event) : handleVodSearch($event)"
               />
             </div>

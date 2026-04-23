@@ -115,6 +115,26 @@ body::-webkit-scrollbar-track {
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
+  .source-warning-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1rem;
+    padding: 0.9rem 1.1rem;
+    border-radius: 1.2rem;
+    color: #2a1606;
+    background: linear-gradient(135deg, rgba(240, 179, 107, 0.96), rgba(247, 215, 178, 0.96));
+    border: 1px solid rgba(240, 179, 107, 0.5);
+    box-shadow: 0 12px 34px rgba(216, 154, 87, 0.2);
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .source-warning-banner:hover {
+    filter: saturate(1.05);
+  }
+
   .poster-shadow {
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
   }

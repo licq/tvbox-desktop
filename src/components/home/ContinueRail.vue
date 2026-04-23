@@ -16,7 +16,7 @@ function formatProgress(progress?: number) {
 </script>
 
 <template>
-  <section class="media-rail continue-rail">
+  <section v-if="items.length" class="media-rail continue-rail">
     <div class="media-rail-header">
       <div>
         <div class="section-title">继续观看</div>
@@ -24,7 +24,7 @@ function formatProgress(progress?: number) {
       </div>
     </div>
 
-    <div v-if="items.length" class="media-rail-track">
+    <div class="media-rail-track">
       <button
         v-for="item in items"
         :key="item.id"
@@ -43,7 +43,5 @@ function formatProgress(progress?: number) {
         </span>
       </button>
     </div>
-
-    <div v-else class="home-empty-state">还没有播放历史，点开片库内容后会出现在这里。</div>
   </section>
 </template>
