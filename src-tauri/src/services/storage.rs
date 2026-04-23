@@ -11,6 +11,7 @@ use crate::models::{
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
 };
+use crate::services::playback_runtime::build_runtime_target;
 use crate::services::xb6v::ScrapedCatalogItem;
 use crate::services::{classify_playback_target, is_visible_playback_target, playback_sort_rank};
 use self::playback_cache::PlaybackTargetRecord;
@@ -1521,13 +1522,17 @@ fn playback_target_record(
     play_url: &str,
     sort_hint: i32,
 ) -> PlaybackTargetRecord {
+    let target = build_runtime_target(play_url, source_key, Some(episode_id));
     PlaybackTargetRecord {
         episode_id,
-        source_key: source_key.to_string(),
-        target_url: play_url.to_string(),
+        source_key: target.source_key,
+        target_url: target.target_url,
         target_kind: normalized_target_kind(play_url).to_string(),
-        resolver_key: None,
-        headers_json: None,
+        resolver_key: target.resolver_key,
+        headers_json: target
+            .headers
+            .as_ref()
+            .and_then(|headers| serde_json::to_string(headers).ok()),
         sort_hint,
     }
 }
@@ -1584,7 +1589,7 @@ fn insert_playback_target(
 
 #[cfg(test)]
 mod tests {
-    use super::Storage;
+    use super::{playback_target_record, Storage};
     use super::playback_cache::{
         get_playback_health, list_playback_targets, replace_playback_targets,
         upsert_playback_health, PlaybackTargetRecord,
@@ -1640,6 +1645,20 @@ mod tests {
         let targets = list_playback_targets(&storage, 77).expect("target query should succeed");
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].target_kind, "direct");
+    }
+
+    #[test]
+    fn playback_target_record_preserves_resolver_key_for_resolvable_sources() {
+        let record = playback_target_record(
+            88,
+            "guard",
+            "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1",
+            0,
+        );
+
+        assert_eq!(record.target_kind, "resolvable");
+        assert_eq!(record.resolver_key.as_deref(), Some("guard"));
+        assert_eq!(record.headers_json, None);
     }
 
     #[test]
