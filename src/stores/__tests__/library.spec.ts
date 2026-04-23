@@ -74,8 +74,8 @@ describe('library store', () => {
           title: 'Dune',
           item_type: 'movie' as const,
           poster: 'https://img.test/dune.jpg',
-          source_badge: 'Auete',
-          update_badge: '推荐'
+          sourceBadge: 'Auete',
+          updateBadge: '推荐'
         }
       ]
     }
