@@ -183,7 +183,7 @@ pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> Resolv
     let visible = filter_presentable_targets(candidates);
     if visible.is_empty() {
         return ResolvedPlayback {
-            status: "failed".to_string(),
+            status: resolved_failure_status(&failure_message).to_string(),
             candidates: vec![],
             error_message: Some(
                 failure_message.unwrap_or_else(|| "当前集未找到通过探测的可播线路".to_string()),
@@ -492,6 +492,13 @@ fn summarize_runtime_failures(candidates: &[RuntimeResolvedCandidate]) -> Option
     Some(top.1.to_string())
 }
 
+fn resolved_failure_status(failure_message: &Option<String>) -> &'static str {
+    match failure_message.as_deref() {
+        Some("当前集只有外部工具线路，桌面端未直接展示") => "external_required",
+        _ => "failed",
+    }
+}
+
 fn now_epoch_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -560,7 +567,7 @@ mod tests {
         build_runtime_target, classify_probe_failure, filter_presentable_targets, parse_headers_json,
         failed_probe_ttl_seconds, maybe_cached_targets_for_episode,
         persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
-        summarize_runtime_failures, target_kind_label, ProbeFailureClass,
+        resolved_failure_status, summarize_runtime_failures, target_kind_label, ProbeFailureClass,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
         RuntimeResolvedCandidate,
     };
@@ -675,6 +682,43 @@ mod tests {
             summarize_runtime_failures(&candidates).as_deref(),
             Some("当前集只有站内嵌页线路，桌面端未直接展示")
         );
+    }
+
+    #[test]
+    fn maps_external_only_failures_to_external_required_status() {
+        let candidates = vec![RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::ExternalRequired,
+                "default",
+                "magnet:?xt=urn:btih:test",
+            ),
+            probe: PlaybackProbeResult::failed("external", None),
+        }];
+
+        let failure_message = summarize_runtime_failures(&candidates);
+        assert_eq!(
+            failure_message.as_deref(),
+            Some("当前集只有外部工具线路，桌面端未直接展示")
+        );
+        assert_eq!(resolved_failure_status(&failure_message), "external_required");
+
+        let resolved = to_resolved_playback(candidates);
+        assert_eq!(resolved.status, "external_required");
+    }
+
+    #[test]
+    fn keeps_embedded_only_failures_as_failed_status() {
+        let candidates = vec![RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::Embedded,
+                "zxzj",
+                "https://www.zxzjhd.com/vodplay/4627-1-1.html",
+            ),
+            probe: PlaybackProbeResult::failed("target kind is not desktop playable", None),
+        }];
+
+        let failure_message = summarize_runtime_failures(&candidates);
+        assert_eq!(resolved_failure_status(&failure_message), "failed");
     }
 
     #[test]
