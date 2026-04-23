@@ -17,6 +17,20 @@ pub struct Subscription {
 pub type SourceSubscription = Subscription;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceHealthSummary {
+    pub id: i64,
+    pub name: String,
+    pub url: String,
+    pub kind: String,
+    pub enabled: bool,
+    pub last_refreshed_at: Option<String>,
+    pub last_error: Option<String>,
+    pub live_channel_count: i64,
+    pub catalog_item_count: i64,
+    pub catalog_episode_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveChannel {
     pub id: i64,
     pub subscription_id: i64,

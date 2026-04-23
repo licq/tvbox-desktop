@@ -69,6 +69,12 @@ export interface SourceSubscription {
   last_error?: string | null;
 }
 
+export interface SourceHealthSummary extends SourceSubscription {
+  live_channel_count: number;
+  catalog_item_count: number;
+  catalog_episode_count: number;
+}
+
 export type CatalogItemType = 'movie' | 'series' | 'variety' | 'anime';
 
 export interface CatalogCard {

@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::models::{
     CatalogDetail, CatalogDetailItem, CatalogEpisode, CatalogEpisodeGroup, ChannelSource,
     DoubanHot, HomeCatalogItem, HomePayload, LiveChannel, LiveChannelGroup, LiveChannelGroupItem,
-    MergedLiveChannel, PlayHistory, Subscription, VodItem,
+    MergedLiveChannel, PlayHistory, SourceHealthSummary, Subscription, VodItem,
 };
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
@@ -474,6 +474,39 @@ impl Storage {
         })?;
 
         subscriptions.collect()
+    }
+
+    pub fn get_source_health_summaries(&self) -> SqliteResult<Vec<SourceHealthSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.name, s.url, s.kind, s.enabled, s.last_refreshed_at, s.last_error,
+                    COUNT(DISTINCT sl.id) AS live_channel_count,
+                    COUNT(DISTINCT ci.id) AS catalog_item_count,
+                    COUNT(DISTINCT ce.id) AS catalog_episode_count
+             FROM subscriptions s
+             LEFT JOIN source_lives sl ON sl.subscription_id = s.id
+             LEFT JOIN catalog_items ci ON ci.subscription_id = s.id
+             LEFT JOIN catalog_episodes ce ON ce.catalog_item_id = ci.id
+             GROUP BY s.id
+             ORDER BY s.id DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(SourceHealthSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                url: row.get(2)?,
+                kind: row.get(3)?,
+                enabled: row.get::<_, i32>(4)? != 0,
+                last_refreshed_at: row.get(5)?,
+                last_error: row.get(6)?,
+                live_channel_count: row.get(7)?,
+                catalog_item_count: row.get(8)?,
+                catalog_episode_count: row.get(9)?,
+            })
+        })?;
+
+        rows.collect()
     }
 
     pub fn delete_subscription(&self, id: i64) -> SqliteResult<()> {
@@ -1838,6 +1871,32 @@ mod tests {
             .get_merged_live_channels()
             .expect("merged live channels should query")
             .is_empty());
+    }
+
+    #[test]
+    fn source_health_summaries_count_live_catalog_and_episode_rows() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("饭太硬", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_live_source(&storage, subscription.id, Some("央视频道"), "CCTV-1", "https://live.example/cctv1.m3u8");
+        seed_catalog_item_with_source(&storage, subscription.id, 201, "示例电影", "movie", "jianpian");
+        seed_catalog_episode(&storage, 201, "荐片线路", "第01集", "https://media.example/index.m3u8", 0);
+
+        let summaries = storage
+            .get_source_health_summaries()
+            .expect("source summaries should query");
+
+        let summary = summaries
+            .iter()
+            .find(|summary| summary.id == subscription.id)
+            .expect("subscription summary should exist");
+        assert_eq!(summary.name, "饭太硬");
+        assert_eq!(summary.live_channel_count, 1);
+        assert_eq!(summary.catalog_item_count, 1);
+        assert_eq!(summary.catalog_episode_count, 1);
+        assert!(summary.enabled);
     }
 
     #[test]
