@@ -5,6 +5,8 @@ use crate::services::jianpian::{
     parse_listing_page as parse_jianpian_listing_page, JianpianListingEntry,
 };
 use crate::services::libvio::{is_libvio_site, scrape_libvio_catalog, scrape_libvio_detail};
+use crate::services::playback_runtime::build_runtime_target;
+use crate::services::PlaybackTarget;
 use crate::services::tvbox::TvboxSiteRecord;
 use crate::services::wencai::{
     is_wencai_site, parse_detail_page as parse_wencai_detail_page,
@@ -33,6 +35,23 @@ pub struct ScrapedCatalogItem {
     pub summary: Option<String>,
     pub detail_json: Option<String>,
     pub episodes: Vec<ScrapedCatalogEpisode>,
+}
+
+pub fn runtime_targets_for_item(
+    item: &ScrapedCatalogItem,
+    source_key: &str,
+) -> Vec<PlaybackTarget> {
+    item.episodes
+        .iter()
+        .enumerate()
+        .map(|(index, episode)| {
+            let mut target =
+                build_runtime_target(&episode.play_url, source_key, Some((index + 1) as i64));
+            target.sort_hint = episode.order_index as i32;
+            target.meta = Some(format!("{}:{}", episode.source_name, episode.episode_label));
+            target
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -950,10 +969,11 @@ mod tests {
         collect_site_roots, collect_supported_guard_keys, derive_browse_root,
         extract_guard_item_id, extract_guard_play_parts, guard_catalog_pages, guard_detail_url,
         infer_item_type,
-        parse_detail_page, parse_listing_page, parse_play_episodes, scrape_catalog_detail_from_json,
-        scrape_supported_tvbox_catalogs, ListingEntry,
+        parse_detail_page, parse_listing_page, parse_play_episodes, runtime_targets_for_item,
+        scrape_catalog_detail_from_json, scrape_supported_tvbox_catalogs, ListingEntry,
+        ScrapedCatalogEpisode, ScrapedCatalogItem,
     };
-    use crate::services::decode_guard_play_target;
+    use crate::services::{decode_guard_play_target, PlaybackTargetKind};
 
     #[test]
     fn parses_xb6v_listing_entries() {
@@ -1287,5 +1307,51 @@ mod tests {
         assert_eq!(jianpian_target.guard_key, "csp_JPJGuard");
         println!("jianpian episodes={}", jianpian.episodes.len());
         assert!(!jianpian.episodes.is_empty());
+    }
+
+    #[test]
+    fn keeps_guard_targets_resolvable_and_zxzj_targets_embedded() {
+        let guard_item = ScrapedCatalogItem {
+            source_item_key: "guard:荐片:97910".to_string(),
+            title: "Guard Demo".to_string(),
+            item_type: "series".to_string(),
+            poster: None,
+            summary: None,
+            detail_json: Some(
+                r#"{"source":"guard","guard_key":"csp_JPJGuard","site_key":"贱贱","item_id":"97910","item_type":"series"}"#
+                    .to_string(),
+            ),
+            episodes: vec![ScrapedCatalogEpisode {
+                source_name: "荐片".to_string(),
+                episode_label: "第1集".to_string(),
+                play_url: "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1".to_string(),
+                order_index: 1,
+            }],
+        };
+        let zxzj_item = ScrapedCatalogItem {
+            source_item_key: "zxzj:4627".to_string(),
+            title: "ZXZJ Demo".to_string(),
+            item_type: "series".to_string(),
+            poster: None,
+            summary: None,
+            detail_json: Some(
+                r#"{"source":"zxzj","url":"https://www.zxzjhd.com/voddetail/4627.html"}"#
+                    .to_string(),
+            ),
+            episodes: vec![ScrapedCatalogEpisode {
+                source_name: "播放线路5".to_string(),
+                episode_label: "第1集".to_string(),
+                play_url: "https://www.zxzjhd.com/vodplay/4627-1-1.html".to_string(),
+                order_index: 1,
+            }],
+        };
+
+        let guard_targets = runtime_targets_for_item(&guard_item, "guard");
+        let zxzj_targets = runtime_targets_for_item(&zxzj_item, "zxzj");
+
+        assert_eq!(guard_targets.len(), 1);
+        assert_eq!(guard_targets[0].target_kind, PlaybackTargetKind::Resolvable);
+        assert_eq!(zxzj_targets.len(), 1);
+        assert_eq!(zxzj_targets[0].target_kind, PlaybackTargetKind::Embedded);
     }
 }
