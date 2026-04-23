@@ -715,10 +715,21 @@ impl Storage {
     pub fn get_library_home(&self) -> SqliteResult<HomePayload> {
         let conn = self.conn.lock().unwrap();
 
-        let continue_watching = Vec::new();
+        let continue_watching = query_home_catalog_items(
+            &conn,
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, ph.progress, s.name AS source_badge, '继续观看' AS update_badge
+             FROM play_history ph
+             INNER JOIN catalog_items ci ON ph.item_type = 'vod' AND ph.item_id = ci.id
+             INNER JOIN subscriptions s ON ci.subscription_id = s.id
+             WHERE s.enabled = 1
+               AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
+             ORDER BY ph.last_played DESC
+             LIMIT 12",
+            [],
+        )?;
         let latest_updates = query_home_catalog_items(
             &conn,
-            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
              FROM catalog_items ci
              INNER JOIN subscriptions s ON ci.subscription_id = s.id
              WHERE s.enabled = 1
@@ -729,7 +740,7 @@ impl Storage {
         )?;
         let featured = query_home_catalog_items(
             &conn,
-            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
              FROM catalog_items ci
              INNER JOIN subscriptions s ON ci.subscription_id = s.id
              WHERE s.enabled = 1
@@ -755,7 +766,7 @@ impl Storage {
         match (item_type, keyword) {
             (Some(item_type), Some(keyword)) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -768,7 +779,7 @@ impl Storage {
             ),
             (Some(item_type), None) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -780,7 +791,7 @@ impl Storage {
             ),
             (None, Some(keyword)) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -792,7 +803,7 @@ impl Storage {
             ),
             (None, None) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -1282,6 +1293,8 @@ fn query_home_catalog_items(
             item_type: row.get(2)?,
             poster: row.get(3)?,
             progress: row.get(4)?,
+            source_badge: row.get(5)?,
+            update_badge: row.get(6)?,
         })
     })?;
     rows.collect()
@@ -1828,24 +1841,27 @@ mod tests {
     }
 
     #[test]
-    fn library_home_returns_empty_continue_watching_for_now() {
+    fn library_home_returns_continue_watching_from_vod_history() {
         let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
         let subscription = storage
-            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .add_subscription("荐片", "https://example.com/tvbox.json")
             .expect("subscription should be inserted");
 
-        seed_catalog_item(&storage, subscription.id, 101, "示例影片", "movie");
+        seed_catalog_item_with_source(&storage, subscription.id, 101, "示例影片", "movie", "jianpian");
         storage
-            .save_play_history("vod", 101, 0.5)
-            .expect("legacy play history should insert");
+            .save_play_history("vod", 101, 42.0)
+            .expect("play history should insert");
 
         let home = storage
             .get_library_home()
             .expect("library home should query");
 
-        assert!(home.continue_watching.is_empty());
-        assert_eq!(home.latest_updates.len(), 1);
-        assert_eq!(home.featured.len(), 1);
+        assert_eq!(home.continue_watching.len(), 1);
+        assert_eq!(home.continue_watching[0].id, 101);
+        assert_eq!(home.continue_watching[0].title, "示例影片");
+        assert_eq!(home.continue_watching[0].item_type, "movie");
+        assert_eq!(home.continue_watching[0].progress, Some(42.0));
+        assert_eq!(home.continue_watching[0].source_badge.as_deref(), Some("荐片"));
     }
 
     #[test]

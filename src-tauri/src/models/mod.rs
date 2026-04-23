@@ -112,6 +112,8 @@ pub struct HomeCatalogItem {
     pub item_type: String,
     pub poster: Option<String>,
     pub progress: Option<f64>,
+    pub source_badge: Option<String>,
+    pub update_badge: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
