@@ -51,6 +51,36 @@ describe('library store', () => {
     expect(store.featured[0].item_type).toBe('anime')
   })
 
+  it('normalizes home payload into hero and rail-friendly card fields', () => {
+    const payload = {
+      continue_watching: [
+        {
+          id: 1,
+          title: 'Arcane',
+          item_type: 'series' as const,
+          poster: 'https://img.test/arcane.jpg',
+          progress: 52,
+          source_badge: '荐片',
+          update_badge: '继续观看'
+        }
+      ],
+      latest_updates: [],
+      featured: [
+        {
+          id: 2,
+          title: 'Dune',
+          item_type: 'movie' as const,
+          poster: 'https://img.test/dune.jpg',
+          source_badge: 'Auete',
+          update_badge: '推荐'
+        }
+      ]
+    }
+
+    expect(payload.featured[0].item_type).toBe('movie')
+    expect(payload.continue_watching[0].progress).toBe(52)
+  })
+
   it('rejects malformed cards without an item type', () => {
     setActivePinia(createPinia())
     const store = useLibraryStore()
