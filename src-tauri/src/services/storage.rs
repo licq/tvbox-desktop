@@ -1880,9 +1880,60 @@ mod tests {
             .add_subscription("饭太硬", "https://example.com/tvbox.json")
             .expect("subscription should be inserted");
 
-        seed_live_source(&storage, subscription.id, Some("央视频道"), "CCTV-1", "https://live.example/cctv1.m3u8");
-        seed_catalog_item_with_source(&storage, subscription.id, 201, "示例电影", "movie", "jianpian");
-        seed_catalog_episode(&storage, 201, "荐片线路", "第01集", "https://media.example/index.m3u8", 0);
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-1",
+            "https://live.example/cctv1.m3u8",
+        );
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-2",
+            "https://live.example/cctv2.m3u8",
+        );
+        seed_catalog_item_with_source(
+            &storage,
+            subscription.id,
+            201,
+            "示例电影",
+            "movie",
+            "jianpian",
+        );
+        seed_catalog_item_with_source(
+            &storage,
+            subscription.id,
+            202,
+            "示例剧集",
+            "series",
+            "jianpian",
+        );
+        seed_catalog_episode(
+            &storage,
+            201,
+            "荐片线路",
+            "第01集",
+            "https://media.example/movie-1.m3u8",
+            0,
+        );
+        seed_catalog_episode(
+            &storage,
+            202,
+            "荐片线路",
+            "第01集",
+            "https://media.example/series-1.m3u8",
+            0,
+        );
+        seed_catalog_episode(
+            &storage,
+            202,
+            "荐片线路",
+            "第02集",
+            "https://media.example/series-2.m3u8",
+            1,
+        );
 
         let summaries = storage
             .get_source_health_summaries()
@@ -1893,9 +1944,9 @@ mod tests {
             .find(|summary| summary.id == subscription.id)
             .expect("subscription summary should exist");
         assert_eq!(summary.name, "饭太硬");
-        assert_eq!(summary.live_channel_count, 1);
-        assert_eq!(summary.catalog_item_count, 1);
-        assert_eq!(summary.catalog_episode_count, 1);
+        assert_eq!(summary.live_channel_count, 2);
+        assert_eq!(summary.catalog_item_count, 2);
+        assert_eq!(summary.catalog_episode_count, 3);
         assert!(summary.enabled);
     }
 
