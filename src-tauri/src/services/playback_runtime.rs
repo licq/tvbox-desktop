@@ -7,7 +7,8 @@ use crate::services::resolver::{
 };
 use crate::services::storage::{
     playback_cache::{
-        get_playback_health, hash_playback_target, list_playback_targets, upsert_playback_health,
+        get_playback_health, hash_playback_target, list_playback_targets,
+        replace_playback_targets, upsert_playback_health, PlaybackTargetRecord,
     },
     Storage,
 };
@@ -37,6 +38,9 @@ pub async fn resolve_playback_for_input(
         discover_initial_targets(input)
     };
     let resolved = resolve_and_probe_targets(storage, &client, normalized).await?;
+    if let Some(episode_id) = episode_id {
+        persist_runtime_targets_for_episode(storage, episode_id, &resolved)?;
+    }
     Ok(to_resolved_playback(resolved))
 }
 
@@ -349,16 +353,52 @@ fn to_playback_candidate(candidate: RuntimeResolvedCandidate) -> PlaybackCandida
     }
 }
 
+fn persist_runtime_targets_for_episode(
+    storage: &Storage,
+    episode_id: i64,
+    candidates: &[RuntimeResolvedCandidate],
+) -> Result<(), String> {
+    let records = candidates
+        .iter()
+        .map(|candidate| PlaybackTargetRecord {
+            episode_id,
+            source_key: candidate.target.source_key.clone(),
+            target_url: candidate.target.target_url.clone(),
+            target_kind: target_kind_label(&candidate.target.target_kind).to_string(),
+            resolver_key: candidate.target.resolver_key.clone(),
+            headers_json: candidate
+                .target
+                .headers
+                .as_ref()
+                .and_then(|headers| serde_json::to_string(headers).ok()),
+            sort_hint: candidate.target.sort_hint,
+        })
+        .collect();
+
+    replace_playback_targets(storage, episode_id, records).map_err(|e| e.to_string())
+}
+
+fn target_kind_label(kind: &PlaybackTargetKind) -> &'static str {
+    match kind {
+        PlaybackTargetKind::Direct => "direct",
+        PlaybackTargetKind::Resolvable => "resolvable",
+        PlaybackTargetKind::Embedded => "embedded",
+        PlaybackTargetKind::ExternalRequired => "external_required",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_runtime_target, filter_presentable_targets, parse_headers_json,
+        persist_runtime_targets_for_episode, target_kind_label,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
         RuntimeResolvedCandidate,
     };
     use crate::services::playback_types::{
         PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
     };
+    use crate::services::storage::playback_cache::list_playback_targets;
     use crate::services::Storage;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -504,6 +544,50 @@ mod tests {
 
         let ranked = sort_runtime_candidates(vec![failing, cached_ok]);
         assert!(ranked[0].probe.failure_reason.is_none());
+    }
+
+    #[test]
+    fn persists_runtime_targets_with_headers_for_episode_cache() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("Referer".to_string(), "https://jpvod.com/".to_string());
+
+        persist_runtime_targets_for_episode(
+            &storage,
+            55,
+            &[RuntimeResolvedCandidate {
+                target: PlaybackTarget {
+                    episode_id: Some(55),
+                    source_key: "jianpian".to_string(),
+                    target_url: "https://cdn.example.com/play/index.m3u8".to_string(),
+                    target_kind: PlaybackTargetKind::Direct,
+                    resolver_key: Some("jianpian".to_string()),
+                    headers: Some(headers),
+                    sort_hint: 1,
+                    meta: Some("无尽线路".to_string()),
+                },
+                probe: PlaybackProbeResult::playable(),
+            }],
+        )
+        .expect("runtime targets should persist");
+
+        let records = list_playback_targets(&storage, 55).expect("target query should succeed");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].target_kind, "direct");
+        assert_eq!(records[0].resolver_key.as_deref(), Some("jianpian"));
+        assert!(records[0]
+            .headers_json
+            .as_deref()
+            .is_some_and(|value| value.contains("Referer")));
+    }
+
+    #[test]
+    fn maps_target_kind_to_storage_label() {
+        assert_eq!(target_kind_label(&PlaybackTargetKind::Direct), "direct");
+        assert_eq!(
+            target_kind_label(&PlaybackTargetKind::ExternalRequired),
+            "external_required"
+        );
     }
 
     #[tokio::test]
