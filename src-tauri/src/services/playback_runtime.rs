@@ -21,6 +21,17 @@ pub struct RuntimeResolvedCandidate {
     pub probe: PlaybackProbeResult,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeFailureClass {
+    Embedded,
+    ExternalRequired,
+    BrowserCors,
+    DeadLink,
+    UpstreamTransient,
+    Unsupported,
+    Unknown,
+}
+
 pub async fn resolve_playback_for_input(
     storage: &Storage,
     input: &str,
@@ -342,19 +353,15 @@ fn playable_probe_ttl_seconds(source_key: &str) -> i64 {
 }
 
 fn failed_probe_ttl_seconds(target: &PlaybackTarget, probe: &PlaybackProbeResult) -> i64 {
-    if matches!(probe.http_status, Some(403 | 404 | 410)) {
-        return failed_probe_penalty_ttl_seconds(&target.source_key);
+    match classify_probe_failure(target, probe) {
+        ProbeFailureClass::DeadLink | ProbeFailureClass::BrowserCors => {
+            failed_probe_penalty_ttl_seconds(&target.source_key)
+        }
+        ProbeFailureClass::Embedded | ProbeFailureClass::ExternalRequired => 3600,
+        ProbeFailureClass::UpstreamTransient
+        | ProbeFailureClass::Unsupported
+        | ProbeFailureClass::Unknown => 600,
     }
-
-    if probe
-        .failure_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("cors") || reason.contains("CORS"))
-    {
-        return failed_probe_penalty_ttl_seconds(&target.source_key);
-    }
-
-    600
 }
 
 fn failed_probe_penalty_ttl_seconds(source_key: &str) -> i64 {
@@ -364,6 +371,55 @@ fn failed_probe_penalty_ttl_seconds(source_key: &str) -> i64 {
         "zxzj" => 900,
         _ => 1200,
     }
+}
+
+fn classify_probe_failure(target: &PlaybackTarget, probe: &PlaybackProbeResult) -> ProbeFailureClass {
+    if matches!(target.target_kind, PlaybackTargetKind::Embedded) {
+        return ProbeFailureClass::Embedded;
+    }
+    if matches!(target.target_kind, PlaybackTargetKind::ExternalRequired) {
+        return ProbeFailureClass::ExternalRequired;
+    }
+
+    if matches!(probe.http_status, Some(403 | 404 | 410)) {
+        return ProbeFailureClass::DeadLink;
+    }
+    if matches!(probe.http_status, Some(429 | 500 | 502 | 503 | 504))
+        || probe
+            .failure_reason
+            .as_deref()
+            .is_some_and(|reason| {
+                let normalized = reason.to_ascii_lowercase();
+                normalized.contains("timeout")
+                    || normalized.contains("timed out")
+                    || normalized.contains("tempor")
+                    || normalized.contains("upstream")
+            })
+    {
+        return ProbeFailureClass::UpstreamTransient;
+    }
+    if !probe.cors_ok
+        || probe
+            .failure_reason
+            .as_deref()
+            .is_some_and(|reason| reason.to_ascii_lowercase().contains("cors"))
+    {
+        return ProbeFailureClass::BrowserCors;
+    }
+    if probe
+        .failure_reason
+        .as_deref()
+        .is_some_and(|reason| {
+            let normalized = reason.to_ascii_lowercase();
+            normalized.contains("not desktop playable")
+                || normalized.contains("external")
+                || normalized.contains("embedded")
+        })
+    {
+        return ProbeFailureClass::Unsupported;
+    }
+
+    ProbeFailureClass::Unknown
 }
 
 fn now_epoch_seconds() -> i64 {
@@ -431,10 +487,10 @@ fn target_kind_label(kind: &PlaybackTargetKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_runtime_target, filter_presentable_targets, parse_headers_json,
+        build_runtime_target, classify_probe_failure, filter_presentable_targets, parse_headers_json,
         failed_probe_ttl_seconds, maybe_cached_targets_for_episode,
         persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
-        target_kind_label,
+        target_kind_label, ProbeFailureClass,
         resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
         RuntimeResolvedCandidate,
     };
@@ -696,6 +752,64 @@ mod tests {
 
         assert_eq!(failed_probe_ttl_seconds(&target, &probe), 600);
         assert_eq!(probe_ttl_seconds(&target, &probe), 600);
+    }
+
+    #[test]
+    fn classifies_dead_links_by_http_status() {
+        let target = target(
+            PlaybackTargetKind::Direct,
+            "default",
+            "https://cdn.example.com/dead/index.m3u8",
+        );
+        let probe = PlaybackProbeResult::failed("manifest failed", Some(404));
+
+        assert_eq!(classify_probe_failure(&target, &probe), ProbeFailureClass::DeadLink);
+    }
+
+    #[test]
+    fn classifies_browser_cors_failures_from_probe_metadata() {
+        let target = target(
+            PlaybackTargetKind::Direct,
+            "default",
+            "https://cdn.example.com/cors/index.m3u8",
+        );
+        let probe = PlaybackProbeResult {
+            status: PlaybackProbeStatus::Failed,
+            manifest_ok: true,
+            segment_ok: true,
+            cors_ok: false,
+            http_status: Some(200),
+            failure_reason: Some("resource probe missing browser CORS headers".to_string()),
+        };
+
+        assert_eq!(classify_probe_failure(&target, &probe), ProbeFailureClass::BrowserCors);
+    }
+
+    #[test]
+    fn classifies_upstream_timeouts_as_transient() {
+        let target = target(
+            PlaybackTargetKind::Direct,
+            "default",
+            "https://cdn.example.com/transient/index.m3u8",
+        );
+        let probe = PlaybackProbeResult::failed("upstream timeout", Some(502));
+
+        assert_eq!(
+            classify_probe_failure(&target, &probe),
+            ProbeFailureClass::UpstreamTransient
+        );
+    }
+
+    #[test]
+    fn classifies_embedded_targets_as_embedded_failures() {
+        let target = target(
+            PlaybackTargetKind::Embedded,
+            "zxzj",
+            "https://www.zxzjhd.com/vodplay/4627-1-1.html",
+        );
+        let probe = PlaybackProbeResult::failed("target kind is not desktop playable", None);
+
+        assert_eq!(classify_probe_failure(&target, &probe), ProbeFailureClass::Embedded);
     }
 
     #[tokio::test]
