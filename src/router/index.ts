@@ -14,19 +14,6 @@ const router = createRouter({
       component: Home
     },
     {
-      path: '/live',
-      redirect: '/library/live'
-    },
-    {
-      path: '/vod',
-      redirect: '/library/movie'
-    },
-    {
-      path: '/library/live',
-      name: 'live',
-      component: Home
-    },
-    {
       path: '/player/:mode/:id',
       name: 'player',
       component: () => import('@/views/PlayerPage.vue')
