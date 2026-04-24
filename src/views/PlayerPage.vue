@@ -253,6 +253,74 @@ async function toggleFullscreen() {
   }
 }
 
+function setVolume(v: number) {
+  volume.value = v
+  if (videoRef.value) videoRef.value.volume = v
+}
+
+function toggleMute() {
+  if (videoRef.value) {
+    videoRef.value.muted = !videoRef.value.muted
+  }
+}
+
+function usePlayerKeyboard() {
+  function handleKeydown(e: KeyboardEvent) {
+    // 忽略在 input/select 等元素上的按键
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as Element)?.tagName)) return
+
+    switch (e.key) {
+      case ' ':
+      case 'k':
+      case 'K':
+        e.preventDefault()
+        togglePlay()
+        break
+      case 'j':
+      case 'J':
+        e.preventDefault()
+        seek(Math.max(0, currentTime.value - 10))
+        break
+      case 'l':
+      case 'L':
+        e.preventDefault()
+        seek(Math.min(duration.value, currentTime.value + 10))
+        break
+      case 'ArrowLeft':
+        e.preventDefault()
+        seek(Math.max(0, currentTime.value - 5))
+        break
+      case 'ArrowRight':
+        e.preventDefault()
+        seek(Math.min(duration.value, currentTime.value + 5))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setVolume(Math.min(1, volume.value + 0.1))
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        setVolume(Math.max(0, volume.value - 0.1))
+        break
+      case 'f':
+      case 'F':
+        e.preventDefault()
+        toggleFullscreen()
+        break
+      case 'm':
+      case 'M':
+        e.preventDefault()
+        toggleMute()
+        break
+    }
+  }
+
+  onMounted(() => document.addEventListener('keydown', handleKeydown))
+  onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
+}
+
+usePlayerKeyboard()
+
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
