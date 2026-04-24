@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLiveStore } from '@/stores/live'
-import { useDoubanStore } from '@/stores/douban'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useLibraryStore } from '@/stores/library'
 import ChannelCard from '@/components/ChannelCard.vue'
@@ -16,18 +15,16 @@ import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
 import SourceHealthPanel from '@/components/home/SourceHealthPanel.vue'
 import type { CatalogCard, CatalogItemType, HeroMetric, LiveChannel, VodItem } from '@/types'
 
-type HomeTabKey = 'live' | 'hot' | CatalogItemType
+type HomeTabKey = 'live' | CatalogItemType
 
 const route = useRoute()
 const router = useRouter()
 const liveStore = useLiveStore()
-const doubanStore = useDoubanStore()
 const subStore = useSubscriptionStore()
 const libraryStore = useLibraryStore()
 
 const tabs: { key: HomeTabKey; label: string; eyebrow: string }[] = [
   { key: 'live', label: '直播', eyebrow: 'Live' },
-  { key: 'hot', label: '热映', eyebrow: 'Hot' },
   { key: 'movie', label: '电影', eyebrow: 'Movie' },
   { key: 'series', label: '剧集', eyebrow: 'Series' },
   { key: 'variety', label: '综艺', eyebrow: 'Shows' },
@@ -98,7 +95,6 @@ const rails = computed(() =>
     .filter(rail => rail.items.length > 0)
 )
 
-const matchedHotItems = computed(() => doubanStore.matchedItems)
 const activeTabMeta = computed(() => tabs.find(tab => tab.key === activeTab.value) ?? tabs[0])
 
 async function hydrateSources() {
@@ -124,12 +120,11 @@ async function hydrateSources() {
 
   await Promise.allSettled([
     liveStore.fetchGroups(),
-    doubanStore.fetchMatchedHot(),
     libraryStore.fetchHome(),
     libraryStore.fetchCatalog()
   ])
 
-  if (activeTab.value !== 'live' && activeTab.value !== 'hot') {
+  if (activeTab.value !== 'live') {
     await libraryStore.fetchCatalog(activeTab.value)
   }
 }
@@ -150,7 +145,7 @@ watch(
     searchKeyword.value = ''
     showAllVod.value = false
 
-    if (nextTab !== 'live' && nextTab !== 'hot') {
+    if (nextTab !== 'live') {
       await libraryStore.fetchCatalog(nextTab)
     }
   },
@@ -167,14 +162,14 @@ function handleLiveSearch(keyword: string) {
 
 function handleVodSearch(keyword: string) {
   if (keyword) {
-    if (activeTab.value !== 'live' && activeTab.value !== 'hot') {
+    if (activeTab.value !== 'live') {
       void libraryStore.fetchCatalog(activeTab.value, keyword)
     }
     return
   }
 
   showAllVod.value = false
-  if (activeTab.value !== 'live' && activeTab.value !== 'hot') {
+  if (activeTab.value !== 'live') {
     void libraryStore.fetchCatalog(activeTab.value)
   }
 }
@@ -308,41 +303,6 @@ function toggleChannelExpansion(category: string) {
                   />
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div v-else-if="activeTab === 'hot'">
-            <div v-if="doubanStore.loading" class="flex min-h-[220px] items-center justify-center">
-              <LoadingSpinner />
-            </div>
-
-            <div v-else-if="matchedHotItems.length === 0" class="home-empty-state">
-              暂无热门数据。
-            </div>
-
-            <div v-else class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              <button
-                v-for="item in matchedHotItems"
-                :key="item.douban.id"
-                class="surface-muted overflow-hidden rounded-[1.75rem] text-left transition hover:-translate-y-1"
-                type="button"
-                @click="router.push(`/detail/${item.vod_id}`)"
-              >
-                <div
-                  class="aspect-[4/5] bg-cover bg-center"
-                  :style="item.douban.poster ? { backgroundImage: `linear-gradient(180deg, rgba(8, 12, 18, 0.06), rgba(8, 12, 18, 0.9)), url(${item.douban.poster})` } : undefined"
-                >
-                  <div class="flex h-full flex-col justify-between p-4">
-                    <div class="inline-flex w-fit rounded-full bg-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-white/68">
-                      TOP {{ item.douban.rank }}
-                    </div>
-                    <div>
-                      <div class="text-lg font-semibold text-white">{{ item.vod_name || item.douban.name }}</div>
-                      <div class="mt-2 text-xs text-white/55">豆瓣热度命中片库</div>
-                    </div>
-                  </div>
-                </div>
-              </button>
             </div>
           </div>
 
