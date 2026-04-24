@@ -321,7 +321,13 @@ fn is_play_url(play_url: &str) -> bool {
 
 fn infer_item_type(detail_url: &str, html: &str) -> String {
     let page_text = strip_tags(html);
-    if ["连续剧", "欧美剧", "国产剧", "香港剧", "台湾剧", "日本剧", "韩国剧", "海外剧", "泰国剧", "短剧"]
+    if ["短剧"].iter().any(|needle| page_text.contains(needle)) {
+        return "short_drama".to_string();
+    }
+    if ["网剧"].iter().any(|needle| page_text.contains(needle)) {
+        return "web_drama".to_string();
+    }
+    if ["连续剧", "欧美剧", "国产剧", "香港剧", "台湾剧", "日本剧", "韩国剧", "海外剧", "泰国剧"]
         .iter()
         .any(|needle| page_text.contains(needle))
     {
