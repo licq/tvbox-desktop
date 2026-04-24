@@ -804,6 +804,18 @@ impl Storage {
         }
     }
 
+    pub fn get_distinct_item_types(&self) -> SqliteResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT item_type FROM catalog_items
+             WHERE item_type IS NOT NULL
+             AND item_type != ''
+             ORDER BY item_type"
+        )?;
+        let types = stmt.query_map([], |row| row.get(0))?;
+        Ok(types.collect::<Result<Vec<_>, _>>()?)
+    }
+
     pub fn get_catalog_detail(&self, item_id: i64) -> SqliteResult<CatalogDetail> {
         let conn = self.conn.lock().unwrap();
 
