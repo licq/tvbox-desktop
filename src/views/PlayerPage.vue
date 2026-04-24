@@ -10,7 +10,6 @@ import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
 import type { CatalogEpisode, CatalogEpisodeGroup } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import type Hls from 'hls.js'
 
 const route = useRoute()
@@ -70,6 +69,30 @@ let hlsInstance: Hls | null = null
 let hlsConstructorPromise: Promise<typeof import('hls.js').default> | null = null
 let progressUpdateInterval: number | null = null
 let fullscreenChangeHandler: (() => void) | null = null
+
+const controlsVisible = ref(true)
+let hideTimer: number | null = null
+
+function startHideTimer() {
+  if (hideTimer) {
+    window.clearTimeout(hideTimer)
+    hideTimer = null
+  }
+  if (playing.value) {
+    hideTimer = window.setTimeout(() => {
+      controlsVisible.value = false
+    }, 3000)
+  }
+}
+
+function showControls() {
+  controlsVisible.value = true
+  startHideTimer()
+}
+
+function handleUserInteraction() {
+  showControls()
+}
 
 onMounted(async () => {
   if (mode.value === 'live') {
@@ -139,6 +162,9 @@ onUnmounted(() => {
   if (fullscreenChangeHandler) {
     document.removeEventListener('fullscreenchange', fullscreenChangeHandler)
   }
+  if (hideTimer) {
+    window.clearTimeout(hideTimer)
+  }
 
   if (hlsInstance) {
     hlsInstance.destroy()
@@ -161,11 +187,13 @@ function togglePlay() {
   }
 
   void attemptPlayback(true)
+  handleUserInteraction()
 }
 
 function seek(time: number) {
   if (!videoRef.value) return
   videoRef.value.currentTime = time
+  handleUserInteraction()
 }
 
 function handleVolumeChange(event: Event) {
@@ -178,68 +206,50 @@ function handleVolumeChange(event: Event) {
 
 async function toggleFullscreen() {
   const video = videoRef.value
-  if (!video) return
-
-  // 已在全屏状态 → 退出
-  if (document.fullscreenElement) {
-    try {
-      await document.exitFullscreen()
-    } catch (e) {
-      console.error('[fullscreen] exit error:', e)
-      try {
-        const win = getCurrentWindow()
-        const winFs = await win.isFullscreen()
-        if (winFs) await win.setFullscreen(false)
-      } catch (e2) {
-        console.error('[fullscreen] Tauri exit error:', e2)
-      }
-    }
-    fullscreen.value = false
-    fullscreenError.value = ''
-    return
-  }
-
-  // 进入全屏
-  // 1. webkitEnterFullscreen（macOS WKWebView 最可靠）
-  if (typeof (video as any).webkitEnterFullscreen === 'function') {
-    console.log('[fullscreen] trying webkitEnterFullscreen')
-    try {
-      ;(video as any).webkitEnterFullscreen()
-      fullscreen.value = true
-      fullscreenError.value = ''
-      console.log('[fullscreen] webkitEnterFullscreen called')
-      return
-    } catch (e) {
-      console.error('[fullscreen] webkitEnterFullscreen error:', e)
-    }
-  }
-
-  // 2. 标准 requestFullscreen
   const wrap = videoWrapRef.value
-  if (wrap?.requestFullscreen) {
-    console.log('[fullscreen] trying requestFullscreen on wrap')
-    try {
-      await (wrap.requestFullscreen as () => Promise<void>)()
-      fullscreen.value = true
-      fullscreenError.value = ''
-      console.log('[fullscreen] requestFullscreen ok')
-      return
-    } catch (e) {
-      console.error('[fullscreen] requestFullscreen error:', e)
-    }
-  }
+  if (!video || !wrap) return
 
-  // 3. Tauri 窗口全屏
-  console.log('[fullscreen] trying Tauri setFullscreen')
-  try {
-    const win = getCurrentWindow()
-    await win.setFullscreen(true)
-    fullscreen.value = true
+  // 切换全屏状态
+  fullscreen.value = !fullscreen.value
+
+  if (fullscreen.value) {
+    // 进入全屏：视频容器覆盖整个窗口，隐藏其他 UI
+    wrap.style.position = 'fixed'
+    wrap.style.inset = '0'
+    wrap.style.zIndex = '9999'
+    wrap.style.background = '#000'
+    wrap.style.width = '100vw'
+    wrap.style.height = '100vh'
+
+    // 隐藏顶部栏和右侧抽屉
+    const topbar = document.querySelector('.player-topbar') as HTMLElement
+    if (topbar) topbar.style.visibility = 'hidden'
+    const drawer = document.querySelector('.player-stage > :last-child') as HTMLElement
+    if (drawer && drawer.classList.contains('player-drawer')) drawer.style.visibility = 'hidden'
+    document.body.style.overflow = 'hidden'
+
+    // 确保视频全屏显示
+    video.style.width = '100%'
+    video.style.height = '100%'
+
     fullscreenError.value = ''
-    console.log('[fullscreen] Tauri setFullscreen ok')
-  } catch (e) {
-    console.error('[fullscreen] Tauri setFullscreen error:', e)
-    fullscreenError.value = '全屏不可用'
+  } else {
+    // 退出全屏：恢复原有样式
+    wrap.style.position = ''
+    wrap.style.inset = ''
+    wrap.style.zIndex = ''
+    wrap.style.background = ''
+    wrap.style.width = ''
+    wrap.style.height = ''
+
+    const topbar = document.querySelector('.player-topbar') as HTMLElement
+    if (topbar) topbar.style.visibility = ''
+    const drawer = document.querySelector('.player-stage > :last-child') as HTMLElement
+    if (drawer && drawer.classList.contains('player-drawer')) drawer.style.visibility = ''
+    document.body.style.overflow = ''
+
+    video.style.width = ''
+    video.style.height = ''
   }
 }
 
@@ -288,7 +298,7 @@ async function switchToSource(index: number) {
 }
 
 function switchToEpisode(episode: CatalogEpisode) {
-  router.push(
+  router.replace(
     `/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`
   )
 }
@@ -393,10 +403,16 @@ function handleCanPlay() {
 function handleVideoPlay() {
   playing.value = true
   errorMsg.value = ''
+  showControls()
 }
 
 function handleVideoPause() {
   playing.value = false
+  if (hideTimer) {
+    window.clearTimeout(hideTimer)
+    hideTimer = null
+  }
+  controlsVisible.value = true
 }
 
 function handleVideoError() {
@@ -455,10 +471,17 @@ function handleVideoError() {
             <div class="player-vignette-top"></div>
             <div class="player-vignette-bottom"></div>
 
-            <div class="player-overlay">
+            <div
+              class="player-overlay"
+              @mouseenter="showControls"
+              @mouseleave="startHideTimer"
+            >
               <PlaybackNotice v-if="errorMsg" :message="errorMsg" :tone="noticeTone" />
 
-              <div class="player-controls">
+              <div
+                class="player-controls"
+                :class="{ 'controls-hidden': !controlsVisible }"
+              >
                 <div class="player-progress">
                   <span>{{ formatTime(currentTime) }}</span>
                   <input
