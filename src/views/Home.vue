@@ -228,7 +228,6 @@ function toggleChannelExpansion(category: string) {
           :item="featuredHero"
           :metrics="heroMetrics"
           title="打开就是可看的媒体中心"
-          summary="首页先呈现推荐、续看、分类片库、直播和源健康状态；分类搜索仍然可用，但不再抢占第一屏。"
           @open="handleCatalogClick"
         />
 
@@ -252,7 +251,6 @@ function toggleChannelExpansion(category: string) {
             <div>
               <div class="eyebrow">{{ activeTabMeta.eyebrow }}</div>
               <h2>{{ formatTypeLabel(activeTab) }}浏览</h2>
-              <p>保留原有路由分类、直播搜索和片库搜索，作为首页之后的快速筛选区。</p>
             </div>
 
             <div class="home-secondary-search">

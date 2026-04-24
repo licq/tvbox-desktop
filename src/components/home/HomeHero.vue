@@ -6,7 +6,7 @@ defineProps<{
   item: CatalogCard | null
   metrics: HeroMetric[]
   title: string
-  summary: string
+  summary?: string
 }>()
 
 defineEmits<{
