@@ -452,7 +452,6 @@ function handleVideoError() {
               v-show="!isEmbedSource"
               ref="videoRef"
               class="player-video"
-              :title="currentSource?.url || ''"
               playsinline
               @click="togglePlay"
               @canplay="handleCanPlay"
