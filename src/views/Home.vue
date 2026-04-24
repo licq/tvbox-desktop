@@ -10,7 +10,6 @@ import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import MediaRail from '@/components/home/MediaRail.vue'
 import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
-import SourceHealthPanel from '@/components/home/SourceHealthPanel.vue'
 import type { CatalogCard, CatalogItemType, LiveChannel, VodItem } from '@/types'
 
 type HomeTabKey = 'live' | CatalogItemType
@@ -238,8 +237,6 @@ function toggleChannelExpansion(category: string) {
         />
 
         <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
-
-        <SourceHealthPanel :subscriptions="subStore.subscriptions" />
 
         <section class="home-secondary-browser">
           <div class="home-secondary-header">
