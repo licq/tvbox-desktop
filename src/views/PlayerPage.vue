@@ -8,6 +8,7 @@ import { usePlaybackStore } from '@/stores/playback'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
+import { enterFullscreen, exitFullscreen } from '@/utils/fullscreen'
 import type Hls from 'hls.js'
 
 const route = useRoute()
@@ -23,6 +24,7 @@ type PlayerSource = {
 }
 
 const videoRef = ref<HTMLVideoElement | null>(null)
+const videoWrapRef = ref<HTMLElement | null>(null)
 const playing = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
@@ -154,13 +156,15 @@ function handleVolumeChange(event: Event) {
 
 async function toggleFullscreen() {
   if (!document.fullscreenElement) {
-    await document.documentElement.requestFullscreen()
+    await enterFullscreen(
+      videoWrapRef.value,
+      () => document.documentElement.requestFullscreen()
+    )
     fullscreen.value = true
-    return
+  } else {
+    await exitFullscreen(document, () => document.exitFullscreen())
+    fullscreen.value = false
   }
-
-  await document.exitFullscreen()
-  fullscreen.value = false
 }
 
 function formatTime(seconds: number): string {
@@ -345,7 +349,7 @@ function handleVideoError() {
 
       <div class="player-layout">
         <section class="player-stage">
-          <div class="player-video-wrap">
+          <div class="player-video-wrap" ref="videoWrapRef">
             <video
               v-show="!isEmbedSource"
               ref="videoRef"
