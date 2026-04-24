@@ -63,11 +63,15 @@ pub async fn get_catalog_items(
 }
 
 #[tauri::command]
-pub fn get_catalog_types(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+pub async fn get_catalog_types(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let storage = state.storage.clone();
-    storage
-        .get_distinct_item_types()
-        .map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || {
+        storage
+            .get_distinct_item_types()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
