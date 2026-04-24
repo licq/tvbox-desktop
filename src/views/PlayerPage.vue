@@ -10,7 +10,7 @@ import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
 import type { CatalogEpisode, CatalogEpisodeGroup } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
-import { enterFullscreen, exitFullscreen } from '@/utils/fullscreen'
+import { exitFullscreen } from '@/utils/fullscreen'
 import type Hls from 'hls.js'
 
 const route = useRoute()
@@ -168,11 +168,24 @@ function handleVolumeChange(event: Event) {
 
 async function toggleFullscreen() {
   if (!document.fullscreenElement) {
-    await enterFullscreen(
-      videoWrapRef.value,
-      () => document.documentElement.requestFullscreen()
-    )
-    fullscreen.value = true
+    const el = videoWrapRef.value
+    if (el?.requestFullscreen) {
+      try {
+        await el.requestFullscreen()
+        fullscreen.value = true
+        return
+      } catch (err) {
+        console.error('[Fullscreen] element request failed:', err)
+      }
+    }
+    // Fallback: fullscreen the document element
+    try {
+      await document.documentElement.requestFullscreen()
+      fullscreen.value = true
+    } catch (err) {
+      console.error('[Fullscreen] document request failed:', err)
+      errorMsg.value = '全屏不可用，请检查浏览器设置'
+    }
   } else {
     await exitFullscreen(document, () => document.exitFullscreen())
     fullscreen.value = false

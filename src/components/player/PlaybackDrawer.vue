@@ -59,6 +59,7 @@ const innerTab = ref<'sources' | 'episodes'>(props.activeTab ?? 'sources')
       当前线路、失败线路和不能内置播放的线路集中展示；自动切换失败线路时不会遮挡画面。
     </p>
 
+    <!-- Source list — shown when on sources tab with items -->
     <div v-if="innerTab === 'sources' && sources.length" class="playback-source-list">
       <button
         v-for="(source, index) in sources"
@@ -83,11 +84,8 @@ const innerTab = ref<'sources' | 'episodes'>(props.activeTab ?? 'sources')
       </button>
     </div>
 
-    <div v-if="innerTab === 'sources' && !sources.length" class="playback-empty">
-      没有解析出可展示线路。
-    </div>
-
-    <div v-if="innerTab === 'episodes' && episodes?.length" class="episode-grid">
+    <!-- Episodes grid — shown when on episodes tab with episodes -->
+    <div v-else-if="innerTab === 'episodes' && episodes?.length" class="episode-grid">
       <button
         v-for="ep in episodes"
         :key="ep.id"
@@ -99,12 +97,14 @@ const innerTab = ref<'sources' | 'episodes'>(props.activeTab ?? 'sources')
       </button>
     </div>
 
-    <div v-else-if="innerTab === 'episodes'" class="playback-empty">
-      当前无可用选集
+    <!-- Empty state: no sources on sources tab -->
+    <div v-else-if="innerTab === 'sources'" class="playback-empty">
+      没有解析出可展示线路。
     </div>
 
-    <div v-else class="playback-empty">
-      没有解析出可展示线路。
+    <!-- Empty state: no episodes on episodes tab -->
+    <div v-else-if="innerTab === 'episodes'" class="playback-empty">
+      当前无可用选集
     </div>
 
     <div class="playback-current-url">
