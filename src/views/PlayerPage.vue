@@ -184,50 +184,61 @@ async function toggleFullscreen() {
   if (document.fullscreenElement) {
     try {
       await document.exitFullscreen()
-    } catch {
+    } catch (e) {
+      console.error('[fullscreen] exit error:', e)
       try {
         const win = getCurrentWindow()
         const winFs = await win.isFullscreen()
         if (winFs) await win.setFullscreen(false)
-      } catch {}
+      } catch (e2) {
+        console.error('[fullscreen] Tauri exit error:', e2)
+      }
     }
     fullscreen.value = false
     fullscreenError.value = ''
     return
   }
 
-  // 进入全屏 — 优先 webkitEnterFullscreen（macOS WKWebView 最可靠）
+  // 进入全屏
+  // 1. webkitEnterFullscreen（macOS WKWebView 最可靠）
   if (typeof (video as any).webkitEnterFullscreen === 'function') {
+    console.log('[fullscreen] trying webkitEnterFullscreen')
     try {
       ;(video as any).webkitEnterFullscreen()
       fullscreen.value = true
       fullscreenError.value = ''
+      console.log('[fullscreen] webkitEnterFullscreen called')
       return
-    } catch {
-      // ignore
+    } catch (e) {
+      console.error('[fullscreen] webkitEnterFullscreen error:', e)
     }
   }
 
-  // 标准浏览器 API fallback
+  // 2. 标准 requestFullscreen
   const wrap = videoWrapRef.value
   if (wrap?.requestFullscreen) {
+    console.log('[fullscreen] trying requestFullscreen on wrap')
     try {
       await (wrap.requestFullscreen as () => Promise<void>)()
       fullscreen.value = true
       fullscreenError.value = ''
+      console.log('[fullscreen] requestFullscreen ok')
       return
-    } catch {
-      // ignore
+    } catch (e) {
+      console.error('[fullscreen] requestFullscreen error:', e)
     }
   }
 
-  // Tauri 窗口全屏（兜底）
+  // 3. Tauri 窗口全屏
+  console.log('[fullscreen] trying Tauri setFullscreen')
   try {
     const win = getCurrentWindow()
     await win.setFullscreen(true)
     fullscreen.value = true
     fullscreenError.value = ''
-  } catch {
+    console.log('[fullscreen] Tauri setFullscreen ok')
+  } catch (e) {
+    console.error('[fullscreen] Tauri setFullscreen error:', e)
     fullscreenError.value = '全屏不可用'
   }
 }
