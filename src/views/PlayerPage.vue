@@ -5,7 +5,9 @@ import { open } from '@tauri-apps/plugin-shell'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
+import { useDetailStore } from '@/stores/detail'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
+import type { CatalogEpisode, CatalogEpisodeGroup } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
 import { enterFullscreen, exitFullscreen } from '@/utils/fullscreen'
@@ -16,6 +18,8 @@ const router = useRouter()
 const liveStore = useLiveStore()
 const playerStore = usePlayerStore()
 const playbackStore = usePlaybackStore()
+const detailStore = useDetailStore()
+const activeGroup = ref<CatalogEpisodeGroup | null>(null)
 
 type PlayerSource = {
   url: string
@@ -89,6 +93,14 @@ onMounted(async () => {
       kind: candidate.kind
     }))
     currentSourceIndex.value = 0
+
+    if (itemId.value) {
+      await detailStore.fetchDetail(itemId.value)
+      const group = detailStore.episodeGroups.find(g =>
+        g.episodes.some(e => e.id === episodeId.value)
+      )
+      activeGroup.value = group ?? null
+    }
 
     if (resolved.status === 'ready' && sources.value.length > 0) {
       await playSource(sources.value[0])
@@ -209,6 +221,12 @@ async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
   currentSourceIndex.value = index
   await playSource(sources.value[index])
+}
+
+function switchToEpisode(episode: CatalogEpisode) {
+  router.push(
+    `/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`
+  )
 }
 
 function markCurrentSourceFailed() {
@@ -423,7 +441,10 @@ function handleVideoError() {
           :failed-indexes="failedSourceIndexes"
           :status="playerStatusText"
           :error-message="errorMsg || playbackStore.errorMessage"
+          :episodes="activeGroup?.episodes"
+          :current-episode-id="episodeId"
           @select="switchToSource"
+          @select-episode="switchToEpisode"
         />
       </div>
     </div>
