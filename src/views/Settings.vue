@@ -5,7 +5,7 @@ const router = useRouter()
 </script>
 
 <template>
-  <div class="settings-page min-h-screen bg-gray-900 text-white p-4">
+  <div class="app-shell">
     <header class="mb-6">
       <button
         class="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition mb-4"
@@ -18,7 +18,7 @@ const router = useRouter()
 
     <div class="max-w-2xl space-y-6">
       <!-- Playback Settings -->
-      <div class="bg-gray-800 p-4 rounded-lg">
+      <div class="surface-panel">
         <h2 class="text-lg font-bold mb-4">播放设置</h2>
         <div class="space-y-3">
           <div class="flex items-center justify-between">
@@ -38,7 +38,7 @@ const router = useRouter()
       </div>
 
       <!-- Interface Settings -->
-      <div class="bg-gray-800 p-4 rounded-lg">
+      <div class="surface-panel">
         <h2 class="text-lg font-bold mb-4">界面设置</h2>
         <div class="space-y-3">
           <div class="flex items-center justify-between">
@@ -53,7 +53,7 @@ const router = useRouter()
       </div>
 
       <!-- About -->
-      <div class="bg-gray-800 p-4 rounded-lg">
+      <div class="surface-panel">
         <h2 class="text-lg font-bold mb-4">关于</h2>
         <div class="text-gray-400">
           <p>TVBox 影视仓 v0.1.0</p>
