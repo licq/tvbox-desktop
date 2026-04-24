@@ -209,11 +209,9 @@ async function toggleFullscreen() {
   const wrap = videoWrapRef.value
   if (!video || !wrap) return
 
-  // 切换全屏状态
-  fullscreen.value = !fullscreen.value
-
-  if (fullscreen.value) {
+  if (!fullscreen.value) {
     // 进入全屏：视频容器覆盖整个窗口，隐藏其他 UI
+    fullscreen.value = true
     wrap.style.position = 'fixed'
     wrap.style.inset = '0'
     wrap.style.zIndex = '9999'
@@ -235,6 +233,7 @@ async function toggleFullscreen() {
     fullscreenError.value = ''
   } else {
     // 退出全屏：恢复原有样式
+    fullscreen.value = false
     wrap.style.position = ''
     wrap.style.inset = ''
     wrap.style.zIndex = ''
@@ -264,62 +263,58 @@ function toggleMute() {
   }
 }
 
-function usePlayerKeyboard() {
-  function handleKeydown(e: KeyboardEvent) {
-    // 忽略在 input/select 等元素上的按键
-    if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as Element)?.tagName)) return
+function handleKeydown(e: KeyboardEvent) {
+  // 忽略在 input/select 等元素上的按键
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as Element)?.tagName)) return
 
-    switch (e.key) {
-      case ' ':
-      case 'k':
-      case 'K':
-        e.preventDefault()
-        togglePlay()
-        break
-      case 'j':
-      case 'J':
-        e.preventDefault()
-        seek(Math.max(0, currentTime.value - 10))
-        break
-      case 'l':
-      case 'L':
-        e.preventDefault()
-        seek(Math.min(duration.value, currentTime.value + 10))
-        break
-      case 'ArrowLeft':
-        e.preventDefault()
-        seek(Math.max(0, currentTime.value - 5))
-        break
-      case 'ArrowRight':
-        e.preventDefault()
-        seek(Math.min(duration.value, currentTime.value + 5))
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        setVolume(Math.min(1, volume.value + 0.1))
-        break
-      case 'ArrowDown':
-        e.preventDefault()
-        setVolume(Math.max(0, volume.value - 0.1))
-        break
-      case 'f':
-      case 'F':
-        e.preventDefault()
-        toggleFullscreen()
-        break
-      case 'm':
-      case 'M':
-        e.preventDefault()
-        toggleMute()
-        break
-    }
+  switch (e.key) {
+    case ' ':
+    case 'k':
+    case 'K':
+      e.preventDefault()
+      togglePlay()
+      break
+    case 'j':
+    case 'J':
+      e.preventDefault()
+      seek(Math.max(0, currentTime.value - 10))
+      break
+    case 'l':
+    case 'L':
+      e.preventDefault()
+      seek(Math.min(duration.value, currentTime.value + 10))
+      break
+    case 'ArrowLeft':
+      e.preventDefault()
+      seek(Math.max(0, currentTime.value - 5))
+      break
+    case 'ArrowRight':
+      e.preventDefault()
+      seek(Math.min(duration.value, currentTime.value + 5))
+      break
+    case 'ArrowUp':
+      e.preventDefault()
+      setVolume(Math.min(1, volume.value + 0.1))
+      break
+    case 'ArrowDown':
+      e.preventDefault()
+      setVolume(Math.max(0, volume.value - 0.1))
+      break
+    case 'f':
+    case 'F':
+      e.preventDefault()
+      toggleFullscreen()
+      break
+    case 'm':
+    case 'M':
+      e.preventDefault()
+      toggleMute()
+      break
   }
-
-  onMounted(() => document.addEventListener('keydown', handleKeydown))
-  onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 }
 
-usePlayerKeyboard()
+onMounted(() => document.addEventListener('keydown', handleKeydown))
+onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
