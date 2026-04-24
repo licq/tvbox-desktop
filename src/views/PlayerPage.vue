@@ -126,7 +126,6 @@ onMounted(async () => {
     duration.value = videoRef.value.duration || 0
   }, 1000)
 
-  // 监听 fullscreenchange 保持 fullscreen.value 同步
   fullscreenChangeHandler = () => {
     fullscreen.value = !!document.fullscreenElement
   }
@@ -178,71 +177,58 @@ function handleVolumeChange(event: Event) {
 }
 
 async function toggleFullscreen() {
-  // 全屏目标：video-wrap 容器（包含视频 + vignette + controls）
-  const target = videoWrapRef.value
-  if (!target) return
+  const video = videoRef.value
+  if (!video) return
 
-  // 检查是否已处于全屏状态
-  const isFs = !!document.fullscreenElement
+  // 已在全屏状态 → 退出
+  if (document.fullscreenElement) {
+    try {
+      await document.exitFullscreen()
+    } catch {
+      try {
+        const win = getCurrentWindow()
+        const winFs = await win.isFullscreen()
+        if (winFs) await win.setFullscreen(false)
+      } catch {}
+    }
+    fullscreen.value = false
+    fullscreenError.value = ''
+    return
+  }
 
-  if (!isFs) {
-    // 进入全屏：优先使用 video-wrap 的 requestFullscreen
-    if (target.requestFullscreen) {
-      try {
-        await target.requestFullscreen()
-        fullscreen.value = true
-        fullscreenError.value = ''
-        return
-      } catch {
-        // fall through
-      }
-    }
-    // macOS WKWebView / Safari：video 元素支持 webkitEnterFullscreen
-    const video = videoRef.value
-    if (video && typeof (video as any).webkitEnterFullscreen === 'function') {
-      try {
-        ;(video as any).webkitEnterFullscreen()
-        fullscreen.value = true
-        fullscreenError.value = ''
-        return
-      } catch {
-        // fall through
-      }
-    }
-    // Tauri 窗口全屏 fallback（整个窗口）
+  // 进入全屏 — 优先 webkitEnterFullscreen（macOS WKWebView 最可靠）
+  if (typeof (video as any).webkitEnterFullscreen === 'function') {
     try {
-      const win = getCurrentWindow()
-      const winFs = await win.isFullscreen()
-      await win.setFullscreen(!winFs)
-      fullscreen.value = !winFs
+      ;(video as any).webkitEnterFullscreen()
+      fullscreen.value = true
       fullscreenError.value = ''
+      return
     } catch {
-      fullscreenError.value = '全屏不可用'
+      // ignore
     }
-  } else {
-    // 退出全屏
-    if (document.exitFullscreen) {
-      try {
-        await document.exitFullscreen()
-        fullscreen.value = false
-        fullscreenError.value = ''
-        return
-      } catch {
-        // fall through
-      }
-    }
-    // Tauri 窗口退出
+  }
+
+  // 标准浏览器 API fallback
+  const wrap = videoWrapRef.value
+  if (wrap?.requestFullscreen) {
     try {
-      const win = getCurrentWindow()
-      const winFs = await win.isFullscreen()
-      if (winFs) {
-        await win.setFullscreen(false)
-      }
-      fullscreen.value = false
+      await (wrap.requestFullscreen as () => Promise<void>)()
+      fullscreen.value = true
       fullscreenError.value = ''
+      return
     } catch {
-      fullscreenError.value = '退出全屏失败'
+      // ignore
     }
+  }
+
+  // Tauri 窗口全屏（兜底）
+  try {
+    const win = getCurrentWindow()
+    await win.setFullscreen(true)
+    fullscreen.value = true
+    fullscreenError.value = ''
+  } catch {
+    fullscreenError.value = '全屏不可用'
   }
 }
 
