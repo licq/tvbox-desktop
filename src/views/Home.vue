@@ -8,7 +8,6 @@ import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import MediaRail from '@/components/home/MediaRail.vue'
 import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
 import type { CatalogCard, CatalogItemType, LiveChannel, VodItem } from '@/types'
 
@@ -45,7 +44,6 @@ const expandedChannels = ref<Set<string>>(new Set())
 const showAllVod = ref(false)
 
 const validTabs = computed(() => new Set(tabs.value.map(tab => tab.key)))
-const catalogTypes: CatalogItemType[] = ['movie', 'series', 'variety', 'anime']
 
 function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
   if (typeof tab === 'string' && validTabs.value.has(tab as HomeTabKey)) {
@@ -77,26 +75,6 @@ const displayedVodItems = computed(() => {
   if (showAllVod.value) return libraryStore.catalogItems
   return libraryStore.catalogItems.slice(0, 18)
 })
-
-const railSummaries: Record<string, string> = {
-  movie: '用横向海报流先给电影入口，而不是要求先筛选。',
-  series: '剧集更新和继续观看并排进入，适合长线追更。',
-  variety: '综艺内容保留轻量浏览节奏，快速判断是否可播。',
-  anime: '动漫片库独立成排，避免被电影和剧集淹没。',
-  short_drama: '短剧内容独立展示，方便快速浏览。',
-  web_drama: '网剧内容独立展示，避免与普通剧集混淆。'
-}
-
-const rails = computed(() =>
-  catalogTypes
-    .map(type => ({
-      type,
-      title: formatTypeLabel(type),
-      summary: railSummaries[type],
-      items: libraryStore.getRail(type)
-    }))
-    .filter(rail => rail.items.length > 0)
-)
 
 const activeTabMeta = computed(() => tabs.value.find(tab => tab.key === activeTab.value) ?? tabs.value[0])
 
@@ -185,10 +163,6 @@ function handleVodClick(item: CatalogCard | VodItem) {
   router.push(`/detail/${item.id}`)
 }
 
-function handleCatalogClick(card: CatalogCard) {
-  router.push(`/detail/${card.id}`)
-}
-
 function toggleChannelExpansion(category: string) {
   if (expandedChannels.value.has(category)) {
     expandedChannels.value.delete(category)
@@ -227,15 +201,6 @@ function toggleChannelExpansion(category: string) {
       </nav>
 
       <main class="home-landing">
-        <MediaRail
-          v-for="rail in rails"
-          :key="rail.type"
-          :title="rail.title"
-          :summary="rail.summary"
-          :items="rail.items"
-          @select="handleCatalogClick"
-        />
-
         <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
 
         <section class="home-secondary-browser">
