@@ -36,6 +36,7 @@ export const useLibraryStore = defineStore('library', () => {
   const latestUpdates = ref<CatalogCard[]>([])
   const featured = ref<CatalogCard[]>([])
   const catalogItems = ref<CatalogCard[]>([])
+  const availableTypes = ref<string[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const hero = computed(() => featured.value[0] ?? latestUpdates.value[0] ?? continueWatching.value[0] ?? null)
@@ -69,6 +70,9 @@ export const useLibraryStore = defineStore('library', () => {
         keyword: keyword || null
       })
       catalogItems.value = normalizeCards(payload)
+      // Update availableTypes (deduplicated)
+      const allTypes = new Set(payload.map(item => item.item_type))
+      availableTypes.value = [...allTypes] as string[]
     } catch (e) {
       error.value = String(e)
       throw e
@@ -86,6 +90,7 @@ export const useLibraryStore = defineStore('library', () => {
     latestUpdates,
     featured,
     catalogItems,
+    availableTypes,
     hero,
     loading,
     error,

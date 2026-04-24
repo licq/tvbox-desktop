@@ -23,24 +23,35 @@ const liveStore = useLiveStore()
 const subStore = useSubscriptionStore()
 const libraryStore = useLibraryStore()
 
-const tabs: { key: HomeTabKey; label: string; eyebrow: string }[] = [
-  { key: 'live', label: '直播', eyebrow: 'Live' },
-  { key: 'movie', label: '电影', eyebrow: 'Movie' },
-  { key: 'series', label: '剧集', eyebrow: 'Series' },
-  { key: 'variety', label: '综艺', eyebrow: 'Shows' },
-  { key: 'anime', label: '动漫', eyebrow: 'Anime' }
-]
+const tabLabels: Record<string, { label: string; eyebrow: string }> = {
+  live: { label: '直播', eyebrow: 'Live' },
+  movie: { label: '电影', eyebrow: 'Movie' },
+  series: { label: '剧集', eyebrow: 'Series' },
+  variety: { label: '综艺', eyebrow: 'Shows' },
+  anime: { label: '动漫', eyebrow: 'Anime' },
+  short_drama: { label: '短剧', eyebrow: 'Short' },
+  web_drama: { label: '网剧', eyebrow: 'Web' }
+}
+
+const tabs = computed(() => {
+  return ['live', ...libraryStore.availableTypes]
+    .filter(type => tabLabels[type])
+    .map(key => ({
+      key,
+      ...tabLabels[key]
+    }))
+})
 
 const activeTab = ref<HomeTabKey>('live')
 const searchKeyword = ref('')
 const expandedChannels = ref<Set<string>>(new Set())
 const showAllVod = ref(false)
 
-const validTabs = new Set<HomeTabKey>(tabs.map(tab => tab.key))
+const validTabs = computed(() => new Set(tabs.value.map(tab => tab.key)))
 const catalogTypes: CatalogItemType[] = ['movie', 'series', 'variety', 'anime']
 
 function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
-  if (typeof tab === 'string' && validTabs.has(tab as HomeTabKey)) {
+  if (typeof tab === 'string' && validTabs.value.has(tab as HomeTabKey)) {
     return tab as HomeTabKey
   }
 
@@ -48,7 +59,7 @@ function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
 }
 
 function formatTypeLabel(type: CatalogItemType | HomeTabKey) {
-  return tabs.find(tab => tab.key === type)?.label ?? '片库'
+  return tabs.value.find(tab => tab.key === type)?.label ?? '片库'
 }
 
 const enabledSubscriptions = computed(() => subStore.subscriptions.filter(sub => sub.enabled))
@@ -95,7 +106,7 @@ const rails = computed(() =>
     .filter(rail => rail.items.length > 0)
 )
 
-const activeTabMeta = computed(() => tabs.find(tab => tab.key === activeTab.value) ?? tabs[0])
+const activeTabMeta = computed(() => tabs.value.find(tab => tab.key === activeTab.value) ?? tabs.value[0])
 
 async function hydrateSources() {
   try {
@@ -152,7 +163,7 @@ watch(
   { immediate: true }
 )
 
-function onTabChange(tab: HomeTabKey) {
+function onTabChange(tab: string) {
   router.push(`/library/${tab}`)
 }
 
