@@ -76,8 +76,6 @@ const displayedVodItems = computed(() => {
   return libraryStore.catalogItems.slice(0, 18)
 })
 
-const activeTabMeta = computed(() => tabs.value.find(tab => tab.key === activeTab.value) ?? tabs.value[0])
-
 async function hydrateSources() {
   try {
     await subStore.fetchSubscriptions()
@@ -204,18 +202,11 @@ function toggleChannelExpansion(category: string) {
         <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
 
         <section class="home-secondary-browser">
-          <div class="home-secondary-header">
-            <div>
-              <div class="eyebrow">{{ activeTabMeta.eyebrow }}</div>
-              <h2>{{ formatTypeLabel(activeTab) }}浏览</h2>
-            </div>
-
-            <div class="home-secondary-search">
-              <SearchBar
-                :placeholder="activeTab === 'live' ? '搜索频道、卫视、央视频道...' : `搜索${formatTypeLabel(activeTab)}...`"
-                @search="activeTab === 'live' ? handleLiveSearch($event) : handleVodSearch($event)"
-              />
-            </div>
+          <div class="home-secondary-search">
+            <SearchBar
+              :placeholder="activeTab === 'live' ? '搜索频道、卫视、央视频道...' : `搜索${formatTypeLabel(activeTab)}...`"
+              @search="activeTab === 'live' ? handleLiveSearch($event) : handleVodSearch($event)"
+            />
           </div>
 
           <div v-if="activeTab === 'live'">
