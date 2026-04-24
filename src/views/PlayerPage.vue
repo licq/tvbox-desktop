@@ -34,6 +34,7 @@ const currentTime = ref(0)
 const duration = ref(0)
 const volume = ref(1)
 const fullscreen = ref(false)
+const fullscreenError = ref('')
 const errorMsg = ref('')
 const pendingAutoplay = ref(false)
 
@@ -68,6 +69,7 @@ const noticeTone = computed(() => playbackStore.status === 'failed' ? 'danger' :
 let hlsInstance: Hls | null = null
 let hlsConstructorPromise: Promise<typeof import('hls.js').default> | null = null
 let progressUpdateInterval: number | null = null
+let fullscreenChangeHandler: (() => void) | null = null
 
 onMounted(async () => {
   if (mode.value === 'live') {
@@ -123,11 +125,20 @@ onMounted(async () => {
     currentTime.value = videoRef.value.currentTime
     duration.value = videoRef.value.duration || 0
   }, 1000)
+
+  // 监听 fullscreenchange 保持 fullscreen.value 同步
+  fullscreenChangeHandler = () => {
+    fullscreen.value = !!document.fullscreenElement
+  }
+  document.addEventListener('fullscreenchange', fullscreenChangeHandler)
 })
 
 onUnmounted(() => {
   if (progressUpdateInterval) {
     window.clearInterval(progressUpdateInterval)
+  }
+  if (fullscreenChangeHandler) {
+    document.removeEventListener('fullscreenchange', fullscreenChangeHandler)
   }
 
   if (hlsInstance) {
@@ -167,22 +178,70 @@ function handleVolumeChange(event: Event) {
 }
 
 async function toggleFullscreen() {
-  const win = getCurrentWindow()
-  const isFs = await win.isFullscreen()
+  // 全屏目标：video-wrap 容器（包含视频 + vignette + controls）
+  const target = videoWrapRef.value
+  if (!target) return
+
+  // 检查是否已处于全屏状态
+  const isFs = !!document.fullscreenElement
+
   if (!isFs) {
+    // 进入全屏：优先使用 video-wrap 的 requestFullscreen
+    if (target.requestFullscreen) {
+      try {
+        await target.requestFullscreen()
+        fullscreen.value = true
+        fullscreenError.value = ''
+        return
+      } catch {
+        // fall through
+      }
+    }
+    // macOS WKWebView / Safari：video 元素支持 webkitEnterFullscreen
+    const video = videoRef.value
+    if (video && typeof (video as any).webkitEnterFullscreen === 'function') {
+      try {
+        ;(video as any).webkitEnterFullscreen()
+        fullscreen.value = true
+        fullscreenError.value = ''
+        return
+      } catch {
+        // fall through
+      }
+    }
+    // Tauri 窗口全屏 fallback（整个窗口）
     try {
-      await win.setFullscreen(true)
-      fullscreen.value = true
-    } catch (err) {
-      console.error('[Fullscreen] failed:', err)
-      errorMsg.value = '全屏不可用'
+      const win = getCurrentWindow()
+      const winFs = await win.isFullscreen()
+      await win.setFullscreen(!winFs)
+      fullscreen.value = !winFs
+      fullscreenError.value = ''
+    } catch {
+      fullscreenError.value = '全屏不可用'
     }
   } else {
+    // 退出全屏
+    if (document.exitFullscreen) {
+      try {
+        await document.exitFullscreen()
+        fullscreen.value = false
+        fullscreenError.value = ''
+        return
+      } catch {
+        // fall through
+      }
+    }
+    // Tauri 窗口退出
     try {
-      await win.setFullscreen(false)
+      const win = getCurrentWindow()
+      const winFs = await win.isFullscreen()
+      if (winFs) {
+        await win.setFullscreen(false)
+      }
       fullscreen.value = false
-    } catch (err) {
-      console.error('[Fullscreen] exit failed:', err)
+      fullscreenError.value = ''
+    } catch {
+      fullscreenError.value = '退出全屏失败'
     }
   }
 }
@@ -423,6 +482,10 @@ function handleVideoError() {
                     <button class="action-button action-button-secondary" type="button" @click="toggleFullscreen">
                       {{ fullscreen ? '退出全屏' : '全屏' }}
                     </button>
+                  </div>
+
+                  <div v-if="fullscreenError" style="color: #f87171; font-size: 0.75rem; margin-top: 4px;">
+                    {{ fullscreenError }}
                   </div>
 
                   <label class="player-volume">
