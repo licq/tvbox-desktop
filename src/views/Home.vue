@@ -8,7 +8,6 @@ import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import ContinueRail from '@/components/home/ContinueRail.vue'
 import MediaRail from '@/components/home/MediaRail.vue'
 import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
 import SourceHealthPanel from '@/components/home/SourceHealthPanel.vue'
@@ -229,8 +228,6 @@ function toggleChannelExpansion(category: string) {
       </nav>
 
       <main class="home-landing">
-        <ContinueRail :items="libraryStore.continueWatching" @select="handleCatalogClick" />
-
         <MediaRail
           v-for="rail in rails"
           :key="rail.type"
