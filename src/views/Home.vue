@@ -8,12 +8,11 @@ import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import HomeHero from '@/components/home/HomeHero.vue'
 import ContinueRail from '@/components/home/ContinueRail.vue'
 import MediaRail from '@/components/home/MediaRail.vue'
 import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
 import SourceHealthPanel from '@/components/home/SourceHealthPanel.vue'
-import type { CatalogCard, CatalogItemType, HeroMetric, LiveChannel, VodItem } from '@/types'
+import type { CatalogCard, CatalogItemType, LiveChannel, VodItem } from '@/types'
 
 type HomeTabKey = 'live' | CatalogItemType
 
@@ -63,13 +62,6 @@ function formatTypeLabel(type: CatalogItemType | HomeTabKey) {
 }
 
 const enabledSubscriptions = computed(() => subStore.subscriptions.filter(sub => sub.enabled))
-const failedSubscriptions = computed(() => subStore.subscriptions.filter(sub => sub.enabled && sub.last_error))
-const featuredHero = computed(() => libraryStore.hero)
-const heroMetrics = computed<HeroMetric[]>(() => [
-  { label: '启用源', value: `${enabledSubscriptions.value.length}` },
-  { label: '直播分组', value: `${liveStore.groups.length}` },
-  { label: '源异常', value: `${failedSubscriptions.value.length}` }
-])
 
 const filteredGroups = computed(() => {
   if (!searchKeyword.value || activeTab.value !== 'live') return liveStore.groups
@@ -237,13 +229,6 @@ function toggleChannelExpansion(category: string) {
       </nav>
 
       <main class="home-landing">
-        <HomeHero
-          :item="featuredHero"
-          :metrics="heroMetrics"
-          title="打开就是可看的媒体中心"
-          @open="handleCatalogClick"
-        />
-
         <ContinueRail :items="libraryStore.continueWatching" @select="handleCatalogClick" />
 
         <MediaRail
