@@ -32,11 +32,6 @@ const router = createRouter({
       component: () => import('@/views/PlayerPage.vue')
     },
     {
-      path: '/player/fullscreen/:id',
-      name: 'fullscreen-player',
-      component: () => import('@/views/FullscreenPlayer.vue')
-    },
-    {
       path: '/subscriptions',
       name: 'subscriptions',
       component: () => import('@/views/Subscriptions.vue')
