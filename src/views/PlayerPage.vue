@@ -10,7 +10,7 @@ import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
 import type { CatalogEpisode, CatalogEpisodeGroup } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
-import { exitFullscreen } from '@/utils/fullscreen'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import type Hls from 'hls.js'
 
 const route = useRoute()
@@ -167,28 +167,23 @@ function handleVolumeChange(event: Event) {
 }
 
 async function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    const el = videoWrapRef.value
-    if (el?.requestFullscreen) {
-      try {
-        await el.requestFullscreen()
-        fullscreen.value = true
-        return
-      } catch (err) {
-        console.error('[Fullscreen] element request failed:', err)
-      }
-    }
-    // Fallback: fullscreen the document element
+  const win = getCurrentWindow()
+  const isFs = await win.isFullscreen()
+  if (!isFs) {
     try {
-      await document.documentElement.requestFullscreen()
+      await win.setFullscreen(true)
       fullscreen.value = true
     } catch (err) {
-      console.error('[Fullscreen] document request failed:', err)
-      errorMsg.value = '全屏不可用，请检查浏览器设置'
+      console.error('[Fullscreen] failed:', err)
+      errorMsg.value = '全屏不可用'
     }
   } else {
-    await exitFullscreen(document, () => document.exitFullscreen())
-    fullscreen.value = false
+    try {
+      await win.setFullscreen(false)
+      fullscreen.value = false
+    } catch (err) {
+      console.error('[Fullscreen] exit failed:', err)
+    }
   }
 }
 
