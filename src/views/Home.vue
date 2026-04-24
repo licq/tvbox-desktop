@@ -88,11 +88,13 @@ const displayedVodItems = computed(() => {
   return libraryStore.catalogItems.slice(0, 18)
 })
 
-const railSummaries: Record<CatalogItemType, string> = {
+const railSummaries: Record<string, string> = {
   movie: '用横向海报流先给电影入口，而不是要求先筛选。',
   series: '剧集更新和继续观看并排进入，适合长线追更。',
   variety: '综艺内容保留轻量浏览节奏，快速判断是否可播。',
-  anime: '动漫片库独立成排，避免被电影和剧集淹没。'
+  anime: '动漫片库独立成排，避免被电影和剧集淹没。',
+  short_drama: '短剧内容独立展示，方便快速浏览。',
+  web_drama: '网剧内容独立展示，避免与普通剧集混淆。'
 }
 
 const rails = computed(() =>

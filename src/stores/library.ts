@@ -70,9 +70,11 @@ export const useLibraryStore = defineStore('library', () => {
         keyword: keyword || null
       })
       catalogItems.value = normalizeCards(payload)
-      // Update availableTypes (deduplicated)
-      const allTypes = new Set(payload.map(item => item.item_type))
-      availableTypes.value = [...allTypes] as string[]
+      // Update availableTypes only on unfiltered fetch
+      if (!itemType && !keyword) {
+        const allTypes = new Set(payload.map(item => item.item_type))
+        availableTypes.value = [...allTypes] as string[]
+      }
     } catch (e) {
       error.value = String(e)
       throw e
