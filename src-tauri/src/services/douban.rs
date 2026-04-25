@@ -1,7 +1,24 @@
 use crate::models::DoubanHot;
 use reqwest::Client;
 use scraper::{Html, Selector};
+use serde::Deserialize;
 use std::time::Duration;
+
+const DOUBAN_API_BASE: &str = "https://movie.douban.com/j/search_subjects";
+
+#[derive(Debug, Clone)]
+pub struct DoubanCategory {
+    pub item_type: &'static str,
+    pub type_param: &'static str,
+    pub tag: &'static str,
+}
+
+pub const DOUBAN_CATEGORIES: &[DoubanCategory] = &[
+    DoubanCategory { item_type: "movie",   type_param: "movie",  tag: "热门" },
+    DoubanCategory { item_type: "series",  type_param: "tv",     tag: "热门" },
+    DoubanCategory { item_type: "variety", type_param: "tv",    tag: "综艺" },
+    DoubanCategory { item_type: "anime",   type_param: "tv",     tag: "动漫" },
+];
 
 pub struct DoubanCrawler {
     client: Client,
@@ -15,6 +32,65 @@ impl DoubanCrawler {
             .build()
             .expect("Failed to create HTTP client");
         Self { client }
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct DoubanJsonItem {
+        id: String,
+        title: String,
+        cover: String,
+        rate: Option<f64>,
+        episodes_info: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct DoubanJsonResponse {
+        subjects: Vec<DoubanJsonItem>,
+    }
+
+    pub async fn fetch_category(&self, category: &DoubanCategory) -> Result<Vec<DoubanHot>, String> {
+        let url = format!(
+            "{}?type={}&tag={}&page_limit=30&page_start=0",
+            DOUBAN_API_BASE, category.type_param, category.tag
+        );
+
+        let resp = self.client.get(&url).send().await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        let json: DoubanJsonResponse = resp.json().await
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+        let mut items = Vec::new();
+        for (rank, item) in json.subjects.iter().enumerate() {
+            let id = item.id.parse::<i64>().unwrap_or(0);
+            items.push(DoubanHot {
+                id,
+                name: item.title.clone(),
+                year: None,
+                poster: Some(item.cover.clone()),
+                rating: item.rate,
+                rank: (rank + 1) as i32,
+                updated_at: chrono_now(),
+                item_type: category.item_type.to_string(),
+            });
+        }
+        Ok(items)
+    }
+
+    pub async fn fetch_all(&self) -> Result<Vec<DoubanHot>, String> {
+        use tokio::time::sleep;
+        let mut all_items = Vec::new();
+
+        for category in DOUBAN_CATEGORIES {
+            match self.fetch_category(category).await {
+                Ok(items) => all_items.extend(items),
+                Err(e) => log::warn!("Failed to fetch {}: {}", category.item_type, e),
+            }
+            // 豆瓣 API 频率限制：每次请求间隔 500ms
+            sleep(std::time::Duration::from_millis(500)).await;
+        }
+
+        Ok(all_items)
     }
 
     pub async fn fetch_hot_list(&self) -> Result<Vec<DoubanHot>, String> {
