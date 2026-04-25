@@ -101,25 +101,46 @@ pub async fn scrape_supported_tvbox_catalogs(
 ) -> Result<Vec<ScrapedCatalogItem>, String> {
     let mut items = Vec::new();
     if sites.iter().any(is_xb6v_site) {
-        items.extend(scrape_xb6v_catalog().await?);
+        match scrape_xb6v_catalog().await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("xb6v catalog scrape failed: {}", e),
+        }
     }
     if sites.iter().any(is_libvio_site) {
-        items.extend(scrape_libvio_catalog().await?);
+        match scrape_libvio_catalog().await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("libvio catalog scrape failed: {}", e),
+        }
     }
     if sites.iter().any(is_auete_site) {
-        items.extend(scrape_auete_catalog().await?);
+        match scrape_auete_catalog().await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("auete catalog scrape failed: {}", e),
+        }
     }
     if sites.iter().any(is_zxzj_site) {
-        items.extend(scrape_zxzj_catalog().await?);
+        match scrape_zxzj_catalog().await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("zxzj catalog scrape failed: {}", e),
+        }
     }
     if sites.iter().any(is_guard_site_supported) {
-        items.extend(scrape_supported_guard_catalogs(sites).await?);
+        match scrape_supported_guard_catalogs(sites).await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("guard catalog scrape failed: {}", e),
+        }
     }
     if sites.iter().any(is_wencai_site) {
-        items.extend(scrape_wencai_catalog(sites).await?);
+        match scrape_wencai_catalog(sites).await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("wencai catalog scrape failed: {}", e),
+        }
     }
     if sites.iter().any(is_jianpian_site) {
-        items.extend(scrape_jianpian_catalog(sites).await?);
+        match scrape_jianpian_catalog(sites).await {
+            Ok(ok_items) => items.extend(ok_items),
+            Err(e) => log::warn!("jianpian catalog scrape failed: {}", e),
+        }
     }
     Ok(items)
 }
