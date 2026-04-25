@@ -32,7 +32,6 @@ const tabs = computed(() => {
 const activeTab = ref<HomeTabKey>('live')
 const searchKeyword = ref('')
 const expandedChannels = ref<Set<string>>(new Set())
-const displayedVodCount = ref(20)
 
 const validTabs = computed(() => new Set(tabs.value.map(tab => tab.key)))
 
@@ -65,16 +64,8 @@ const filteredGroups = computed(() => {
 const displayedHotItems = computed(() => {
   if (activeTab.value === 'live') return []
   const type = activeTab.value as string
-  return libraryStore.getDoubanHotByType(type).slice(0, displayedVodCount.value)
+  return libraryStore.getDoubanHotByType(type)
 })
-
-function loadMoreVod() {
-  if (activeTab.value === 'live') {
-    displayedVodCount.value += 20
-  } else {
-    displayedVodCount.value += 20
-  }
-}
 
 async function hydrateSources() {
   // Minimal data fetch only (skip subscription refresh to avoid blocking)
@@ -153,7 +144,6 @@ watch(
 
     activeTab.value = nextTab
     searchKeyword.value = ''
-    displayedVodCount.value = 20
 
     if (nextTab === 'live') {
       // existing live logic remains
@@ -181,7 +171,6 @@ function handleVodSearch(keyword: string) {
     return
   }
 
-  displayedVodCount.value = 20
   if (activeTab.value !== 'live') {
     void libraryStore.fetchCatalog(activeTab.value)
   }
@@ -325,16 +314,7 @@ function toggleChannelExpansion(category: string) {
                 />
               </div>
 
-              <div v-if="displayedHotItems.length < libraryStore.getDoubanHotByType(activeTab as string).length" class="mt-6 flex justify-center">
-                <button
-                  class="action-button action-button-secondary px-6 py-2"
-                  type="button"
-                  @click="loadMoreVod"
-                >
-                  加载更多
-                </button>
               </div>
-            </div>
           </div>
         </section>
       </main>

@@ -121,7 +121,8 @@ export const useLibraryStore = defineStore('library', () => {
         updated_at: String(Date.now())
       }
       return items
-    } catch {
+    } catch (e) {
+      console.error('[fetchDoubanHotByType] Error:', e)
       if (isStale) {
         fetchAllDoubanHot().catch(console.error)
       }
