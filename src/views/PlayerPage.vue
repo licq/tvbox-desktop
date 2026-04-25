@@ -407,7 +407,7 @@ async function initHlsPlayer(url: string) {
     if (Hls.isSupported()) {
       // Custom loader to bypass CORS for CDN URLs
       const CustomLoader = class extends Hls.DefaultConfig.loader {
-        load(context: any, config: any) {
+        load(context: any, config: any, callbacks: any) {
           const url = context.url
           // Check if this is an m3u8 from problematic CDNs
           if (
@@ -417,15 +417,15 @@ async function initHlsPlayer(url: string) {
             // Fetch via Tauri command to bypass CORS
             invoke<string>('fetch_hls_manifest', { url })
               .then((manifest) => {
-                config.onSuccess({ data: manifest, url, code: 200 })
+                callbacks.onSuccess({ data: manifest, url, code: 200 })
               })
               .catch((err) => {
-                config.onError({ fatal: true, response: null, url, message: String(err) })
+                callbacks.onError({ fatal: true, response: null, url, message: String(err) })
               })
             return
           }
           // Default behavior for other URLs
-          ;(super.load as any)(context, config)
+          ;(super.load as any)(context, config, callbacks)
         }
       }
 
