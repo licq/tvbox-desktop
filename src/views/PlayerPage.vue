@@ -417,10 +417,13 @@ async function initHlsPlayer(url: string) {
             // Fetch via Tauri command to bypass CORS
             invoke<string>('fetch_hls_manifest', { url })
               .then((manifest) => {
-                callbacks.onSuccess({ data: manifest, url, code: 200 })
+                // hls.js expects: onSuccess(response: {url, data, code}, stats: LoaderStats, context, networkDetails)
+                const stats = { aborted: false, loaded: manifest.length, retry: 0, total: manifest.length, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } }
+                callbacks.onSuccess({ data: manifest, url, code: 200 }, stats, context, null)
               })
               .catch((err) => {
-                callbacks.onError({ fatal: true, response: null, url, message: String(err) })
+                // hls.js expects: onError({code, text}, context, networkDetails, stats)
+                callbacks.onError({ code: 0, text: String(err) }, context, null, { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } })
               })
             return
           }
