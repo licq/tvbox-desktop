@@ -76,6 +76,23 @@ const displayedVodItems = computed(() => {
 })
 
 async function hydrateSources() {
+  // Minimal data fetch only (skip subscription refresh to avoid blocking)
+  try {
+    await libraryStore.fetchCatalog()
+  } catch {
+    console.error('[hydrateSources] fetchCatalog failed')
+  }
+
+  try {
+    await liveStore.fetchGroups()
+  } catch {
+    console.error('[hydrateSources] fetchGroups failed')
+  }
+
+  // Original auto-refresh logic (skip for debugging):
+  // To re-enable subscription refresh, remove the early return below
+  return;
+
   try {
     await subStore.fetchSubscriptions()
   } catch {
@@ -88,10 +105,8 @@ async function hydrateSources() {
     try {
       subStore.setRefreshing(subscription.name, i + 1, enabledList.length)
       await subStore.refreshSubscription(subscription.id, false)
-      // After each subscription completes, refresh the catalog to show newly added items
-      await libraryStore.fetchCatalog(activeTab.value !== 'live' ? activeTab.value : undefined)
     } catch {
-      // Continue refreshing other subscriptions even if one fails.
+      // Continue refreshing even if one fails.
     }
   }
   subStore.clearRefreshing()
@@ -102,10 +117,17 @@ async function hydrateSources() {
     // Keep rendering with whatever cache exists.
   }
 
-  await Promise.allSettled([
-    liveStore.fetchGroups(),
-    libraryStore.fetchHome(),
-  ])
+  try {
+    await liveStore.fetchGroups()
+  } catch (e) {
+    console.error('[hydrateSources] fetchGroups failed:', e)
+  }
+
+  try {
+    await libraryStore.fetchHome()
+  } catch (e) {
+    console.error('[hydrateSources] fetchHome failed:', e)
+  }
 
   if (activeTab.value !== 'live') {
     await libraryStore.fetchCatalog(activeTab.value)
