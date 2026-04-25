@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { CatalogCard, CatalogCardInput, CatalogItemType, HomePayloadInput } from '@/types'
+import type { CatalogCard, CatalogCardInput, CatalogItemType, DoubanHot, HomePayloadInput } from '@/types'
 
 function resolveItemType(card: CatalogCardInput) {
   const itemType = card.item_type ?? card.itemType
@@ -31,10 +31,15 @@ function sliceRail(items: CatalogCard[], limit = 12) {
   return items.slice(0, limit)
 }
 
+function normalizeDoubanHot(items?: DoubanHot[]): DoubanHot[] {
+  return items ?? []
+}
+
 export const useLibraryStore = defineStore('library', () => {
   const continueWatching = ref<CatalogCard[]>([])
   const latestUpdates = ref<CatalogCard[]>([])
   const featured = ref<CatalogCard[]>([])
+  const doubanHot = ref<DoubanHot[]>([])
   const catalogItems = ref<CatalogCard[]>([])
   const availableTypes = ref<string[]>([])
   const loading = ref(false)
@@ -45,6 +50,7 @@ export const useLibraryStore = defineStore('library', () => {
     continueWatching.value = normalizeCards(payload.continue_watching ?? payload.continueWatching)
     latestUpdates.value = normalizeCards(payload.latest_updates ?? payload.latestUpdates)
     featured.value = normalizeCards(payload.featured)
+    doubanHot.value = normalizeDoubanHot(payload.douban_hot ?? payload.doubanHot)
   }
 
   async function fetchHome() {
@@ -91,6 +97,7 @@ export const useLibraryStore = defineStore('library', () => {
     continueWatching,
     latestUpdates,
     featured,
+    doubanHot,
     catalogItems,
     availableTypes,
     hero,
