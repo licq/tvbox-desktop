@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { open } from '@tauri-apps/plugin-shell'
+import { invoke } from '@tauri-apps/api/core'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
@@ -404,7 +405,31 @@ async function initHlsPlayer(url: string) {
     const Hls = await getHlsConstructor()
 
     if (Hls.isSupported()) {
-      const hls = new Hls()
+      // Custom loader to bypass CORS for CDN URLs
+      const CustomLoader = class extends Hls.DefaultConfig.loader {
+        load(context: any, config: any) {
+          const url = context.url
+          // Check if this is an m3u8 from problematic CDNs
+          if (
+            url.includes('.m3u8') &&
+            (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng'))
+          ) {
+            // Fetch via Tauri command to bypass CORS
+            invoke<string>('fetch_hls_manifest', { url })
+              .then((manifest) => {
+                config.onSuccess({ data: manifest, url, code: 200 })
+              })
+              .catch((err) => {
+                config.onError({ fatal: true, response: null, url, message: String(err) })
+              })
+            return
+          }
+          // Default behavior for other URLs
+          ;(super.load as any)(context, config)
+        }
+      }
+
+      const hls = new Hls({ loader: CustomLoader as any })
       hlsInstance = hls
       hls.loadSource(url)
       hls.attachMedia(videoRef.value)
