@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::models::DoubanHot;
+use crate::models::DoubanHotItem;
 use tauri::State;
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +39,33 @@ pub async fn get_matched_hot_list(state: State<'_, AppState>) -> Result<Vec<Matc
         .collect();
 
     Ok(matched)
+}
+
+#[tauri::command]
+pub async fn fetch_all_douban_hot(state: State<'_, AppState>) -> Result<Vec<DoubanHot>, String> {
+    let crawler = crate::services::douban::DoubanCrawler::new();
+    let items = crawler.fetch_all().await?;
+    state.storage.clear_douban_hot().map_err(|e| e.to_string())?;
+    state.storage.upsert_douban_hot(&items).map_err(|e| e.to_string())?;
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn search_vod_sources(
+    title: String,
+    _item_type: Option<String>,
+) -> Result<Vec<DoubanHotItem>, String> {
+    let search = crate::services::search::SearchService::new();
+    let results = search.search_all(&title).await;
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn get_douban_hot_by_type(
+    state: State<'_, AppState>,
+    item_type: String,
+) -> Result<Vec<DoubanHot>, String> {
+    state.storage.get_douban_hot_by_type(&item_type).map_err(|e| e.to_string())
 }
 
 fn fuzzy_match(douban_name: &str, vod_name: &str, douban_year: Option<i32>) -> bool {
