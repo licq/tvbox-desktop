@@ -18,29 +18,21 @@ const liveStore = useLiveStore()
 const subStore = useSubscriptionStore()
 const libraryStore = useLibraryStore()
 
-const tabLabels: Record<string, { label: string; eyebrow: string }> = {
-  live: { label: '直播', eyebrow: 'Live' },
-  movie: { label: '电影', eyebrow: 'Movie' },
-  series: { label: '剧集', eyebrow: 'Series' },
-  variety: { label: '综艺', eyebrow: 'Shows' },
-  anime: { label: '动漫', eyebrow: 'Anime' },
-  short_drama: { label: '短剧', eyebrow: 'Short' },
-  web_drama: { label: '网剧', eyebrow: 'Web' }
-}
-
 const tabs = computed(() => {
-  return ['live', ...libraryStore.availableTypes]
-    .filter(type => tabLabels[type])
-    .map(key => ({
-      key,
-      ...tabLabels[key]
-    }))
+  const fixedTabs = [
+    { key: 'live', label: '直播', eyebrow: 'Live' },
+    { key: 'movie', label: '电影', eyebrow: 'Movie' },
+    { key: 'series', label: '剧集', eyebrow: 'Series' },
+    { key: 'variety', label: '综艺', eyebrow: 'Shows' },
+    { key: 'anime', label: '动漫', eyebrow: 'Anime' },
+  ]
+  return fixedTabs
 })
 
 const activeTab = ref<HomeTabKey>('live')
 const searchKeyword = ref('')
 const expandedChannels = ref<Set<string>>(new Set())
-const showAllVod = ref(false)
+const displayedVodCount = ref(20)
 
 const validTabs = computed(() => new Set(tabs.value.map(tab => tab.key)))
 
@@ -71,9 +63,12 @@ const filteredGroups = computed(() => {
 })
 
 const displayedVodItems = computed(() => {
-  if (showAllVod.value) return libraryStore.catalogItems
-  return libraryStore.catalogItems.slice(0, 20)
+  return libraryStore.catalogItems.slice(0, displayedVodCount.value)
 })
+
+function loadMoreVod() {
+  displayedVodCount.value += 20
+}
 
 async function hydrateSources() {
   // Minimal data fetch only (skip subscription refresh to avoid blocking)
@@ -148,7 +143,7 @@ watch(
 
     activeTab.value = nextTab
     searchKeyword.value = ''
-    showAllVod.value = false
+    displayedVodCount.value = 20
 
     if (nextTab !== 'live') {
       await libraryStore.fetchCatalog(nextTab)
@@ -173,7 +168,7 @@ function handleVodSearch(keyword: string) {
     return
   }
 
-  showAllVod.value = false
+  displayedVodCount.value = 20
   if (activeTab.value !== 'live') {
     void libraryStore.fetchCatalog(activeTab.value)
   }
@@ -321,6 +316,15 @@ function toggleChannelExpansion(category: string) {
                 />
               </div>
 
+              <div v-if="displayedVodItems.length < libraryStore.catalogItems.length" class="mt-6 flex justify-center">
+                <button
+                  class="action-button action-button-secondary px-6 py-2"
+                  type="button"
+                  @click="loadMoreVod"
+                >
+                  加载更多
+                </button>
+              </div>
             </div>
           </div>
         </section>

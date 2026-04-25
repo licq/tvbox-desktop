@@ -151,7 +151,8 @@ impl Storage {
                 summary TEXT,
                 detail_json TEXT,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+                UNIQUE(subscription_id, source_item_key)
             )",
             [],
         )?;
@@ -1094,26 +1095,14 @@ impl Storage {
     ) -> SqliteResult<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM playback_targets
-             WHERE episode_id IN (
-                SELECT ce.id
-                FROM catalog_episodes ce
-                INNER JOIN catalog_items ci ON ce.catalog_item_id = ci.id
-                WHERE ci.subscription_id = ?1
-             )",
-            [subscription_id],
-        )?;
-        tx.execute(
-            "DELETE FROM catalog_items WHERE subscription_id = ?1",
-            [subscription_id],
-        )?;
-
         let updated_at = chrono_now();
+
         for item in items {
             let runtime_targets = runtime_targets_for_item(item);
+
+            // Upsert catalog_item: insert or replace on (subscription_id, source_item_key)
             tx.execute(
-                "INSERT INTO catalog_items (
+                "INSERT OR REPLACE INTO catalog_items (
                     subscription_id, site_id, source_item_key, title, item_type, poster, summary, detail_json, updated_at
                  ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
@@ -1129,6 +1118,13 @@ impl Storage {
             )?;
 
             let catalog_item_id = tx.last_insert_rowid();
+
+            // Delete old episodes (cascade from upsert would delete the item, so we re-insert)
+            tx.execute(
+                "DELETE FROM catalog_episodes WHERE catalog_item_id = ?1",
+                [catalog_item_id],
+            )?;
+
             for (episode, target) in item.episodes.iter().zip(runtime_targets.iter()) {
                 tx.execute(
                     "INSERT INTO catalog_episodes (
