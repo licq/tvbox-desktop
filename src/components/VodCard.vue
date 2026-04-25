@@ -1,13 +1,20 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import type { CatalogCard, VodItem } from '@/types'
+import { getDoubanImageUrl } from '@/utils/douban'
 
-defineProps<{
+const props = defineProps<{
   item: CatalogCard | VodItem
 }>()
 
 defineEmits<{
   click: [item: CatalogCard | VodItem]
 }>()
+
+const imageUrl = ref('')
+watch(() => props.item.poster, async (newPoster) => {
+  imageUrl.value = await getDoubanImageUrl(newPoster)
+}, { immediate: true })
 
 function itemType(item: CatalogCard | VodItem) {
   return 'item_type' in item ? item.item_type : item.type
@@ -29,8 +36,8 @@ function itemEpisodeMeta(item: CatalogCard | VodItem) {
   >
     <div class="absolute inset-0 bg-gradient-to-t from-black via-black/25 to-transparent opacity-90"></div>
     <img
-      v-if="item.poster"
-      :src="item.poster"
+      v-if="imageUrl"
+      :src="imageUrl"
       :alt="itemTitle(item)"
       class="h-full w-full aspect-[2/3] object-cover transition duration-700 group-hover:scale-[1.04]"
     />
