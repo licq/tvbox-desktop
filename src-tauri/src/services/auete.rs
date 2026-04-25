@@ -66,8 +66,13 @@ pub async fn scrape_auete_catalog() -> Result<Vec<ScrapedCatalogItem>, String> {
                 format!("{}/{}", group_name, subcat_slug)
             };
             let first_page_url = format!("{AUETE_ROOT}{}/index.html", base_slug);
-            let first_page_html = fetch_text(&client, &first_page_url).await
-                .map_err(|e| format!("抓取 {} 失败: {}", first_page_url, e))?;
+            let first_page_html = match fetch_text(&client, &first_page_url).await {
+                Ok(html) => html,
+                Err(e) => {
+                    log::warn!("抓取 {} 失败，跳过该分类: {}", first_page_url, e);
+                    continue;
+                }
+            };
             let page_count = parse_page_count(&first_page_html).unwrap_or(1);
 
             page_jobs.push((first_page_url, item_type.to_string(), first_page_html));
