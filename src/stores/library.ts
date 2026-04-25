@@ -40,6 +40,7 @@ export const useLibraryStore = defineStore('library', () => {
   const latestUpdates = ref<CatalogCard[]>([])
   const featured = ref<CatalogCard[]>([])
   const doubanHot = ref<DoubanHot[]>([])
+  const doubanHotByType = ref<Record<string, { items: DoubanHot[]; updated_at: string }>>({})
   const catalogItems = ref<CatalogCard[]>([])
   const availableTypes = ref<string[]>([])
   const loading = ref(false)
@@ -93,6 +94,50 @@ export const useLibraryStore = defineStore('library', () => {
     return sliceRail(catalogItems.value.filter(card => card.item_type === itemType))
   }
 
+  async function fetchDoubanHotByType(itemType: string): Promise<DoubanHot[]> {
+    const cached = doubanHotByType.value[itemType]
+    const isStale = cached && cached.updated_at
+      ? Date.now() - Number(cached.updated_at) > 24 * 60 * 60 * 1000
+      : true
+
+    if (cached && !isStale) {
+      return cached.items
+    }
+
+    try {
+      const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType })
+      doubanHotByType.value[itemType] = {
+        items,
+        updated_at: String(Date.now())
+      }
+      return items
+    } catch {
+      if (isStale) {
+        fetchAllDoubanHot().catch(console.error)
+      }
+      return cached?.items ?? []
+    }
+  }
+
+  async function fetchAllDoubanHot() {
+    try {
+      await invoke<DoubanHot[]>('fetch_all_douban_hot')
+      for (const type of ['movie', 'series', 'variety', 'anime']) {
+        const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType: type })
+        doubanHotByType.value[type] = {
+          items,
+          updated_at: String(Date.now())
+        }
+      }
+    } catch (e) {
+      console.error('fetchAllDoubanHot failed:', e)
+    }
+  }
+
+  function getDoubanHotByType(type: string): DoubanHot[] {
+    return doubanHotByType.value[type]?.items ?? []
+  }
+
   return {
     continueWatching,
     latestUpdates,
@@ -106,6 +151,9 @@ export const useLibraryStore = defineStore('library', () => {
     applyHomePayload,
     fetchHome,
     fetchCatalog,
+    fetchDoubanHotByType,
+    fetchAllDoubanHot,
+    getDoubanHotByType,
     getRail
   }
 })
