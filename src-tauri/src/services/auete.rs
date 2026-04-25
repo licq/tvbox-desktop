@@ -6,7 +6,6 @@ use std::collections::HashSet;
 use tokio::task::JoinSet;
 
 const AUETE_ROOT: &str = "https://auete.top/";
-const AUETE_PAGE_LIMIT_PER_CATEGORY: usize = 15;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AueteListingEntry {
@@ -28,37 +27,63 @@ pub fn is_auete_site(site: &crate::services::tvbox::TvboxSiteRecord) -> bool {
 
 pub async fn scrape_auete_catalog() -> Result<Vec<ScrapedCatalogItem>, String> {
     let client = build_client()?;
-    let categories = [
-        ("movie", "Movie"),
-        ("series", "Tv"),
-        ("variety", "Zy"),
-        ("anime", "Dm"),
+    let category_groups = [
+        ("Movie", vec![
+            ("", "movie"),
+            ("xjp", "movie"),
+            ("dzp", "movie"),
+            ("aqp", "movie"),
+            ("khp", "movie"),
+            ("kbp", "movie"),
+            ("jsp", "movie"),
+            ("zzp", "movie"),
+            ("jqp", "movie"),
+        ]),
+        ("Tv", vec![
+            ("", "series"),
+            ("oumei", "series"),
+            ("hanju", "series"),
+            ("riju", "series"),
+            ("yataiju", "series"),
+            ("wangju", "series"),
+            ("taiju", "series"),
+            ("neidi", "series"),
+            ("tvbgj", "series"),
+            ("yingju", "series"),
+            ("waiju", "series"),
+            ("duanju", "series"),
+        ]),
+        ("Zy", vec![("", "variety")]),
+        ("Dm", vec![("", "anime")]),
     ];
 
     let mut page_jobs = Vec::new();
-    for (item_type, slug) in categories {
-        let first_page_url = format!("{AUETE_ROOT}{slug}/index.html");
-        let first_page_html = fetch_text(&client, &first_page_url).await?;
-        let page_count = parse_page_count(&first_page_html).unwrap_or(1);
-        let capped_count = page_count.min(AUETE_PAGE_LIMIT_PER_CATEGORY);
+    for (group_name, subcats) in category_groups {
+        for (subcat_slug, item_type) in subcats {
+            let base_slug = if subcat_slug.is_empty() {
+                group_name.to_string()
+            } else {
+                format!("{}/{}", group_name, subcat_slug)
+            };
+            let first_page_url = format!("{AUETE_ROOT}{}/index.html", base_slug);
+            let first_page_html = fetch_text(&client, &first_page_url).await
+                .map_err(|e| format!("抓取 {} 失败: {}", first_page_url, e))?;
+            let page_count = parse_page_count(&first_page_html).unwrap_or(1);
 
-        page_jobs.push((
-            first_page_url.clone(),
-            item_type.to_string(),
-            first_page_html,
-        ));
-        for page in 2..=capped_count {
-            page_jobs.push((
-                format!("{AUETE_ROOT}{slug}/index{page}.html"),
-                item_type.to_string(),
-                String::new(),
-            ));
+            page_jobs.push((first_page_url, item_type.to_string(), first_page_html));
+            for page in 2..=page_count {
+                page_jobs.push((
+                    format!("{AUETE_ROOT}{}/index{}.html", base_slug, page),
+                    item_type.to_string(),
+                    String::new(),
+                ));
+            }
         }
     }
 
     let mut join_set = JoinSet::new();
     let mut queued = page_jobs.into_iter();
-    for _ in 0..10 {
+    for _ in 0..20 {
         let Some((page_url, item_type, maybe_html)) = queued.next() else {
             break;
         };
@@ -404,5 +429,39 @@ mod tests {
             episodes[0].play_url,
             "https://auete.top/Movie/dzp/xunlongjuemizong/play-1-0.html"
         );
+    }
+
+    #[test]
+    fn parses_subcategory_page_urls() {
+        let test_cases = vec![
+            ("https://auete.top/Movie/index.html", "movie"),
+            ("https://auete.top/Movie/xjp/index.html", "movie"),
+            ("https://auete.top/Tv/oumei/index.html", "series"),
+            ("https://auete.top/Tv/neidi/index.html", "series"),
+        ];
+
+        let dummy_html = r#"
+            <li class="trans_3 " data-href="/Movie/test/">
+                <a href="/Movie/test/" class="pic">
+                    <img src="https://example.com/poster.jpg" alt="测试影片"/>
+                </a>
+            </li>
+        "#;
+
+        for (url, expected_type) in test_cases {
+            let results = parse_listing_page(url, expected_type, dummy_html);
+            assert_eq!(results.len(), 1, "Should parse 1 entry from {}", url);
+            assert_eq!(results[0].title, "测试影片");
+            assert_eq!(results[0].item_type, expected_type);
+        }
+    }
+
+    #[test]
+    fn parses_page_count_correctly() {
+        let html = r#"<a href="/Movie/index844.html" class="page-link">尾页</a>"#;
+        assert_eq!(parse_page_count(html), Some(844));
+
+        let html2 = r#"<a href="/Tv/index735.html" class="page-link">尾页</a>"#;
+        assert_eq!(parse_page_count(html2), Some(735));
     }
 }

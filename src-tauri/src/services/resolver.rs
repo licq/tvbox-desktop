@@ -247,6 +247,9 @@ async fn resolve_auete_play_page(input: &str) -> Result<ResolvedPlayback, String
         });
     }
 
+    let pn_regex = Regex::new(r#"var\s+pn\s*=\s*"([^"]+)""#).unwrap();
+    let stable_pn = ["dyun", "yyun"];
+
     let mut candidates = Vec::new();
     for (index, play_page) in play_pages.into_iter().enumerate() {
         let page_body = if index == 0 && play_page.url == input {
@@ -261,8 +264,19 @@ async fn resolve_auete_play_page(input: &str) -> Result<ResolvedPlayback, String
         let Some(source_url) = extract_auete_player_url(&page_body) else {
             continue;
         };
-        if probe_media_candidate(&client, &source_url, None).await.is_err() {
+
+        // 检测播放器类型
+        let pn_value = pn_regex.captures(&page_body)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str())
+            .unwrap_or("");
+
+        let probe_result = probe_media_candidate(&client, &source_url, None).await;
+        if probe_result.is_err() && !stable_pn.contains(&pn_value) {
             continue;
+        }
+        if probe_result.is_err() {
+            log::warn!("Auete probe failed for stable player {}, adding anyway", pn_value);
         }
 
         candidates.push(PlaybackCandidate {
