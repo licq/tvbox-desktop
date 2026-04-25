@@ -739,11 +739,13 @@ impl Storage {
             [],
         )?;
 
+        let douban_hot = self.get_douban_hot()?;
+
         Ok(HomePayload {
             continue_watching,
             latest_updates,
             featured,
-            douban_hot: vec![],
+            douban_hot,
         })
     }
 
