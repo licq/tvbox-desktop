@@ -7,6 +7,7 @@ pub mod parser;
 pub mod playback_runtime;
 pub mod playback_types;
 pub mod resolver;
+pub mod search;
 pub mod storage;
 pub mod tvbox;
 pub mod wencai;
