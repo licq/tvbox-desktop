@@ -3,29 +3,28 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { invoke } from '@tauri-apps/api/core'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import type { DoubanHot, CatalogCard } from '@/types'
+import type { DoubanHot, SearchResult } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 
 const doubanId = computed(() => Number(route.params.doubanId))
+const itemType = computed(() => String(route.query.type || 'movie'))
 const doubanHot = ref<DoubanHot | null>(null)
-const matchedItem = ref<CatalogCard | null>(null)
+const searchResults = ref<SearchResult[]>([])
 const loading = ref(true)
-const searchLoading = ref(false)
+const searchLoading = ref(true)
 const error = ref<string | null>(null)
 
 async function loadHotDetail() {
   loading.value = true
   error.value = null
   try {
-    // Get hot data from home payload
-    const homePayload = await invoke<any>('get_library_home')
-    const hot = homePayload.douban_hot?.find((h: DoubanHot) => h.id === doubanId.value)
+    const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType: itemType.value })
+    const hot = items.find((h: DoubanHot) => h.id === doubanId.value)
     if (hot) {
       doubanHot.value = hot
-      // Search for matched video
-      await searchMatchedVideo(hot.name)
+      await searchSources(hot.name)
     } else {
       error.value = '热播数据不存在'
     }
@@ -36,22 +35,25 @@ async function loadHotDetail() {
   }
 }
 
-async function searchMatchedVideo(keyword: string) {
+async function searchSources(keyword: string) {
   searchLoading.value = true
   try {
-    const results = await invoke<CatalogCard[]>('search_vod', { keyword })
-    if (results.length > 0) {
-      matchedItem.value = results[0]
-    }
+    const results = await invoke<SearchResult[]>('search_vod_sources', { title: keyword })
+    searchResults.value = results
   } catch (e) {
     console.warn('搜索失败:', e)
+    searchResults.value = []
   } finally {
     searchLoading.value = false
   }
 }
 
-function handlePlay(catalogItem: CatalogCard) {
-  router.push(`/detail/${catalogItem.id}`)
+function handleSourceSelect(result: SearchResult) {
+  router.push({
+    name: 'detail',
+    params: { itemId: result.detail_url },
+    query: { from: 'hot', source: result.source }
+  })
 }
 
 onMounted(loadHotDetail)
@@ -95,37 +97,53 @@ onMounted(loadHotDetail)
         <!-- Search loading -->
         <div v-if="searchLoading" class="flex items-center gap-2 text-white/50">
           <LoadingSpinner size="sm" />
-          <span>搜索匹配视频中...</span>
+          <span>正在搜索播放源...</span>
         </div>
 
-        <!-- Matched result -->
-        <div v-else-if="matchedItem">
-          <div class="border-t border-white/10 pt-4">
-            <h2 class="mb-4 text-lg font-semibold text-white">在目录中找到:</h2>
-            <div class="flex items-center gap-4 rounded-xl bg-white/5 p-4">
-              <img
-                v-if="matchedItem.poster"
-                :src="matchedItem.poster"
-                :alt="matchedItem.title"
-                class="w-24 rounded-lg"
-              />
+        <!-- Search results -->
+        <div v-else-if="searchResults.length > 0" class="space-y-4 border-t border-white/10 pt-4">
+          <h2 class="text-lg font-semibold text-white">可用播放源</h2>
+
+          <!-- Typed sources -->
+          <div v-if="searchResults.filter(r => r.item_type !== 'generic').length" class="space-y-2">
+            <div
+              v-for="result in searchResults.filter(r => r.item_type !== 'generic')"
+              :key="result.detail_url"
+              class="flex items-center gap-4 rounded-xl bg-white/5 p-4 cursor-pointer hover:bg-white/10"
+              @click="handleSourceSelect(result)"
+            >
+              <img v-if="result.poster" :src="result.poster" class="w-16 rounded-lg" />
               <div class="flex-1">
-                <h3 class="text-white">{{ matchedItem.title }}</h3>
-                <p class="text-sm text-white/50">{{ matchedItem.item_type }}</p>
+                <h3 class="text-white">{{ result.title || doubanHot.name }}</h3>
+                <p class="text-sm text-white/50">{{ result.source_name }}</p>
               </div>
-              <button
-                class="action-button"
-                type="button"
-                @click="handlePlay(matchedItem)"
+              <span class="text-xs text-white/30">{{ result.item_type }}</span>
+            </div>
+          </div>
+
+          <!-- Generic sources -->
+          <div v-if="searchResults.filter(r => r.item_type === 'generic').length">
+            <p class="text-sm text-white/30 mb-2">其他源</p>
+            <div class="space-y-2">
+              <div
+                v-for="result in searchResults.filter(r => r.item_type === 'generic')"
+                :key="result.detail_url"
+                class="flex items-center gap-4 rounded-xl bg-white/5 p-4 cursor-pointer hover:bg-white/10"
+                @click="handleSourceSelect(result)"
               >
-                播放
-              </button>
+                <div class="flex-1">
+                  <h3 class="text-white">{{ result.title || doubanHot.name }}</h3>
+                  <p class="text-sm text-white/50">{{ result.source_name }}</p>
+                </div>
+                <span class="text-xs text-white/30">通用</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div v-else class="border-t border-white/10 pt-4">
-          <p class="text-white/50">当前源没有找到与此热播匹配的视频</p>
+        <!-- No results -->
+        <div v-else class="border-t border-white/10 pt-4 text-white/50">
+          暂未找到可用的播放源
         </div>
       </div>
     </div>
