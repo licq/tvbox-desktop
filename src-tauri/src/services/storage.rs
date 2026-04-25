@@ -1293,15 +1293,17 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         for item in items {
             conn.execute(
-                "INSERT OR REPLACE INTO douban_hot (name, year, poster, rating, rank, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT OR REPLACE INTO douban_hot (name, year, poster, rating, rank, updated_at, item_type, id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
                     item.name,
                     item.year,
                     item.poster,
                     item.rating,
                     item.rank,
-                    item.updated_at
+                    item.updated_at,
+                    item.item_type,
+                    item.id,
                 ],
             )?;
         }
@@ -1312,6 +1314,27 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM douban_hot", [])?;
         Ok(())
+    }
+
+    pub fn get_douban_hot_by_type(&self, item_type: &str) -> SqliteResult<Vec<DoubanHot>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, year, poster, rating, rank, updated_at, item_type
+             FROM douban_hot WHERE item_type = ?1 ORDER BY rank LIMIT 30"
+        )?;
+        let rows = stmt.query_map([item_type], |row| {
+            Ok(DoubanHot {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                year: row.get(2)?,
+                poster: row.get(3)?,
+                rating: row.get(4)?,
+                rank: row.get(5)?,
+                updated_at: row.get(6)?,
+                item_type: row.get(7)?,
+            })
+        })?;
+        rows.collect()
     }
 
     pub fn get_merged_live_channels(&self) -> SqliteResult<Vec<MergedLiveChannel>> {
