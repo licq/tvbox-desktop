@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { invoke } from '@tauri-apps/api/core'
+import { getDoubanImageUrl } from '@/utils/douban'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import type { DoubanHot, SearchResult } from '@/types'
 
@@ -11,6 +12,7 @@ const router = useRouter()
 const doubanId = computed(() => Number(route.params.doubanId))
 const itemType = computed(() => String(route.query.type || 'movie'))
 const doubanHot = ref<DoubanHot | null>(null)
+const posterUrl = ref('')
 const searchResults = ref<SearchResult[]>([])
 const loading = ref(true)
 const searchLoading = ref(true)
@@ -24,6 +26,7 @@ async function loadHotDetail() {
     const hot = items.find((h: DoubanHot) => h.id === doubanId.value)
     if (hot) {
       doubanHot.value = hot
+      posterUrl.value = await getDoubanImageUrl(hot.poster)
       await searchSources(hot.name)
     } else {
       error.value = '热播数据不存在'
@@ -78,8 +81,8 @@ onMounted(loadHotDetail)
         <!-- Hot info -->
         <div class="flex gap-6">
           <img
-            v-if="doubanHot.poster"
-            :src="doubanHot.poster"
+            v-if="posterUrl"
+            :src="posterUrl"
             :alt="doubanHot.name"
             class="w-48 rounded-xl"
           />
