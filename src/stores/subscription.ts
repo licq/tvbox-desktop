@@ -7,6 +7,15 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   const subscriptions = ref<SourceSubscription[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const refreshProgress = ref<{
+    name: string
+    live: number
+    movie: number
+    series: number
+    variety: number
+    anime: number
+    other: number
+  }[]>([])
 
   async function fetchSubscriptions() {
     loading.value = true
@@ -44,7 +53,18 @@ export const useSubscriptionStore = defineStore('subscription', () => {
 
   async function refreshSubscription(id: number, reload = true) {
     try {
-      await invoke('refresh_subscription', { id })
+      const result = await invoke<any>('refresh_subscription', { id })
+      if (result) {
+        refreshProgress.value.push({
+          name: result.subscription_name || '订阅',
+          live: result.live_count || 0,
+          movie: result.movie_count || 0,
+          series: result.series_count || 0,
+          variety: result.variety_count || 0,
+          anime: result.anime_count || 0,
+          other: result.other_count || 0,
+        })
+      }
       if (reload) {
         await fetchSubscriptions()
       }
@@ -69,6 +89,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     subscriptions,
     loading,
     error,
+    refreshProgress,
     fetchSubscriptions,
     addSubscription,
     deleteSubscription,
