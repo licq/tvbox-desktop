@@ -16,16 +16,16 @@ watch(() => props.item.poster, async (newPoster) => {
   imageUrl.value = await getDoubanImageUrl(newPoster)
 }, { immediate: true })
 
-function itemType(item: CatalogCard | VodItem) {
-  return 'item_type' in item ? item.item_type : item.type
-}
-
 function itemTitle(item: CatalogCard | VodItem) {
   return 'title' in item ? item.title : item.name
 }
 
 function itemEpisodeMeta(item: CatalogCard | VodItem) {
-  return 'episodes' in item && item.episodes?.length ? `${item.episodes.length} 集可播` : '片库条目'
+  return 'episodes' in item && item.episodes?.length ? `${item.episodes.length} 集可播` : ''
+}
+
+function itemRating(item: CatalogCard | VodItem): number | null {
+  return 'rating' in item ? (item as any).rating : null
 }
 </script>
 
@@ -46,12 +46,12 @@ function itemEpisodeMeta(item: CatalogCard | VodItem) {
     </div>
 
     <div class="absolute inset-x-0 bottom-0 p-4">
-      <div class="mb-2 inline-flex rounded-full bg-white/12 px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-white/70">
-        {{ itemType(item) }}
-      </div>
       <div class="text-base font-semibold text-white line-clamp-2">{{ itemTitle(item) }}</div>
-      <div class="mt-2 text-xs text-white/55">
+      <div v-if="itemEpisodeMeta(item)" class="mt-2 text-xs text-white/55">
         {{ itemEpisodeMeta(item) }}
+      </div>
+      <div v-if="itemRating(item)" class="absolute bottom-4 right-4 text-sm font-medium text-yellow-400">
+        ⭐ {{ itemRating(item) }}
       </div>
     </div>
   </button>
