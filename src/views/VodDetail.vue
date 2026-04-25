@@ -6,6 +6,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import DetailHero from '@/components/detail/DetailHero.vue'
 import RecommendedSourcePanel from '@/components/detail/RecommendedSourcePanel.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
+import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
 import type { CatalogEpisode } from '@/types'
 
 const route = useRoute()
@@ -57,7 +58,7 @@ function handlePlayNow() {
         返回片库
       </button>
 
-      <div v-if="detailStore.loading" class="surface-panel mt-6 flex min-h-[420px] items-center justify-center rounded-[2.4rem]">
+      <div v-if="detailStore.loading && !detailStore.item" class="surface-panel mt-6 flex min-h-[420px] items-center justify-center rounded-[2.4rem]">
         <LoadingSpinner size="lg" />
       </div>
 
@@ -73,7 +74,11 @@ function handlePlayNow() {
 
         <RecommendedSourcePanel :group="detailStore.recommendedGroup" />
 
-        <section v-if="detailStore.episodeGroups.length" class="space-y-4">
+        <section v-if="detailStore.loading && detailStore.item" class="space-y-4">
+          <EpisodeGroupSkeleton :count="8" />
+        </section>
+
+        <section v-else-if="detailStore.episodeGroups.length" class="space-y-4">
           <EpisodeGroupPanel
             v-for="group in detailStore.episodeGroups"
             :key="group.source_name"
@@ -83,7 +88,7 @@ function handlePlayNow() {
           />
         </section>
 
-        <div v-else class="home-empty-state">
+        <div v-else-if="detailStore.item" class="home-empty-state">
           当前内容没有可展示的播放入口。
         </div>
       </div>
