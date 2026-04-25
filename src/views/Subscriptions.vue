@@ -31,14 +31,13 @@ async function handleAdd() {
 }
 
 async function handleRefresh(sub: SourceSubscription) {
-  refreshing.value = sub.id
+  subStore.setRefreshing(sub.name, 1, 1)
   try {
     await subStore.refreshSubscription(sub.id)
-    alert('刷新成功')
   } catch (e) {
     alert('刷新失败: ' + e)
   } finally {
-    refreshing.value = null
+    subStore.clearRefreshing()
   }
 }
 
@@ -62,6 +61,11 @@ async function handleDelete(sub: SourceSubscription) {
 
 <template>
   <div class="subscriptions-page min-h-screen bg-gray-900 text-white p-4">
+    <div v-if="subStore.isRefreshing" class="mb-4 flex items-center gap-3 rounded-lg bg-white/10 px-4 py-2">
+      <div class="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+      <span>刷新 {{ subStore.refreshingName }} 中...</span>
+    </div>
+
     <header class="mb-6 flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <RouterLink to="/library/live" class="px-3 py-2 bg-gray-700 rounded hover:bg-gray-600 transition">
