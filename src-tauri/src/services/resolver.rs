@@ -923,6 +923,117 @@ async fn fetch_hls_playlist_with_headers(
     response.text().await.map_err(|e| e.to_string())
 }
 
+async fn fetch_hls_playlist_with_headers_no_cors(
+    client: &reqwest::Client,
+    input: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<String, String> {
+    let request = client
+        .get(input)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        );
+    let response = apply_request_headers(request, headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("playlist request failed: {status}"));
+    }
+
+    response.text().await.map_err(|e| e.to_string())
+}
+
+/// Rewrite relative URLs in an HLS playlist to absolute URLs based on the base URL.
+fn rewrite_relative_urls(body: &str, base_url: &str) -> String {
+    body.lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            // Skip comment lines and directive lines
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                line.to_string()
+            } else {
+                // Check if it's a relative URL (not http:// or https://)
+                if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+                    line.to_string()
+                } else {
+                    // Convert relative to absolute
+                    absolutize_url(base_url, trimmed)
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Normalize a master playlist by embedding the variant playlist as a base64 data URI
+/// and rewriting all relative URLs to absolute URLs.
+fn normalize_master_playlist(master_body: &str, master_url: &str, variant_body: &str, variant_url: &str) -> String {
+    use base64::Engine;
+    // Rewrite relative URLs in variant playlist to absolute
+    let normalized_variant = rewrite_relative_urls(variant_body, variant_url);
+    // Encode the variant playlist as base64
+    let variant_b64 = base64::engine::general_purpose::STANDARD.encode(normalized_variant.as_bytes());
+    let data_uri = format!("data:application/vnd.apple.mpegurl;base64,{}", variant_b64);
+
+    // Rewrite master playlist lines, replacing the variant URL with the data URI
+    let mut result_lines = Vec::new();
+    let mut found_variant = false;
+    for line in master_body.lines() {
+        let trimmed = line.trim();
+        if !found_variant && !trimmed.is_empty() && !trimmed.starts_with('#') {
+            // This is the first non-comment, non-empty line - the variant URL
+            let absolutized = absolutize_url(master_url, trimmed);
+            if absolutized == variant_url || absolutized == absolutize_url(master_url, variant_url) {
+                // Replace this with the data URI
+                result_lines.push(format!("#EXT-X-EMBEDDED-variant:{}\n{}", data_uri, trimmed));
+                found_variant = true;
+                continue;
+            }
+        }
+        result_lines.push(line.to_string());
+    }
+
+    // If we didn't find the variant URL by matching, just append the data URI as a comment
+    if !found_variant {
+        result_lines.insert(0, format!("#EXT-X-EMBEDDED-variant:{}\n#EXT-X-EMBEDDED-variant-PLAYLIST", data_uri));
+    }
+
+    result_lines.join("\n")
+}
+
+pub(crate) async fn fetch_hls_manifest_internal(
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<String, String> {
+    let client = build_client()?;
+
+    // Fetch the manifest without CORS check
+    let body = fetch_hls_playlist_with_headers_no_cors(&client, url, headers).await?;
+
+    // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
+    if body.contains("#EXT-X-STREAM-INF") {
+        // Get the first variant playlist URL
+        let Some(variant_url) = first_playlist_resource(url, &body) else {
+            return Err("master playlist missing variant url".to_string());
+        };
+
+        // Fetch the variant playlist without CORS check
+        let variant_body = fetch_hls_playlist_with_headers_no_cors(&client, &variant_url, headers).await?;
+
+        // Normalize the master playlist with embedded variant
+        let normalized = normalize_master_playlist(&body, url, &variant_body, &variant_url);
+
+        // Rewrite relative URLs in the normalized master to absolute
+        return Ok(rewrite_relative_urls(&normalized, url));
+    }
+
+    // It's not a master playlist, just rewrite relative URLs to absolute
+    Ok(rewrite_relative_urls(&body, url))
+}
+
 fn extract_aliplayer_source(body: &str) -> Option<String> {
     let source_regex = Regex::new(r#""source"\s*:\s*"([^"]+)""#).unwrap();
     source_regex
@@ -983,8 +1094,8 @@ mod tests {
         extract_wencai_play_page_candidates, guard_play_page_url,
         first_playlist_resource, looks_like_auete_play_page, looks_like_jianpian_play_page,
         looks_like_libvio_play_page, looks_like_wencai_play_page, looks_like_xb6v_play_page,
-        looks_like_zxzj_play_page, map_target_kind_to_probe_gate, probe_candidate_for_runtime,
-        probe_media_candidate, PlaybackResolver,
+        looks_like_zxzj_play_page, map_target_kind_to_probe_gate, normalize_master_playlist,
+        probe_candidate_for_runtime, probe_media_candidate, rewrite_relative_urls, PlaybackResolver,
     };
     use crate::models::ResolvedPlayback;
     use crate::services::{decode_guard_play_target, encode_guard_play_target};
@@ -1465,5 +1576,64 @@ mod tests {
             Some("resolver required")
         );
         assert!(json.get("error_message").is_none());
+    }
+
+    #[test]
+    fn rewrite_relative_urls_keeps_absolute_urls_unchanged() {
+        let body = "#EXTM3U\n#EXT-X-VERSION:3\nhttps://example.com/segment1.ts\nhttps://example.com/segment2.ts";
+        let result = rewrite_relative_urls(body, "https://cdn.example.com/playlist.m3u8");
+        assert_eq!(result, body);
+    }
+
+    #[test]
+    fn rewrite_relative_urls_converts_relative_to_absolute() {
+        let body = "#EXTM3U\n#EXT-X-VERSION:3\nsegment1.ts\nsegment2.ts\n/subpath/segment3.ts";
+        let result = rewrite_relative_urls(body, "https://cdn.example.com/path/playlist.m3u8");
+        assert!(result.contains("https://cdn.example.com/path/segment1.ts"));
+        assert!(result.contains("https://cdn.example.com/path/segment2.ts"));
+        assert!(result.contains("https://cdn.example.com/subpath/segment3.ts"));
+    }
+
+    #[test]
+    fn rewrite_relative_urls_preserves_comment_lines() {
+        let body = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10.0,\nsegment1.ts";
+        let result = rewrite_relative_urls(body, "https://cdn.example.com/playlist.m3u8");
+        assert!(result.contains("#EXTM3U"));
+        assert!(result.contains("#EXT-X-VERSION:3"));
+        assert!(result.contains("#EXTINF:10.0,"));
+    }
+
+    #[test]
+    fn normalize_master_playlist_embeds_variant_as_base64() {
+        let master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nvariant.m3u8";
+        let variant = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10.0,\nsegment1.ts\n#EXTINF:10.0,\nsegment2.ts";
+
+        let result = normalize_master_playlist(
+            master,
+            "https://cdn.example.com/master.m3u8",
+            variant,
+            "https://cdn.example.com/variant.m3u8",
+        );
+
+        // Should contain the embedded variant directive
+        assert!(result.contains("#EXT-X-EMBEDDED-variant:"));
+        // Should still contain the original variant URL
+        assert!(result.contains("variant.m3u8"));
+    }
+
+    #[test]
+    fn normalize_master_playlist_rewrites_variant_urls_to_absolute() {
+        let master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nvariant.m3u8";
+        let variant = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10.0,\nsegment1.ts";
+
+        let result = normalize_master_playlist(
+            master,
+            "https://cdn.example.com/path/master.m3u8",
+            variant,
+            "https://cdn.example.com/path/variant.m3u8",
+        );
+
+        // The embedded data URI should contain base64 encoded absolute URL variant
+        assert!(result.contains("data:application/vnd.apple.mpegurl;base64,"));
     }
 }
