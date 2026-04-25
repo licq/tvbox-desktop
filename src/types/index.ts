@@ -42,6 +42,18 @@ export interface DoubanHot {
   rating: number | null;
   rank: number;
   updated_at: string;
+  item_type: 'movie' | 'series' | 'variety' | 'anime';
+}
+
+export type SourceId = 'zxzj' | 'jpvod' | 'xb6v';
+
+export interface SearchResult {
+  source: SourceId;
+  source_name: string;
+  detail_url: string;
+  item_type: 'movie' | 'series' | 'variety' | 'anime' | 'generic';
+  title?: string;
+  poster?: string;
 }
 
 export interface VodItem {
