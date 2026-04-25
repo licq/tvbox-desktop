@@ -119,6 +119,7 @@ pub struct HomePayload {
     pub continue_watching: Vec<HomeCatalogItem>,
     pub latest_updates: Vec<HomeCatalogItem>,
     pub featured: Vec<HomeCatalogItem>,
+    pub douban_hot: Vec<DoubanHot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

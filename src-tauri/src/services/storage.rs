@@ -743,6 +743,7 @@ impl Storage {
             continue_watching,
             latest_updates,
             featured,
+            douban_hot: vec![],
         })
     }
 
