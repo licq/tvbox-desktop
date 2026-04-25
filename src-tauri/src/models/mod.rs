@@ -69,13 +69,29 @@ pub struct SourceSite {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DoubanHot {
-    pub id: i64,
+    pub id: i64,              // 豆瓣 subject ID
     pub name: String,
     pub year: Option<i32>,
     pub poster: Option<String>,
     pub rating: Option<f64>,
     pub rank: i32,
     pub updated_at: String,
+    pub item_type: String,    // 新增: "movie" | "series" | "variety" | "anime"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoubanHotItem {    // 单个搜索结果项
+    pub source: String,        // "zxzj" | "jpvod" | "xb6v"
+    pub source_name: String,
+    pub detail_url: String,
+    pub item_type: String,   // "movie" | "series" | "variety" | "anime" | "generic"
+    pub title: Option<String>,
+    pub poster: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResponse {
+    pub results: Vec<DoubanHotItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
