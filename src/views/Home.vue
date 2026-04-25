@@ -82,13 +82,19 @@ async function hydrateSources() {
     // Keep rendering with whatever cache exists.
   }
 
-  for (const subscription of enabledSubscriptions.value) {
+  const enabledList = enabledSubscriptions.value
+  for (let i = 0; i < enabledList.length; i++) {
+    const subscription = enabledList[i]
     try {
+      subStore.setRefreshing(subscription.name, i + 1, enabledList.length)
       await subStore.refreshSubscription(subscription.id, false)
+      // After each subscription completes, refresh the catalog to show newly added items
+      await libraryStore.fetchCatalog(activeTab.value !== 'live' ? activeTab.value : undefined)
     } catch {
       // Continue refreshing other subscriptions even if one fails.
     }
   }
+  subStore.clearRefreshing()
 
   try {
     await subStore.fetchSubscriptions()
@@ -99,7 +105,6 @@ async function hydrateSources() {
   await Promise.allSettled([
     liveStore.fetchGroups(),
     libraryStore.fetchHome(),
-    libraryStore.fetchCatalog()
   ])
 
   if (activeTab.value !== 'live') {
@@ -202,6 +207,13 @@ function toggleChannelExpansion(category: string) {
       </nav>
 
       <main class="home-landing">
+        <div v-if="subStore.isRefreshing" class="mb-4 flex items-center gap-3 rounded-lg bg-white/10 px-4 py-2">
+          <LoadingSpinner size="sm" />
+          <span class="text-white/70">
+            刷新 {{ subStore.refreshingName }} ({{ subStore.refreshingIndex }}/{{ subStore.refreshingTotal }})
+          </span>
+        </div>
+
         <section v-if="libraryStore.doubanHot.length" class="hot-section mb-8">
           <div class="flex items-center gap-2 mb-4">
             <span class="text-xl">🔥</span>

@@ -7,6 +7,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   const subscriptions = ref<SourceSubscription[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const isRefreshing = ref(false)
   const refreshProgress = ref<{
     name: string
     live: number
@@ -16,6 +17,9 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     anime: number
     other: number
   }[]>([])
+  const refreshingName = ref('')
+  const refreshingIndex = ref(0)
+  const refreshingTotal = ref(0)
 
   async function fetchSubscriptions() {
     loading.value = true
@@ -85,15 +89,35 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     }
   }
 
+  function setRefreshing(name: string, index: number, total: number) {
+    isRefreshing.value = true
+    refreshingName.value = name
+    refreshingIndex.value = index
+    refreshingTotal.value = total
+  }
+
+  function clearRefreshing() {
+    isRefreshing.value = false
+    refreshingName.value = ''
+    refreshingIndex.value = 0
+    refreshingTotal.value = 0
+  }
+
   return {
     subscriptions,
     loading,
     error,
+    isRefreshing,
     refreshProgress,
+    refreshingName,
+    refreshingIndex,
+    refreshingTotal,
     fetchSubscriptions,
     addSubscription,
     deleteSubscription,
     refreshSubscription,
-    toggleSubscription
+    toggleSubscription,
+    setRefreshing,
+    clearRefreshing
   }
 })
