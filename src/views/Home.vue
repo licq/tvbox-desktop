@@ -72,7 +72,7 @@ const filteredGroups = computed(() => {
 
 const displayedVodItems = computed(() => {
   if (showAllVod.value) return libraryStore.catalogItems
-  return libraryStore.catalogItems.slice(0, 18)
+  return libraryStore.catalogItems.slice(0, 20)
 })
 
 async function hydrateSources() {
@@ -287,11 +287,6 @@ function toggleChannelExpansion(category: string) {
                 />
               </div>
 
-              <div v-if="libraryStore.catalogItems.length > 18 && !showAllVod" class="mt-8 flex justify-center">
-                <button class="action-button action-button-secondary" type="button" @click="showAllVod = true">
-                  加载更多
-                </button>
-              </div>
             </div>
           </div>
         </section>
