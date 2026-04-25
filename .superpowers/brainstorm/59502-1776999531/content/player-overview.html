@@ -1,0 +1,155 @@
+<h2>播放页面现状 — 四个问题</h2>
+<p class="subtitle">绿色为正常，红色为问题区域</p>
+
+<div class="mockup">
+  <div class="mockup-header">当前播放页面布局</div>
+  <div class="mockup-body">
+    <div style="background:#1a1a2e;padding:16px;border-radius:8px;min-height:400px;display:flex;flex-direction:column;gap:12px;font-family:system-ui;color:#fff">
+
+      <!-- Topbar -->
+      <div style="display:flex;align-items:center;gap:12px;padding:8px 0">
+        <div style="background:#3a3a5c;padding:6px 12px;border-radius:4px;font-size:12px">← 返回</div>
+        <div style="font-size:13px;color:#aaa">直播</div>
+        <div style="font-size:13px;color:#aaa">线路 1</div>
+        <div style="font-size:13px;color:#4ade80">播放中</div>
+      </div>
+
+      <!-- Stage + Drawer Grid -->
+      <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;flex:1;min-height:300px">
+        <!-- Stage -->
+        <div style="background:#0f0f1a;border:2px solid #d89a57;border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;min-height:250px">
+          <div style="text-align:center">
+            <div style="font-size:48px;margin-bottom:8px">▶</div>
+            <div style="font-size:12px;color:#888">16:9 视频区域</div>
+          </div>
+          <!-- Vignette overlays -->
+          <div style="position:absolute;top:0;left:0;right:0;height:40px;background:linear-gradient(#000 0%,transparent 100%);opacity:0.3;border-radius:8px 8px 0 0"></div>
+          <div style="position:absolute;bottom:0;left:0;right:0;height:60px;background:linear-gradient(transparent 0%,#000 100%);opacity:0.5;border-radius:0 0 8px 8px"></div>
+          <!-- Controls overlay -->
+          <div style="position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,0.6);padding:8px;border-radius:4px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:11px">
+              <span>0:00</span>
+              <div style="flex:1;height:4px;background:#444;border-radius:2px"><div style="width:0%;height:100%;background:#d89a57;border-radius:2px"></div></div>
+              <span>0:00</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <div style="background:#3a3a5c;padding:4px 10px;border-radius:3px;font-size:11px">播放</div>
+              <div style="background:#3a3a5c;padding:4px 10px;border-radius:3px;font-size:11px">全屏</div>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
+                <span style="font-size:11px">Volume</span>
+                <div style="width:60px;height:4px;background:#444;border-radius:2px"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Drawer (PROBLEM AREA) -->
+        <div style="background:#1e1e32;border:2px solid #e74;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="border-bottom:1px solid #333;padding-bottom:8px;margin-bottom:4px">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px">Source Drawer</div>
+            <div style="font-size:15px;font-weight:600;color:#fff">播放线路</div>
+          </div>
+          <div style="font-size:11px;color:#555;line-height:1.4">当前线路、失败线路和不能内置播放的线路集中展示</div>
+
+          <!-- Source list -->
+          <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+            <div style="background:#2a2a4a;padding:8px 10px;border-radius:4px;border-left:3px solid #d89a57;display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-size:10px;color:#666">Line 1</div>
+                <div style="font-size:12px;color:#fff">线路 1</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="background:#4ade80;color:#000;font-size:9px;padding:2px 6px;border-radius:3px">HLS</div>
+                <em style="color:#d89a57;font-size:10px">当前</em>
+              </div>
+            </div>
+            <div style="background:#2a2a4a;padding:8px 10px;border-radius:4px;border-left:3px solid #555;display:flex;justify-content:space-between;align-items:center;opacity:0.6">
+              <div>
+                <div style="font-size:10px;color:#666">Line 2</div>
+                <div style="font-size:12px;color:#fff">线路 2</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="background:#f87171;color:#000;font-size:9px;padding:2px 6px;border-radius:3px">外部</div>
+                <em style="color:#666;font-size:10px">失败</em>
+              </div>
+            </div>
+          </div>
+
+          <!-- URL display (PROBLEM) -->
+          <div style="border-top:1px solid #333;padding-top:8px;margin-top:4px">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px">Current Url</div>
+            <div style="font-size:10px;color:#666;word-break:break-all;margin-top:4px;font-family:monospace">https://cdn.example.com/stream/live/abc123def456.m3u8?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Issue annotations -->
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px">
+        <div style="background:#166534;border:1px solid #22c55e;border-radius:6px;padding:10px;display:flex;align-items:flex-start;gap:8px">
+          <span style="color:#22c55e;font-size:16px">✓</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#fff">1. 全屏功能</div>
+            <div style="font-size:10px;color:#aaa">当前使用 document.documentElement 全屏，导致控制栏消失</div>
+          </div>
+        </div>
+        <div style="background:#166534;border:1px solid #22c55e;border-radius:6px;padding:10px;display:flex;align-items:flex-start;gap:8px">
+          <span style="color:#22c55e;font-size:16px">✓</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#fff">2. 选集功能</div>
+            <div style="font-size:10px;color:#aaa">当前仅支持单集 URL，剧情/综艺无法在播放页切换剧集</div>
+          </div>
+        </div>
+        <div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:10px;display:flex;align-items:flex-start;gap:8px">
+          <span style="color:#ef4444;font-size:16px">✗</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#fff">3. 线路显示过大</div>
+            <div style="font-size:10px;color:#aaa">Drawer 固定 360px，过多英文标签，全屏时被遮挡</div>
+          </div>
+        </div>
+        <div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:10px;display:flex;align-items:flex-start;gap:8px">
+          <span style="color:#ef4444;font-size:16px">✗</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#fff">4. 解析地址慢</div>
+            <div style="font-size:10px;color:#aaa">后端 playbackStore.resolve() 耗时长，无加载状态提示</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px">这四个问题中，你最希望先解决哪一个？</h3>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="1" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>全屏功能修复</h3>
+      <p>全屏时保留控制栏和选集面板，不丢失用户操作能力</p>
+    </div>
+  </div>
+  <div class="option" data-choice="2" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>选集功能</h3>
+      <p>剧情/综艺播放时，显示可切换剧集的选集列表</p>
+    </div>
+  </div>
+  <div class="option" data-choice="3" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>线路显示优化</h3>
+      <p>缩小 Drawer 宽度，中文标签，移除原始 URL 显示</p>
+    </div>
+  </div>
+  <div class="option" data-choice="4" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>解析加载优化</h3>
+      <p>添加加载状态、骨架屏、预估时间显示</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px">可多选 — 哪些是你认为最需要优先处理的？</p>

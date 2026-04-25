@@ -1,0 +1,124 @@
+<h2>选集功能 — 三个方案</h2>
+<p class="subtitle">在播放页面添加可切换剧集的选集列表</p>
+
+<div class="options">
+  <div class="option" data-choice="ep-a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Drawer 内切换 Tab（推荐）</h3>
+      <p>PlaybackDrawer 增加"选集"和"线路"两个 Tab。当前线路 Tab 保持功能；选集 Tab 显示当前源的剧集列表。Tap 集数切换播放。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ep-b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>全屏底部显示选集栏</h3>
+      <p>全屏时底部 controls 区域扩展，显示一个横向滚动的集数列表。点击集数直接切换。非全屏时在 Drawer 内显示完整选集。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ep-c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>PlayerPage 增加独立选集面板</h3>
+      <p>在视频区域下方（Drawer 上方）增加一个新的选集面板，专门显示剧集列表。与 Drawer 平级显示。</p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:28px">方案 A 详细布局 — Drawer Tab 切换</h3>
+
+<div class="mockup">
+  <div class="mockup-header">PlaybackDrawer — 选集 Tab</div>
+  <div class="mockup-body">
+    <div style="background:#1e1e32;border:1px solid #333;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px">
+
+      <!-- Tab Bar -->
+      <div style="display:flex;border-bottom:1px solid #333;gap:0">
+        <div style="padding:8px 16px;font-size:13px;color:#888;border-bottom:2px solid transparent;cursor:pointer">线路</div>
+        <div style="padding:8px 16px;font-size:13px;color:#d89a57;font-weight:600;border-bottom:2px solid #d89a57;cursor:pointer">选集</div>
+      </div>
+
+      <!-- Source info (当前源) -->
+      <div style="background:#2a2a4a;padding:8px 10px;border-radius:4px;border-left:2px solid #d89a57">
+        <div style="font-size:10px;color:#888">当前源</div>
+        <div style="font-size:12px;color:#fff">来源 A（推荐）</div>
+      </div>
+
+      <!-- Episode grid -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;max-height:280px;overflow-y:auto">
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;opacity:0.5">
+          <div style="font-size:11px;color:#666">1</div>
+          <div style="font-size:9px;color:#555">已过期</div>
+        </div>
+        <div style="background:#d89a57;padding:8px 4px;border-radius:4px;text-align:center">
+          <div style="font-size:11px;color:#000;font-weight:600">2</div>
+          <div style="font-size:9px;color:#5a3a1a">播放中</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">3</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">4</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">5</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">6</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">7</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">8</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #f59e0b">
+          <div style="font-size:11px;color:#fff">9</div>
+          <div style="font-size:9px;color:#f59e0b">解析中</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">10</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">11</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+        <div style="background:#2a2a4a;padding:8px 4px;border-radius:4px;text-align:center;border:1px solid #4ade80">
+          <div style="font-size:11px;color:#fff">12</div>
+          <div style="font-size:9px;color:#4ade80">可播</div>
+        </div>
+      </div>
+
+      <!-- State legend -->
+      <div style="display:flex;gap:12px;font-size:10px;color:#666;border-top:1px solid #333;padding-top:8px">
+        <span style="color:#4ade80">● 可播</span>
+        <span style="color:#f59e0b">● 解析中</span>
+        <span style="color:#666">● 不可用</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px">数据流设计</h3>
+
+<div style="background:#1a1a2e;padding:16px;border-radius:8px;font-family:monospace;font-size:12px;color:#aaa;line-height:1.8">
+<div style="color:#d89a57">// PlayerPage.vue onMounted</div>
+<div><span style="color:#4ade80">if</span> (mode === <span style="color:#f59e0b">'vod'</span> && itemId) {</div>
+<div>&nbsp;&nbsp;<span style="color:#888">// 获取当前 VOD 详情（含剧集列表）</span></div>
+<div>&nbsp;&nbsp;<span style="color:#4ade80">await</span> detailStore.fetchDetail(itemId)</div>
+<div>&nbsp;&nbsp;<span style="color:#888">// 找到当前 episodeId 对应的 source group</span></div>
+<div>&nbsp;&nbsp;activeGroup.value = detailStore.episodeGroups.find(g =&gt;</div>
+<div>&nbsp;&nbsp;&nbsp;&nbsp;g.episodes.some(e =&gt; e.id === episodeId.value)</div>
+<div>&nbsp;&nbsp;)</div>
+<div>&nbsp;&nbsp;<span style="color:#888">// 显示选集 Tab</span></div>
+<div>&nbsp;&nbsp;showEpisodes.value = <span style="color:#4ade80">true</span></div>
+<div>}</div>
+</div>

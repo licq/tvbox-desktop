@@ -106,6 +106,16 @@ export const useLibraryStore = defineStore('library', () => {
 
     try {
       const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType })
+      // If empty and no prior cache, seed the database immediately
+      if (items.length === 0 && !cached) {
+        await fetchAllDoubanHot()
+        const freshItems = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType })
+        doubanHotByType.value[itemType] = {
+          items: freshItems,
+          updated_at: String(Date.now())
+        }
+        return freshItems
+      }
       doubanHotByType.value[itemType] = {
         items,
         updated_at: String(Date.now())

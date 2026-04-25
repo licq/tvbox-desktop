@@ -1,0 +1,74 @@
+<h2>UI 问题分析</h2>
+<p class="subtitle">检查了 TVBox 应用的所有页面，发现以下主要问题：</p>
+
+<div class="section">
+<h3>1. 页面架构不一致</h3>
+<div class="pros-cons">
+  <div class="pros">
+    <h4>新设计系统 (Home, VodDetail, Player)</h4>
+    <ul>
+      <li>使用统一的设计系统组件</li>
+      <li>色彩: 琥珀色(#d89a57) + 蓝色(#75a9c3)</li>
+      <li>组件类: .app-shell, .surface-panel, .media-card</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>旧页面 (Live, Vod, Settings)</h4>
+    <ul>
+      <li>使用内联 Tailwind 类 (bg-gray-900)</li>
+      <li>未使用设计系统组件</li>
+      <li>视觉上与新页面不一致</li>
+    </ul>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h3>2. 遗留页面问题</h3>
+<p>Live.vue 和 Vod.vue 作为独立页面存在，但它们的路由被重定向：</p>
+<ul>
+  <li>/live → 重定向到 /library/live</li>
+  <li>/vod → 重定向到 /library/movie</li>
+</ul>
+<p>这些页面实际上是孤儿代码，只在直接访问时有用。</p>
+</div>
+
+<div class="section">
+<h3>3. 全屏播放器问题</h3>
+<p>FullscreenPlayer.vue 存在但可能未被使用，因为 CSS 全屏已实现。</p>
+</div>
+
+<div class="section">
+<h3>4. 命名不一致</h3>
+<ul>
+  <li>组件文件夹: detail/, home/, media/, player/ (小写)</li>
+  <li>模板使用: &lt;DetailHero&gt;, &lt;HomeHero&gt; (PascalCase)</li>
+  <li>VodCard.vue 在根目录，但 MediaCard.vue 在 media/</li>
+</ul>
+</div>
+
+<p class="label">选择一个修复优先级:</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>统一旧页面样式</h3>
+      <p>将 Live.vue, Vod.vue, Settings.vue 重构使用设计系统</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>删除孤儿代码</h3>
+      <p>移除 Live.vue, Vod.vue (路由已重定向) 和 FullscreenPlayer.vue (CSS 全屏已实现)</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>全部处理</h3>
+      <p>先统一旧页面样式，再删除孤儿代码</p>
+    </div>
+  </div>
+</div>

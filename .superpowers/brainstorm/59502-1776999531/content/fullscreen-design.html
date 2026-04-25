@@ -1,0 +1,98 @@
+<h2>全屏功能修复 — 三个方案</h2>
+<p class="subtitle">视频区域全屏时，顶部/底部渐变和控制栏保留在视频区域内</p>
+
+<div class="options">
+  <div class="option" data-choice="fs-a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>仅视频区域全屏（推荐）</h3>
+      <p>`.player-video-wrap` 全屏，vignette + controls 自然保留在视频区域内。切换时 drawer 保持可见但不再占据空间。</p>
+      <div style="margin-top:12px;padding:12px;background:#1a1a2e;border-radius:6px;font-size:11px;font-family:monospace;color:#aaa">
+        // 使用现有 fullscreen.ts 工具<br>
+        await enterFullscreen(videoWrapEl, () =&gt;<br>
+        &nbsp;&nbsp;document.documentElement.requestFullscreen())
+      </div>
+    </div>
+  </div>
+  <div class="option" data-choice="fs-b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>舞台整体全屏</h3>
+      <p>`.player-stage` 全屏，包括视频 + vignette + controls。Drawer 隐藏或缩小。优点是全屏时顶部栏也可见。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="fs-c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>系统原生全屏</h3>
+      <p>直接用 video 元素的 webkitEnterFullscreen() / requestFullscreen()，不做任何封装。最简单，但不兼容所有浏览器。</p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:28px">关键设计细节</h3>
+
+<div class="mockup">
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <div>
+        <h4 style="color:#d89a57;margin-bottom:12px;font-size:13px">方案 A 全屏后布局</h4>
+        <div style="background:#111;padding:12px;border-radius:8px;min-height:180px;display:flex;flex-direction:column;gap:8px">
+          <div style="background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:10px;margin-bottom:4px">
+            <div style="font-size:10px;color:#888">player-topbar（全屏时隐藏或缩小）</div>
+          </div>
+          <div style="border:2px solid #d89a57;border-radius:8px;flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:140px">
+            <div style="text-align:center">
+              <div style="font-size:32px;margin-bottom:4px">▶</div>
+              <div style="font-size:10px;color:#666">16:9 视频</div>
+            </div>
+            <!-- Vignette -->
+            <div style="position:absolute;top:0;left:0;right:0;height:30px;background:linear-gradient(#000,transparent);opacity:0.4;border-radius:6px 6px 0 0"></div>
+            <div style="position:absolute;bottom:0;left:0;right:0;height:50px;background:linear-gradient(transparent,#000);opacity:0.5;border-radius:0 0 6px 6px"></div>
+            <!-- Controls -->
+            <div style="position:absolute;bottom:6px;left:8px;right:8px;background:rgba(0,0,0,0.7);padding:6px;border-radius:4px;display:flex;align-items:center;gap:8px">
+              <div style="font-size:10px;color:#fff">▶ 暂停</div>
+              <div style="flex:1;height:3px;background:#444;border-radius:2px"></div>
+              <div style="font-size:10px;color:#888">全屏</div>
+            </div>
+          </div>
+          <!-- Drawer 缩小在底部 -->
+          <div style="background:#1e1e32;border:1px solid #333;border-radius:6px;padding:8px">
+            <div style="font-size:10px;color:#666;text-align:center">选集（可折叠）</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 style="color:#d89a57;margin-bottom:12px;font-size:13px">Drawer 在全屏模式</h4>
+        <div style="background:#111;padding:12px;border-radius:8px;min-height:180px;display:flex;flex-direction:column;gap:8px">
+          <div style="border:1px solid #333;border-radius:6px;padding:8px">
+            <div style="font-size:10px;color:#888;margin-bottom:6px">全屏时的线路/选集</div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="background:#2a2a4a;padding:6px 8px;border-radius:3px;border-left:2px solid #d89a57;display:flex;justify-content:space-between">
+                <span style="font-size:11px;color:#fff">线路 1</span>
+                <span style="font-size:9px;color:#4ade80">HLS</span>
+              </div>
+              <div style="background:#1a1a2e;padding:6px 8px;border-radius:3px;opacity:0.5;display:flex;justify-content:space-between">
+                <span style="font-size:11px;color:#fff">线路 2</span>
+                <span style="font-size:9px;color:#f87171">外部</span>
+              </div>
+            </div>
+          </div>
+          <div style="border:1px solid #333;border-radius:6px;padding:8px">
+            <div style="font-size:10px;color:#888;margin-bottom:6px">选集列表</div>
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px">
+              <div style="background:#2a2a4a;padding:5px;border-radius:3px;text-align:center;font-size:10px;color:#fff">1</div>
+              <div style="background:#d89a57;padding:5px;border-radius:3px;text-align:center;font-size:10px;color:#000;font-weight:600">2</div>
+              <div style="background:#2a2a4a;padding:5px;border-radius:3px;text-align:center;font-size:10px;color:#fff">3</div>
+              <div style="background:#2a2a4a;padding:5px;border-radius:3px;text-align:center;font-size:10px;color:#fff">4</div>
+              <div style="background:#2a2a4a;padding:5px;border-radius:3px;text-align:center;font-size:10px;color:#fff">5</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

@@ -1,0 +1,8 @@
+{"type":"server-started","port":55378,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:55378","screen_dir":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/59502-1776999531/content","state_dir":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/59502-1776999531/state"}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/59502-1776999531/content/player-overview.html"}
+{"source":"user-event","type":"click","text":"1\n    \n      全屏功能修复\n      全屏时保留控制栏和选集面板，不丢失用户操作能力","choice":"1","id":null,"timestamp":1776999797275}
+{"source":"user-event","type":"click","text":"2\n    \n      选集功能\n      剧情/综艺播放时，显示可切换剧集的选集列表","choice":"2","id":null,"timestamp":1776999799423}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/59502-1776999531/content/fullscreen-design.html"}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/59502-1776999531/content/episode-design.html"}
+{"type":"server-stopped","reason":"idle timeout"}
+{"source":"user-event","type":"click","text":"A\n    \n      Drawer 内切换 Tab（推荐）\n      PlaybackDrawer 增加\"选集\"和\"线路\"两个 Tab。当前线路 Tab 保持功能；选集 Tab 显示当前源的剧集列表。Tap 集数切换播放。","choice":"ep-a","id":null,"timestamp":1777002226636}

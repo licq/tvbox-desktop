@@ -1,0 +1,74 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]: TVBox Desktop
+      - generic [ref=e8]: 饭太硬媒体中枢
+    - generic [ref=e9]:
+      - link "订阅" [ref=e10] [cursor=pointer]:
+        - /url: /subscriptions
+      - link "设置" [ref=e11] [cursor=pointer]:
+        - /url: /settings
+  - navigation "媒体分类" [ref=e12]:
+    - button "Live 直播" [ref=e13] [cursor=pointer]
+    - button "Hot 热映" [ref=e14] [cursor=pointer]
+    - button "Movie 电影" [ref=e15] [cursor=pointer]
+    - button "Series 剧集" [ref=e16] [cursor=pointer]
+    - button "Shows 综艺" [ref=e17] [cursor=pointer]
+    - button "Anime 动漫" [ref=e18] [cursor=pointer]
+  - main [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e22]:
+        - generic [ref=e23]: Media Center
+        - heading "打开就是可看的媒体中心" [level=1] [ref=e24]
+        - paragraph [ref=e25]: 首页先呈现推荐、续看、分类片库、直播和源健康状态；分类搜索仍然可用，但不再抢占第一屏。
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e28]: 启用源
+          - strong [ref=e29]: "0"
+        - generic [ref=e30]:
+          - generic [ref=e31]: 直播分组
+          - strong [ref=e32]: "0"
+        - generic [ref=e33]:
+          - generic [ref=e34]: 源异常
+          - strong [ref=e35]: "0"
+    - generic [ref=e36]:
+      - generic [ref=e38]:
+        - generic [ref=e39]: 继续观看
+        - paragraph [ref=e40]: 从播放历史接回，不需要先回到目录里找。
+      - generic [ref=e41]: 还没有播放历史，点开片库内容后会出现在这里。
+    - generic [ref=e42]:
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - generic [ref=e45]: Live Now
+          - paragraph [ref=e46]: 把可播频道前置到首页，直播仍然一键进播放器。
+        - generic [ref=e47]: 0 groups
+      - generic [ref=e48]: 暂无直播频道，先去订阅页检查源状态。
+    - generic [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e52]: 源状态
+          - paragraph [ref=e53]: 订阅入口保留，但作为健康概览而不是首页主轴。
+        - link "订阅管理" [ref=e54] [cursor=pointer]:
+          - /url: /subscriptions
+      - generic [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]: Enabled
+          - strong [ref=e58]: "0"
+        - generic [ref=e59]:
+          - generic [ref=e60]: Failures
+          - strong [ref=e61]: "0"
+        - generic [ref=e62]:
+          - generic [ref=e63]: Total
+          - strong [ref=e64]: "0"
+      - generic [ref=e65]: 还没有订阅源。
+    - generic [ref=e66]:
+      - generic [ref=e67]:
+        - generic [ref=e68]:
+          - generic [ref=e69]: Live
+          - heading "直播浏览" [level=2] [ref=e70]
+          - paragraph [ref=e71]: 保留原有路由分类、直播搜索和片库搜索，作为首页之后的快速筛选区。
+        - generic [ref=e73]:
+          - generic [ref=e74]: Search
+          - textbox "搜索频道、卫视、央视频道..." [ref=e75]
+          - button "搜索" [ref=e76] [cursor=pointer]
+      - generic [ref=e78]: 暂无直播频道，先去订阅页检查源状态。

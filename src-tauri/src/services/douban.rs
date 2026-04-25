@@ -20,6 +20,20 @@ pub const DOUBAN_CATEGORIES: &[DoubanCategory] = &[
     DoubanCategory { item_type: "anime",   type_param: "tv",     tag: "动漫" },
 ];
 
+#[derive(Debug, Deserialize)]
+struct DoubanJsonItem {
+    id: String,
+    title: String,
+    cover: String,
+    rate: Option<f64>,
+    episodes_info: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DoubanJsonResponse {
+    subjects: Vec<DoubanJsonItem>,
+}
+
 pub struct DoubanCrawler {
     client: Client,
 }
@@ -32,20 +46,6 @@ impl DoubanCrawler {
             .build()
             .expect("Failed to create HTTP client");
         Self { client }
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct DoubanJsonItem {
-        id: String,
-        title: String,
-        cover: String,
-        rate: Option<f64>,
-        episodes_info: Option<String>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct DoubanJsonResponse {
-        subjects: Vec<DoubanJsonItem>,
     }
 
     pub async fn fetch_category(&self, category: &DoubanCategory) -> Result<Vec<DoubanHot>, String> {
@@ -109,21 +109,12 @@ impl DoubanCrawler {
         let mut items = Vec::new();
         let mut rank: i32 = 1;
 
-        // Select all movie list items - Douban uses 'tr' elements in a table structure
-        // Each movie is in a 'tr' with class 'item'
         let item_selector = Selector::parse("tr.item").map_err(|e| format!("Invalid selector: {}", e))?;
-
-        // Title and link selector
         let title_selector = Selector::parse("td>a.nbg").map_err(|e| format!("Invalid selector: {}", e))?;
-
-        // Poster image selector
         let poster_selector = Selector::parse("td>a.nbg>img").map_err(|e| format!("Invalid selector: {}", e))?;
-
-        // Rating selector - looking for the rating in a span
         let rating_selector = Selector::parse("td.rating>span.rating_nums").map_err(|e| format!("Invalid selector: {}", e))?;
 
         for item in document.select(&item_selector) {
-            // Extract title link
             let title_elem = item.select(&title_selector).next();
             let poster_elem = item.select(&poster_selector).next();
             let rating_elem = item.select(&rating_selector).next();
@@ -132,20 +123,16 @@ impl DoubanCrawler {
                 let name = title_link.attr("title").unwrap_or("").to_string();
                 let href = title_link.attr("href").unwrap_or("").to_string();
 
-                // Extract year from the name - format is "Title (Year)" or just "Title"
                 let (clean_name, year) = Self::extract_year_from_name(&name);
 
-                // Extract poster URL
                 let poster = poster_elem.and_then(|img| {
                     img.attr("src").or(img.attr("srcset")).map(|s| s.to_string())
                 });
 
-                // Extract rating
                 let rating = rating_elem.and_then(|span| {
                     span.text().collect::<String>().parse::<f64>().ok()
                 });
 
-                // Extract Douban ID from URL (e.g., /subject/36995126/)
                 let douban_id = href.split("/subject/")
                     .nth(1)
                     .and_then(|s| s.trim_end_matches('/').parse::<i64>().ok())
@@ -159,6 +146,7 @@ impl DoubanCrawler {
                     rating,
                     rank,
                     updated_at: chrono_now(),
+                    item_type: "movie".to_string(),
                 };
 
                 items.push(hot_item);
@@ -166,8 +154,6 @@ impl DoubanCrawler {
             }
         }
 
-        // If the table approach didn't work, try alternative selectors
-        // Douban also uses divs with class 'pl2' and 'nbg' for movie links
         if items.is_empty() {
             let alt_item_selector = Selector::parse("div.pl2").map_err(|e| format!("Invalid selector: {}", e))?;
             let alt_title_selector = Selector::parse("a.nbg").map_err(|e| format!("Invalid selector: {}", e))?;
@@ -206,6 +192,7 @@ impl DoubanCrawler {
                         rating,
                         rank,
                         updated_at: chrono_now(),
+                        item_type: "movie".to_string(),
                     };
 
                     items.push(hot_item);
@@ -218,8 +205,6 @@ impl DoubanCrawler {
     }
 
     fn extract_year_from_name(name: &str) -> (String, Option<i32>) {
-        // Name format: "Movie Title (Year)" e.g., "肖申克的救赎 (1994)"
-        // We need to extract the year and return the clean name
         if let Some(start) = name.rfind('(') {
             if let Some(end) = name.rfind(')') {
                 let year_str = &name[start+1..end];

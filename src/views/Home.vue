@@ -8,7 +8,7 @@ import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import type { CatalogCard, CatalogItemType, DoubanHot, LiveChannel, VodItem } from '@/types'
+import type { CatalogItemType, DoubanHot, LiveChannel } from '@/types'
 
 type HomeTabKey = 'live' | CatalogItemType
 
@@ -60,10 +60,6 @@ const filteredGroups = computed(() => {
       channels: group.channels.filter(channel => channel.name.toLowerCase().includes(keyword))
     }))
     .filter(group => group.channels.length > 0)
-})
-
-const displayedVodItems = computed(() => {
-  return libraryStore.catalogItems.slice(0, displayedVodCount.value)
 })
 
 const displayedHotItems = computed(() => {
@@ -193,10 +189,6 @@ function handleVodSearch(keyword: string) {
 
 function handlePlayChannel(channel: LiveChannel, _sourceUrl?: string) {
   router.push(`/player/live/${channel.id}`)
-}
-
-function handleVodClick(item: CatalogCard | VodItem) {
-  router.push(`/detail/${item.id}`)
 }
 
 function handleHotClick(hot: DoubanHot) {
@@ -329,7 +321,7 @@ function toggleChannelExpansion(category: string) {
                   v-for="hot in displayedHotItems"
                   :key="hot.id"
                   :item="(hot as any)"
-                  @click="handleHotClick"
+                  @click="handleHotClick(hot)"
                 />
               </div>
 

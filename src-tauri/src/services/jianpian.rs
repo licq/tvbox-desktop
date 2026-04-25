@@ -105,7 +105,29 @@ pub(crate) fn parse_listing_page(
 }
 
 pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedCatalogItem> {
-    let title_regex = Regex::new(r#"(?s)<h[123][^>]*>(.*?)</h[123]>"#).unwrap();
+    // Try <title> tag first (e.g., "《视频名》全集在线观看-类型 - 站点名")
+    let title_tag_regex = Regex::new(r#"<title>[^<]*《([^》]+)》[^<]*</title>"#).unwrap();
+    // Fallback: h2/h3 with class="title" (jpvod real pages), then plain h1/h2/h3 (jianpian old style)
+    let fallback_classed_regex = Regex::new(r#"<h[23][^>]+class="[^"]*title[^"]*"[^>]*>\s*([^<]+)"#).unwrap();
+    let fallback_plain_regex = Regex::new(r#"<h[123][^>]*>([^<]+)</h[123]>"#).unwrap();
+    let title = title_tag_regex
+        .captures(html)
+        .and_then(|capture| capture.get(1).map(|m| m.as_str().trim().to_string()))
+        .or_else(|| {
+            fallback_classed_regex
+                .captures(html)
+                .and_then(|capture| capture.get(1))
+                .map(|value| strip_tags(&html_escape_decode(value.as_str().trim())))
+                .filter(|s| !s.is_empty() && s.len() > 1 && s != "金牌影院")
+        })
+        .or_else(|| {
+            fallback_plain_regex
+                .captures(html)
+                .and_then(|capture| capture.get(1))
+                .map(|value| strip_tags(&html_escape_decode(value.as_str().trim())))
+                .filter(|s| !s.is_empty() && s.len() > 1 && s != "金牌影院")
+        })?;
+
     let summary_regex =
         Regex::new(r#"(?s)<section class="section-ryhd6l">\s*<div class="section-head-ryhd6l">\s*<h2 class="title">剧情介绍</h2>.*?<div class="section-content-ryhd6l">\s*(.*?)\s*</div>"#)
             .unwrap();
@@ -127,14 +149,7 @@ pub(crate) fn parse_detail_page(detail_url: &str, html: &str) -> Option<ScrapedC
     )
     .unwrap();
 
-    let score_regex = Regex::new(r#"(?s)<span[^>]*class="[^"]*score[^"]*"[^>]*>.*?</span>"#).unwrap();
 
-    let title = title_regex
-        .captures(html)
-        .and_then(|capture| capture.get(1))
-        .map(|value| score_regex.replace_all(value.as_str(), "").to_string())
-        .map(|value| strip_tags(&value))
-        .map(|value| html_escape_decode(&value).trim().to_string())?;
     let summary = summary_regex
         .captures(html)
         .and_then(|capture| capture.get(1))
@@ -469,6 +484,31 @@ mod tests {
             item.episodes[2].play_url,
             "https://www.jianpian.example/vodplay/123-2-1.html"
         );
+    }
+
+    #[test]
+    fn parses_jianpian_detail_page_title_from_title_tag_not_brand_h2() {
+        // Regression: jpvod.com has <h2><a href="/">金牌影院</a></h2> as the first h2.
+        // Title must come from <title> tag, not first h2.
+        let html = r##"
+            <title>《保送名额被内定后我退学了》全集在线观看-短剧 - 金牌影院</title>
+            <h2><a href="/">金牌影院</a></h2>
+            <h2 class="title fs-4 fw-bold text-center text-lg-start">
+              保送名额被内定后我退学了            </h2>
+            <section class="section-ryhd6l vod-play-list-box vod-play-list-1">
+              <div class="section-head-ryhd6l justify-content-start">
+                <h2 class="title">金牌资源</h2>
+              </div>
+              <div class="section-content-ryhd6l">
+                <a class="w-100 btn btn-secondary" href="/play/104224-1-1.html" title="播放HD">HD</a>
+              </div>
+            </section>
+        "##;
+
+        let item = parse_detail_page("https://jpvod.com/vod/104224.html", html)
+            .expect("detail should parse");
+        assert_eq!(item.title, "保送名额被内定后我退学了");
+        assert_eq!(item.episodes.len(), 1);
     }
 
     #[test]

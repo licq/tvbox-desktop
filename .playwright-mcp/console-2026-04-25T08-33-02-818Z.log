@@ -1,0 +1,30 @@
+[      68ms] [WARNING] [Vue warn]: Unhandled error during execution of mounted hook 
+  at <Home onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref< Proxy(Object) > > 
+  at <RouterView> 
+  at <App> @ http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:2203
+[     169ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://localhost:1420/node_modules/.vite/deps/chunk-G7S6KQDI.js?v=c47cad76:22:37)
+    at listen (http://localhost:1420/node_modules/.vite/deps/chunk-LDCDX4M5.js?v=c47cad76:37:14)
+    at Proxy.initProgressListener (http://localhost:1420/src/stores/subscription.ts:18:30)
+    at Proxy.wrappedAction (http://localhost:1420/node_modules/.vite/deps/pinia.js?v=c47cad76:1106:18)
+    at store.<computed> (http://localhost:1420/node_modules/.vite/deps/pinia.js?v=c47cad76:784:44)
+    at hydrateSources (http://localhost:1420/src/views/Home.vue:66:22)
+    at http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:5265:40
+    at callWithErrorHandling (http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:2351:19)
+    at callWithAsyncErrorHandling (http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:2358:17)
+    at hook.__weh.hook.__weh (http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:5245:19)
+[   59638ms] [WARNING] [Vue warn]: Unhandled error during execution of mounted hook 
+  at <Home onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref< Proxy(Object) > > 
+  at <RouterView> 
+  at <App> @ http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:2203
+[   59638ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://localhost:1420/node_modules/.vite/deps/chunk-G7S6KQDI.js?v=c47cad76:22:37)
+    at listen (http://localhost:1420/node_modules/.vite/deps/chunk-LDCDX4M5.js?v=c47cad76:37:14)
+    at Proxy.initProgressListener (http://localhost:1420/src/stores/subscription.ts:18:30)
+    at Proxy.wrappedAction (http://localhost:1420/node_modules/.vite/deps/pinia.js?v=c47cad76:1106:18)
+    at store.<computed> (http://localhost:1420/node_modules/.vite/deps/pinia.js?v=c47cad76:784:44)
+    at hydrateSources (http://localhost:1420/src/views/Home.vue?t=1777106042393:66:22)
+    at http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:5265:40
+    at callWithErrorHandling (http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:2351:19)
+    at callWithAsyncErrorHandling (http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:2358:17)
+    at hook.__weh.hook.__weh (http://localhost:1420/node_modules/.vite/deps/chunk-LZ3HUG3H.js?v=c47cad76:5245:19)

@@ -1273,7 +1273,7 @@ impl Storage {
     pub fn get_douban_hot(&self) -> SqliteResult<Vec<DoubanHot>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, year, poster, rating, rank, updated_at FROM douban_hot ORDER BY rank LIMIT 100"
+            "SELECT id, name, year, poster, rating, rank, updated_at, item_type FROM douban_hot ORDER BY rank LIMIT 100"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(DoubanHot {
@@ -1284,6 +1284,7 @@ impl Storage {
                 rating: row.get(4)?,
                 rank: row.get(5)?,
                 updated_at: row.get(6)?,
+                item_type: row.get(7)?,
             })
         })?;
         rows.collect()
