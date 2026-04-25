@@ -36,7 +36,29 @@ impl Storage {
         };
 
         storage.init_tables()?;
+        storage.migrate_if_needed()?;
         Ok(storage)
+    }
+
+    fn migrate_if_needed(&self) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*) FROM pragma_table_info('douban_hot') WHERE name='item_type'"
+        )?;
+        let has_column: bool = stmt.query_row([], |row| row.get::<_, i32>(0))? > 0;
+
+        if !has_column {
+            conn.execute(
+                "ALTER TABLE douban_hot ADD COLUMN item_type TEXT DEFAULT 'movie'",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_douban_item_type ON douban_hot(item_type)",
+                [],
+            )?;
+            log::info!("Migrated douban_hot table: added item_type column");
+        }
+        Ok(())
     }
 
     fn init_tables(&self) -> SqliteResult<()> {
