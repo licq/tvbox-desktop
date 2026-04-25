@@ -200,7 +200,7 @@ function handleVodClick(item: CatalogCard | VodItem) {
 }
 
 function handleHotClick(hot: DoubanHot) {
-  router.push(`/detail/hot/${hot.id}`)
+  router.push(`/detail/hot/${hot.id}?type=${hot.item_type}`)
 }
 
 function toggleChannelExpansion(category: string) {
