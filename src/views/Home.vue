@@ -66,8 +66,18 @@ const displayedVodItems = computed(() => {
   return libraryStore.catalogItems.slice(0, displayedVodCount.value)
 })
 
+const displayedHotItems = computed(() => {
+  if (activeTab.value === 'live') return []
+  const type = activeTab.value as string
+  return libraryStore.getDoubanHotByType(type).slice(0, displayedVodCount.value)
+})
+
 function loadMoreVod() {
-  displayedVodCount.value += 20
+  if (activeTab.value === 'live') {
+    displayedVodCount.value += 20
+  } else {
+    displayedVodCount.value += 20
+  }
 }
 
 async function hydrateSources() {
@@ -82,6 +92,10 @@ async function hydrateSources() {
     await liveStore.fetchGroups()
   } catch {
     console.error('[hydrateSources] fetchGroups failed')
+  }
+
+  if (activeTab.value !== 'live') {
+    await libraryStore.fetchDoubanHotByType(activeTab.value)
   }
 
   // Original auto-refresh logic (skip for debugging):
@@ -145,8 +159,11 @@ watch(
     searchKeyword.value = ''
     displayedVodCount.value = 20
 
-    if (nextTab !== 'live') {
-      await libraryStore.fetchCatalog(nextTab)
+    if (nextTab === 'live') {
+      // existing live logic remains
+    } else {
+      // Fetch douban hot for this tab type
+      await libraryStore.fetchDoubanHotByType(nextTab)
     }
   },
   { immediate: true }
@@ -302,21 +319,21 @@ function toggleChannelExpansion(category: string) {
               <LoadingSpinner />
             </div>
 
-            <div v-else-if="libraryStore.catalogItems.length === 0" class="home-empty-state">
-              暂无{{ formatTypeLabel(activeTab) }}，先检查订阅源是否成功刷新。
+            <div v-else-if="displayedHotItems.length === 0" class="home-empty-state">
+              暂无{{ formatTypeLabel(activeTab) }}热播数据
             </div>
 
             <div v-else class="mt-6">
               <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <VodCard
-                  v-for="item in displayedVodItems"
-                  :key="item.id"
-                  :item="item"
-                  @click="handleVodClick"
+                  v-for="hot in displayedHotItems"
+                  :key="hot.id"
+                  :item="(hot as any)"
+                  @click="handleHotClick"
                 />
               </div>
 
-              <div v-if="displayedVodItems.length < libraryStore.catalogItems.length" class="mt-6 flex justify-center">
+              <div v-if="displayedHotItems.length < libraryStore.getDoubanHotByType(activeTab as string).length" class="mt-6 flex justify-center">
                 <button
                   class="action-button action-button-secondary px-6 py-2"
                   type="button"
