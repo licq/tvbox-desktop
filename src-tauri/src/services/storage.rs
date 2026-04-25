@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::models::{
     CatalogDetail, CatalogDetailItem, CatalogEpisode, CatalogEpisodeGroup, ChannelSource,
     DoubanHot, HomeCatalogItem, HomePayload, LiveChannel, LiveChannelGroup, LiveChannelGroupItem,
-    MergedLiveChannel, PlayHistory, Subscription, VodItem,
+    MergedLiveChannel, PlayHistory, RefreshResult, Subscription, VodItem,
 };
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
@@ -970,10 +970,28 @@ impl Storage {
         id: i64,
         lives: Vec<(String, Option<String>, String, Option<String>)>,
         vods: Vec<(String, String, Option<String>, Option<String>, String)>,
-    ) -> SqliteResult<()> {
+    ) -> SqliteResult<RefreshResult> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let refreshed_at = chrono_now();
+
+        // Count items before clearing
+        let live_count = lives.len() as i32;
+        let mut movie_count = 0;
+        let mut series_count = 0;
+        let mut variety_count = 0;
+        let mut anime_count = 0;
+        let mut other_count = 0;
+
+        for (_, vtype, _, _, _) in &vods {
+            match vtype.as_str() {
+                "movie" => movie_count += 1,
+                "series" => series_count += 1,
+                "variety" => variety_count += 1,
+                "anime" => anime_count += 1,
+                _ => other_count += 1,
+            }
+        }
 
         // Clear old data
         tx.execute("DELETE FROM live_channels WHERE subscription_id = ?1", [id])?;
@@ -1017,7 +1035,15 @@ impl Storage {
         )?;
 
         tx.commit()?;
-        Ok(())
+        Ok(RefreshResult {
+            subscription_name: "".to_string(),
+            live_count,
+            movie_count,
+            series_count,
+            variety_count,
+            anime_count,
+            other_count,
+        })
     }
 
     pub fn refresh_tvbox_subscription(

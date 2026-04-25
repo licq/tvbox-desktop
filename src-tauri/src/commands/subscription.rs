@@ -1,4 +1,4 @@
-use crate::models::Subscription;
+use crate::models::{RefreshResult, Subscription};
 use crate::services::tvbox::TvboxLiveRecord;
 use crate::services::{scrape_supported_tvbox_catalogs, Parser, TvboxConfigParser};
 use crate::AppState;
@@ -41,7 +41,7 @@ pub async fn delete_subscription(id: i64, state: State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result<RefreshResult, String> {
     let storage = state.storage.clone();
 
     // Get subscription info
@@ -53,6 +53,7 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
             .map_err(|e| e.to_string())?
     };
     let fallback_kind = subscription.kind.clone();
+    let subscription_name = subscription.name.clone();
 
     // Fetch content from URL
     log::info!(
@@ -138,6 +139,16 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
                     log::warn!("抓取点播目录失败: {}", error);
                 }
             }
+
+            Ok(RefreshResult {
+                subscription_name,
+                live_count: parsed.lives.len() as i32,
+                movie_count: 0,
+                series_count: 0,
+                variety_count: 0,
+                anime_count: 0,
+                other_count: 0,
+            })
         }
         _ => {
             let parsed = match Parser::parse_subscription(&response_text) {
@@ -183,7 +194,7 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
             );
 
             let refresh_storage = storage.clone();
-            let refresh_result = tokio::task::spawn_blocking(move || {
+            let result = tokio::task::spawn_blocking(move || {
                 refresh_storage
                     .refresh_subscription(id, lives_data, vods_data)
                     .map_err(|e| e.to_string())
@@ -191,14 +202,18 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
             .await
             .map_err(|e| e.to_string())?;
 
-            if let Err(error) = refresh_result {
-                persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
-                return Err(error);
+            match result {
+                Ok(mut refresh_result) => {
+                    refresh_result.subscription_name = subscription_name;
+                    Ok(refresh_result)
+                }
+                Err(error) => {
+                    persist_refresh_failure(storage.clone(), id, &fallback_kind, &error).await?;
+                    Err(error)
+                }
             }
         }
     }
-
-    Ok(())
 }
 
 #[derive(Clone)]

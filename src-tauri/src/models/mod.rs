@@ -168,3 +168,14 @@ pub struct ResolvedPlayback {
     pub candidates: Vec<PlaybackCandidate>,
     pub error_message: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefreshResult {
+    pub subscription_name: String,
+    pub live_count: i32,
+    pub movie_count: i32,
+    pub series_count: i32,
+    pub variety_count: i32,
+    pub anime_count: i32,
+    pub other_count: i32,
+}
