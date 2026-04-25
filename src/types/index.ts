@@ -34,6 +34,16 @@ export interface DoubanHotItem {
   rank: number;
 }
 
+export interface DoubanHot {
+  id: number;
+  name: string;
+  year: number | null;
+  poster: string | null;
+  rating: number | null;
+  rank: number;
+  updated_at: string;
+}
+
 export interface VodItem {
   id: number;
   subscription_id: number;
@@ -125,6 +135,7 @@ export interface HomePayload {
   continue_watching: CatalogCard[];
   latest_updates: CatalogCard[];
   featured: CatalogCard[];
+  douban_hot: DoubanHot[];
 }
 
 export interface HomePayloadInput {
@@ -133,6 +144,8 @@ export interface HomePayloadInput {
   latest_updates?: CatalogCardInput[];
   latestUpdates?: CatalogCardInput[];
   featured?: CatalogCardInput[];
+  douban_hot?: DoubanHot[];
+  doubanHot?: DoubanHot[];
 }
 
 export interface CatalogEpisode {
