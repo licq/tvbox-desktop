@@ -8,7 +8,6 @@ import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
 import type { CatalogCard, CatalogItemType, DoubanHot, LiveChannel, VodItem } from '@/types'
 
 type HomeTabKey = 'live' | CatalogItemType
@@ -203,8 +202,6 @@ function toggleChannelExpansion(category: string) {
       </nav>
 
       <main class="home-landing">
-        <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
-
         <section v-if="libraryStore.doubanHot.length" class="hot-section mb-8">
           <div class="flex items-center gap-2 mb-4">
             <span class="text-xl">🔥</span>
