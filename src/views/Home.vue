@@ -9,7 +9,7 @@ import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import LiveNowPanel from '@/components/home/LiveNowPanel.vue'
-import type { CatalogCard, CatalogItemType, LiveChannel, VodItem } from '@/types'
+import type { CatalogCard, CatalogItemType, DoubanHot, LiveChannel, VodItem } from '@/types'
 
 type HomeTabKey = 'live' | CatalogItemType
 
@@ -161,6 +161,10 @@ function handleVodClick(item: CatalogCard | VodItem) {
   router.push(`/detail/${item.id}`)
 }
 
+function handleHotClick(hot: DoubanHot) {
+  router.push(`/detail/hot/${hot.id}`)
+}
+
 function toggleChannelExpansion(category: string) {
   if (expandedChannels.value.has(category)) {
     expandedChannels.value.delete(category)
@@ -200,6 +204,21 @@ function toggleChannelExpansion(category: string) {
 
       <main class="home-landing">
         <LiveNowPanel :groups="liveStore.groups" @play="handlePlayChannel" />
+
+        <section v-if="libraryStore.doubanHot.length" class="hot-section mb-8">
+          <div class="flex items-center gap-2 mb-4">
+            <span class="text-xl">🔥</span>
+            <span class="text-lg font-semibold text-white">豆瓣热播</span>
+          </div>
+          <div class="flex gap-4 overflow-x-auto pb-4">
+            <VodCard
+              v-for="hot in libraryStore.doubanHot.slice(0, 10)"
+              :key="hot.id"
+              :item="(hot as any)"
+              @click="handleHotClick(hot)"
+            />
+          </div>
+        </section>
 
         <section class="home-secondary-browser">
           <div class="home-secondary-search">
