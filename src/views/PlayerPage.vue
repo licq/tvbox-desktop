@@ -409,20 +409,23 @@ async function initHlsPlayer(url: string) {
       const CustomLoader = class extends Hls.DefaultConfig.loader {
         load(context: any, config: any, callbacks: any) {
           const url = context.url
-          // Check if this is an m3u8 from problematic CDNs
-          if (
-            url.includes('.m3u8') &&
-            (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng'))
-          ) {
+          // Intercept ALL requests to problematic CDNs (not just .m3u8)
+          // Segments (.ts) also need to be proxied through Rust
+          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng')) {
             // Fetch via Tauri command to bypass CORS
             invoke<string>('fetch_hls_manifest', { url })
-              .then((manifest) => {
-                // hls.js expects: onSuccess(response: {url, data, code}, stats: LoaderStats, context, networkDetails)
-                const stats = { aborted: false, loaded: manifest.length, retry: 0, total: manifest.length, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } }
-                callbacks.onSuccess({ data: manifest, url, code: 200 }, stats, context, null)
+              .then((data) => {
+                // Segments are returned as base64, decode to ArrayBuffer
+                // Manifests are returned as plain text
+                const isSegment = !url.includes('.m3u8')
+                const finalData: string | ArrayBuffer = isSegment
+                  ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
+                  : data
+                const finalLength = typeof finalData === 'string' ? finalData.length : finalData.byteLength
+                const stats = { aborted: false, loaded: finalLength, retry: 0, total: finalLength, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } }
+                callbacks.onSuccess({ data: finalData, url, code: 200 }, stats, context, null)
               })
               .catch((err) => {
-                // hls.js expects: onError({code, text}, context, networkDetails, stats)
                 callbacks.onError({ code: 0, text: String(err) }, context, null, { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } })
               })
             return

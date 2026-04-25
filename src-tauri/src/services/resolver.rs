@@ -946,6 +946,26 @@ async fn fetch_hls_playlist_with_headers_no_cors(
     response.text().await.map_err(|e| e.to_string())
 }
 
+/// Fetches arbitrary URL content (for proxying segment requests).
+/// Does not require CORS headers, returns raw bytes as base64 string.
+async fn proxy_url(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    use base64::Engine;
+    let request = client
+        .get(url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        );
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("proxy request failed: {status}"));
+    }
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    // Encode as base64 so we can send binary over JSON
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 /// Rewrite relative URLs in an HLS playlist to absolute URLs based on the base URL.
 fn rewrite_relative_urls(body: &str, base_url: &str) -> String {
     body.lines()
@@ -1008,9 +1028,13 @@ pub(crate) async fn fetch_hls_manifest_internal(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<String, String> {
-    let client = build_client()?;
+    // For non-manifest URLs (segments), use binary proxy
+    if !url.contains(".m3u8") {
+        let client = build_client()?;
+        return proxy_url(&client, url).await;
+    }
 
-    // Fetch the manifest without CORS check
+    let client = build_client()?;
     let body = fetch_hls_playlist_with_headers_no_cors(&client, url, headers).await?;
 
     // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
