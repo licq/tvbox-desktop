@@ -2,13 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDetailStore } from '@/stores/detail'
+import { useLibraryStore } from '@/stores/library'
 import { invoke } from '@tauri-apps/api/core'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import DoubanMetaPanel from '@/components/detail/DoubanMetaPanel.vue'
 import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
-import type { CatalogEpisode, SearchResult } from '@/types'
+import type { CatalogEpisode, DoubanHot, SearchResult } from '@/types'
 
 interface DoubanSubjectMeta {
   doubanId: number
@@ -35,11 +36,59 @@ interface GroupedSearchResults {
 const route = useRoute()
 const router = useRouter()
 const detailStore = useDetailStore()
+const libraryStore = useLibraryStore()
 
 const itemId = computed(() => Number(route.params.itemId))
 const isFromDouban = computed(() => route.query.douban === '1')
 
+// Quick lookup from library store (already has DoubanHot data from home page)
+const hotItem = ref<DoubanHot | null>(null)
+
+async function loadHotItemFromDb() {
+  if (!isFromDouban.value || !itemId.value) return
+  // First try store (home page data)
+  const found = libraryStore.doubanHot.find(h => h.id === itemId.value)
+  if (found) {
+    hotItem.value = found
+    return
+  }
+  // Fallback: fetch from database by type
+  try {
+    const items = await invoke<DoubanHot[]>('get_douban_hot', {})
+    const dbFound = items.find(h => h.id === itemId.value)
+    if (dbFound) hotItem.value = dbFound
+  } catch {
+    // ignore
+  }
+}
+
+// Preliminary meta from DoubanHot (available immediately, before scraper returns)
+const preliminaryMeta = computed<DoubanSubjectMeta | null>(() => {
+  const h = hotItem.value
+  if (!h) return null
+  return {
+    doubanId: h.id,
+    title: h.name,
+    rating: h.rating,
+    ratingCount: null,
+    director: [],
+    writer: [],
+    actors: [],
+    genre: [],
+    country: [],
+    language: [],
+    releaseDate: [],
+    runtime: null,
+    summary: null,
+    poster: h.poster,
+  }
+})
+
+// Enriched meta from WebView scraper (arrives later)
 const doubanMeta = ref<DoubanSubjectMeta | null>(null)
+
+// Display meta: use enriched meta when available, otherwise preliminary from hot list
+const displayMeta = computed(() => doubanMeta.value ?? preliminaryMeta.value)
 const loadingDouban = ref(false)
 const searchResults = ref<GroupedSearchResults[]>([])
 const loadingSearch = ref(false)
@@ -48,21 +97,25 @@ const searchError = ref<string | null>(null)
 async function loadDetail() {
   // Direct from Douban hot list - use itemId as douban_id directly
   if (isFromDouban.value && itemId.value) {
-    loadingDouban.value = true
-    try {
-      const meta = await invoke<DoubanSubjectMeta | null>('fetch_douban_metadata_by_id', {
-        doubanId: itemId.value,
-      })
-      doubanMeta.value = meta
-      // Search for sources after getting Douban metadata
-      if (meta?.title) {
-        await searchSources(meta.title)
-      }
-    } catch {
-      doubanMeta.value = null
-    } finally {
-      loadingDouban.value = false
+    // OPTIMIZATION 1: Load basic info from store/DB immediately
+    await loadHotItemFromDb()
+
+    // OPTIMIZATION 2: Start source search IMMEDIATELY (we have title now)
+    if (hotItem.value?.name) {
+      searchSources(hotItem.value.name)
     }
+
+    // Also fetch enriched Douban metadata in background for director/actors/summary
+    loadingDouban.value = true
+    invoke<DoubanSubjectMeta | null>('fetch_douban_metadata_by_id', {
+      douban_id: itemId.value,
+    }).then(meta => {
+      doubanMeta.value = meta
+    }).catch(e => {
+      console.error('[VodDetail] fetch_douban_metadata_by_id failed:', e)
+    }).finally(() => {
+      loadingDouban.value = false
+    })
     return
   }
 
@@ -80,7 +133,8 @@ async function loadDetail() {
       itemId: itemId.value,
     })
     doubanMeta.value = meta
-  } catch {
+  } catch (e) {
+    console.error('[VodDetail] fetch_douban_subject_metadata failed:', e)
     doubanMeta.value = null
   } finally {
     loadingDouban.value = false
@@ -107,6 +161,7 @@ async function searchSources(title: string) {
         results,
       }))
   } catch (e) {
+    console.error('[VodDetail] searchSources failed:', e)
     searchError.value = String(e)
     searchResults.value = []
   } finally {
@@ -141,13 +196,14 @@ function handleSearchResultPlay(result: SearchResult) {
 
       <!-- Douban hot direct entry -->
       <div v-else-if="isFromDouban" class="mt-6 space-y-6">
-        <!-- Top zone: Douban metadata -->
+        <!-- Top zone: Douban metadata (preliminary immediately, enriched when scraper returns) -->
         <DoubanMetaPanel
-          v-if="doubanMeta"
-          :meta="doubanMeta"
+          v-if="displayMeta"
+          :meta="displayMeta"
+          :loading="loadingDouban"
           class="top-zone"
         />
-        <DetailMetaSkeleton v-else-if="loadingDouban" class="top-zone" />
+        <DetailMetaSkeleton v-else-if="loadingDouban && !preliminaryMeta" class="top-zone" />
 
         <!-- Search results from sources -->
         <section v-if="loadingSearch" class="space-y-4">

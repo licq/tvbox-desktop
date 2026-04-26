@@ -257,46 +257,46 @@ mod tests {
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn fetch_douban_subject_metadata(
     app: AppHandle,
     state: State<'_, AppState>,
     item_id: i64,
 ) -> Result<Option<DoubanSubjectMeta>, String> {
     // 获取 item 的 title 和 douban_id
-    let catalog_item = state.storage.get_catalog_item(item_id).map_err(|e| e.to_string())?;
+    let title = {
+        match state.storage.get_catalog_detail(item_id) {
+            Ok(detail) => Some(detail.item.title),
+            Err(_) => None,
+        }
+    };
 
-    let douban_id = {
-        // 先查 catalog_items 是否有 douban_id
-        if let Some(id) = state.storage.get_catalog_item_douban_id(item_id).map_err(|e| e.to_string())? {
-            Some(id)
-        } else {
-            // 尝试模糊匹配 - 使用 Storage 内部逻辑
-            let normalized = catalog_item.title
+    let douban_id = if let Some(ref t) = title {
+        let douban_items = state.storage.get_douban_hot().map_err(|e| e.to_string())?;
+        let normalized = t.chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .to_lowercase();
+
+        let mut best_match: Option<i64> = None;
+        let mut best_score = 0.8f64;
+
+        for item in douban_items.iter().take(500) {
+            let item_normalized = item.name
                 .chars()
                 .filter(|c| c.is_alphanumeric() || c.is_whitespace())
                 .collect::<String>()
                 .to_lowercase();
 
-            let douban_items = state.storage.get_douban_hot().map_err(|e| e.to_string())?;
-            let mut best_match: Option<i64> = None;
-            let mut best_score = 0.8f64;
-
-            for item in douban_items.iter().take(500) {
-                let item_normalized = item.name
-                    .chars()
-                    .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-                    .collect::<String>()
-                    .to_lowercase();
-
-                let score = calculate_similarity(&normalized, &item_normalized);
-                if score > best_score {
-                    best_score = score;
-                    best_match = Some(item.id);
-                }
+            let score = calculate_similarity(&normalized, &item_normalized);
+            if score > best_score {
+                best_score = score;
+                best_match = Some(item.id);
             }
-            best_match
         }
+        best_match
+    } else {
+        None
     };
 
     if let Some(dbid) = douban_id {
@@ -310,5 +310,33 @@ pub async fn fetch_douban_subject_metadata(
         }
     } else {
         Ok(None)
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn fetch_douban_metadata_by_id(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    douban_id: i64,
+) -> Result<Option<DoubanSubjectMeta>, String> {
+    // OPTIMIZATION 3: Check cache first
+    if let Ok(Some(cached)) = state.storage.get_douban_subject_meta(douban_id) {
+        log::info!("[fetch_douban_metadata_by_id] Cache hit for douban_id={}", douban_id);
+        return Ok(Some(cached));
+    }
+
+    let meta = DoubanSubjectScraper::scrape(&app, douban_id).await;
+    match meta {
+        Ok(m) => {
+            // Cache the result
+            if let Err(e) = state.storage.upsert_douban_subject_meta(&m) {
+                log::warn!("[fetch_douban_metadata_by_id] Failed to cache: {}", e);
+            }
+            Ok(Some(m))
+        }
+        Err(e) => {
+            log::warn!("Failed to fetch Douban meta for {}: {}", douban_id, e);
+            Ok(None)
+        }
     }
 }

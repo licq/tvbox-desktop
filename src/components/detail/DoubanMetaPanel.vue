@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed, ref, watchEffect } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+
 interface DoubanMeta {
   doubanId: number
   title: string
@@ -16,23 +19,61 @@ interface DoubanMeta {
   poster: string | null
 }
 
-defineProps<{
+const props = defineProps<{
   meta: DoubanMeta
-  poster?: string  // from catalog_items
+  poster?: string
+  loading?: boolean  // true when enriched metadata is being fetched
 }>()
+
+// Proxy Douban images through backend to avoid Referer blocking
+const proxiedPoster = ref<string | null>(null)
+const posterLoading = ref(false)
+
+watchEffect(async () => {
+  const url = props.meta.poster
+  if (!url || !url.includes('doubanio.com')) {
+    proxiedPoster.value = null
+    return
+  }
+  posterLoading.value = true
+  try {
+    const b64 = await invoke<string>('proxy_image', { url })
+    proxiedPoster.value = `data:image/jpeg;base64,${b64}`
+  } catch {
+    proxiedPoster.value = null
+  } finally {
+    posterLoading.value = false
+  }
+})
+
+const effectivePoster = computed(() => {
+  if (posterLoading.value) return null
+  return proxiedPoster.value ?? props.poster ?? props.meta.poster ?? null
+})
 
 function formatList(list: string[], max: number): string {
   if (list.length <= max) return list.join(' / ')
   return list.slice(0, max).join(' / ') + '...'
 }
+
+// True when enriched metadata fields are still empty
+const isEnriching = computed(() => {
+  return props.loading && (
+    props.meta.director.length === 0 &&
+    props.meta.writer.length === 0 &&
+    props.meta.actors.length === 0
+  )
+})
 </script>
 
 <template>
   <section class="douban-meta-panel">
     <div class="douban-meta-poster">
-      <img v-if="poster" :src="poster" :alt="meta.title" class="poster-img" />
-      <img v-else-if="meta.poster" :src="meta.poster" :alt="meta.title" class="poster-img" />
-      <div v-else class="poster-fallback">{{ meta.title }}</div>
+      <img v-if="effectivePoster" :src="effectivePoster" :alt="meta.title" class="poster-img" />
+      <div v-else class="poster-fallback">
+        <span v-if="posterLoading" class="poster-loading">加载中...</span>
+        <span v-else>{{ meta.title }}</span>
+      </div>
     </div>
 
     <div class="douban-meta-content">
@@ -46,7 +87,16 @@ function formatList(list: string[], max: number): string {
         </span>
       </div>
 
-      <dl class="douban-meta-list">
+      <!-- Loading skeleton for content area -->
+      <div v-if="isEnriching" class="meta-skeleton">
+        <div class="skel-row skel-title"></div>
+        <div class="skel-row skel-rating"></div>
+        <div class="skel-row skel-line"></div>
+        <div class="skel-row skel-line"></div>
+        <div class="skel-row skel-line short"></div>
+      </div>
+
+      <dl v-else class="douban-meta-list">
         <template v-if="meta.director.length">
           <dt>导演</dt>
           <dd>{{ meta.director.join(' / ') }}</dd>
@@ -92,24 +142,27 @@ function formatList(list: string[], max: number): string {
 <style scoped>
 .douban-meta-panel {
   display: grid;
-  grid-template-columns: 180px 1fr 280px;
+  grid-template-columns: 220px 1fr 300px;
   gap: 1.5rem;
   padding: 1.5rem;
   background: rgba(255,255,255,0.05);
   border-radius: 1.5rem;
+  min-height: 360px;
+  align-items: start;
 }
 .douban-meta-poster {
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
 }
 .poster-img {
-  width: 180px;
-  height: 260px;
+  width: 220px;
+  height: 320px;
   object-fit: cover;
   border-radius: 0.75rem;
 }
 .poster-fallback {
-  width: 180px;
-  height: 260px;
+  width: 220px;
+  height: 320px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -117,6 +170,12 @@ function formatList(list: string[], max: number): string {
   border-radius: 0.75rem;
   font-size: 0.875rem;
   color: rgba(255,255,255,0.5);
+  text-align: center;
+  padding: 1rem;
+}
+.poster-loading {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.3);
 }
 .douban-meta-content {
   min-width: 0;
@@ -175,5 +234,25 @@ function formatList(list: string[], max: number): string {
   color: rgba(255,255,255,0.7);
   font-size: 0.9rem;
   line-height: 1.6;
+}
+
+/* Loading skeleton */
+.meta-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.skel-row {
+  background: rgba(255,255,255,0.06);
+  border-radius: 0.375rem;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+.skel-title { height: 2rem; width: 70%; }
+.skel-rating { height: 1.25rem; width: 40%; }
+.skel-line { height: 1rem; width: 90%; }
+.skel-line.short { width: 60%; }
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 </style>

@@ -239,98 +239,207 @@ impl Default for DoubanCrawler {
 // =============================================================================
 // DoubanSubjectScraper - WebView-based Douban subject metadata scraper
 // =============================================================================
+//
+// 使用 Tauri WebView（真实浏览器引擎）来加载豆瓣页面，
+// 以通过豆瓣的反爬虫 JavaScript 挑战（SHA-512 验证）。
+// 然后通过 on_navigation 回调机制将提取的数据传回 Rust。
+// =============================================================================
 
 use crate::models::DoubanSubjectMeta;
-use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 
 pub struct DoubanSubjectScraper;
 
 impl DoubanSubjectScraper {
-    /// 使用 WebView 加载 Douban subject 页面并提取元数据
-    pub async fn scrape(app: &AppHandle, douban_id: i64) -> Result<DoubanSubjectMeta, String> {
-        let url = format!("https://movie.douban.com/subject/{}/", douban_id);
+    pub async fn scrape(app: &tauri::AppHandle, douban_id: i64) -> Result<DoubanSubjectMeta, String> {
+        let url_str = format!("https://movie.douban.com/subject/{}/", douban_id);
+        log::info!("[DoubanSubjectScraper] Starting scrape for douban_id={}", douban_id);
 
-        // 创建隐藏 webview window
-        let webview = WebviewWindowBuilder::new(
+        let url: tauri::Url = url_str.parse()
+            .map_err(|e| format!("Invalid URL: {}", e))?;
+
+        // Shared state for communication between on_navigation callback and async fn
+        let result = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        let result_clone = result.clone();
+
+        // Create hidden WebView window with on_navigation callback
+        let webview = tauri::webview::WebviewWindowBuilder::new(
             app,
-            format!("douban-scrape-{}", douban_id),
-            WebviewUrl::External(url.parse().map_err(|e| format!("Invalid URL: {}", e))?),
+            format!("douban-scraper-{}", douban_id),
+            tauri::WebviewUrl::External(url),
         )
-        .title("Douban Scraper")
-        .inner_size(1280.0, 800.0)
-        .visible(false)
-        .build()
-        .map_err(|e| format!("Failed to create webview: {}", e))?;
-
-        // 等待页面加载 (通过 poll 方式，最长 10 秒)
-        let webview_clone = webview.clone();
-        let loaded = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                if webview_clone.eval("document.readyState").is_ok() {
-                    break;
+        .title("豆瓣")
+        .inner_size(1.0, 1.0) // Tiny window, off-screen
+        .on_navigation(move |nav_url| {
+            let nav_str = nav_url.as_str();
+            // Intercept our custom communication URL
+            if let Some(data_encoded) = nav_str.strip_prefix("http://scraper.internal/result?data=") {
+                if let Ok(decoded) = urlencoding::decode(data_encoded) {
+                    *result_clone.lock().unwrap() = Some(decoded.into_owned());
                 }
+                return false; // Prevent actual navigation
             }
-        }).await;
+            true
+        })
+        .build()
+        .map_err(|e| format!("Failed to create WebView: {}", e))?;
 
-        if loaded.is_err() {
-            webview.close().ok();
-            return Err("Timeout waiting for Douban page".to_string());
+        // Wait for page to load and anti-scraping challenge to complete
+        // (SHA-512 computation + redirect to real page can take 10-15 seconds)
+        log::info!("[DoubanSubjectScraper] Waiting for page load + anti-scraping challenge...");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Inject JS to extract metadata from DOM and communicate via navigation.
+        // Uses retry loop: checks for real content repeatedly until found or timeout.
+        let js = format!(r#"
+            (function() {{
+                var maxRetries = 25;
+                var retryDelay = 1500;
+                var retryCount = 0;
+
+                var getText = function(sel) {{
+                    var el = document.querySelector(sel);
+                    return el ? el.textContent.trim() : '';
+                }};
+                var getAttr = function(sel, attr) {{
+                    var el = document.querySelector(sel);
+                    return el ? el.getAttribute(attr) : '';
+                }};
+
+                var sendData = function() {{
+                    var title = getText('h1 span[property="v:itemreviewed"]') || getText('h1');
+                    var isFinal = retryCount >= maxRetries;
+
+                    if (!isFinal && (!title || title.indexOf('载入') >= 0 || title.indexOf('验证') >= 0)) {{
+                        retryCount++;
+                        setTimeout(sendData, retryDelay);
+                        return;
+                    }}
+
+                    var rating = getText('.rating_num');
+                    var poster = getAttr('#mainpic img', 'src');
+                    var summaryText = getText('[property="v:summary"]') || getText('#link-report');
+                    var infoText = getText('#info');
+                    var ratingCountText = getText('.rating_sum');
+
+                    var data = JSON.stringify({{
+                        douban_id: {},
+                        title: title,
+                        rating: rating,
+                        poster: poster,
+                        summary: summaryText,
+                        infoText: infoText,
+                        ratingCount: ratingCountText
+                    }});
+
+                    window.location = 'http://scraper.internal/result?data=' + encodeURIComponent(data);
+                }};
+
+                setTimeout(sendData, 1000);
+            }})();
+        "#, douban_id);
+
+        log::info!("[DoubanSubjectScraper] Executing JS extraction...");
+        if let Err(e) = webview.eval(&js) {
+            log::warn!("[DoubanSubjectScraper] eval failed: {:?}", e);
         }
 
-        // 额外等待，确保 DOM 完全渲染
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-        // 执行 JS 提取 #info HTML
-        // eval() 返回 Result<(), crate::Error>，所以我们用 match 来处理
-        let _info_html = match webview.eval("document.getElementById('info')?.innerHTML ?? ''") {
-            Ok(_) => "".to_string(), // placeholder, actual value won't be accessible
-            Err(e) => return Err(format!("JS eval error: {}", e)),
+        // Wait for result with timeout (enough for initial wait + all retries)
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(50);
+        let data_str = loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if let Some(d) = result.lock().unwrap().take() {
+                break d;
+            }
+            if tokio::time::Instant::now() > deadline {
+                webview.close().ok();
+                return Err("Timeout waiting for scrape result".to_string());
+            }
         };
 
-        // 执行 JS 提取 summary
-        let summary = match webview.eval("document.querySelector('[property=\"v:summary\"]')?.innerText ?? document.querySelector('#link-report span')?.innerText ?? ''") {
-            Ok(_) => None,
-            Err(_) => None,
-        };
-
-        // 执行 JS 提取 rating
-        let rating = match webview.eval("document.querySelector('.rating_num')?.innerText ?? ''") {
-            Ok(_) => None,
-            Err(_) => None,
-        };
-
-        // 执行 JS 提取 rating count
-        let rating_count = match webview.eval("document.querySelector('.rating_sum span')?.innerText ?? ''") {
-            Ok(_) => None,
-            Err(_) => None,
-        };
-
-        // 提取 title
-        let title = match webview.eval("document.querySelector('h1 span[property=\"v:itemreviewed\"]')?.innerText ?? document.querySelector('h1')?.innerText ?? ''") {
-            Ok(_) => String::new(),
-            Err(_) => String::new(),
-        };
-
+        // Clean up the WebView window
         webview.close().ok();
+        log::info!("[DoubanSubjectScraper] Data received, WebView closed");
 
-        // 由于 eval 无法返回字符串值，我们返回部分数据作为占位
-        // 实际实现需要使用 IPC 机制或 message channel 来获取 JS 执行结果
+        // Parse the JSON response from the extracted data
+        let v: serde_json::Value = serde_json::from_str(&data_str)
+            .map_err(|e| format!("Failed to parse scraped JSON: {}", e))?;
+
+        let title = v["title"].as_str().unwrap_or("").to_string();
+        let info_text = v["infoText"].as_str().unwrap_or("");
+        let summary_raw = v["summary"].as_str().unwrap_or("");
+
+        // --- Parse fields ---
+        let rating = v["rating"].as_str()
+            .and_then(|s| if s.is_empty() { None } else { s.parse::<f64>().ok() });
+
+        let rating_count = v["ratingCount"].as_str()
+            .and_then(|s| {
+                if s.is_empty() { return None; }
+                let cleaned: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+                cleaned.parse::<i64>().ok()
+            });
+
+        let poster = v["poster"].as_str()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty());
+
+        let summary = if summary_raw.is_empty() { None } else { Some(summary_raw.to_string()) };
+
+        let director = extract_info_list(info_text, "导演");
+        let writer = extract_info_list(info_text, "编剧");
+        let actors = extract_info_list(info_text, "主演");
+        let genre = extract_info_list(info_text, "类型");
+        let country = extract_info_list(info_text, "制片国家/地区");
+        let language = extract_info_list(info_text, "语言");
+        let release_date = extract_info_list(info_text, "上映日期");
+        let runtime_raw = extract_info_text(info_text, "片长")
+            .map(|s| s.to_string());
+
+        log::info!("[DoubanSubjectScraper] Success for douban_id={}: title='{}', rating={:?}, poster={:?}", douban_id, title, rating, poster.as_deref().unwrap_or("none"));
+
         Ok(DoubanSubjectMeta {
             douban_id,
             title,
             rating,
             rating_count,
-            director: vec![],
-            writer: vec![],
-            actors: vec![],
-            genre: vec![],
-            country: vec![],
-            language: vec![],
-            release_date: vec![],
-            runtime: None,
+            director,
+            writer,
+            actors,
+            genre,
+            country,
+            language,
+            release_date,
+            runtime: runtime_raw,
             summary,
-            poster: None,
+            poster,
         })
     }
+}
+
+/// 从 info 文本中提取字段列表（如 导演: 名1 / 名2 → ["名1", "名2"]）
+fn extract_info_list(info_text: &str, field: &str) -> Vec<String> {
+    let pattern = format!("{}:\\s*([^\n]+)", field);
+    if let Ok(re) = regex::Regex::new(&pattern) {
+        if let Some(caps) = re.captures(info_text) {
+            if let Some(m) = caps.get(1) {
+                return m.as_str()
+                    .split('/')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
+        }
+    }
+    vec![]
+}
+
+/// 从 info 文本中提取单字段值（如 片长: 123分钟 → "123分钟"）
+fn extract_info_text<'a>(info_text: &'a str, field: &str) -> Option<&'a str> {
+    let pattern = format!("{}:\\s*([^\n]+)", regex::escape(field));
+    if let Ok(re) = regex::Regex::new(&pattern) {
+        if let Some(caps) = re.captures(info_text) {
+            return caps.get(1).map(|m| m.as_str().trim());
+        }
+    }
+    None
 }

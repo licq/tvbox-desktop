@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
     CatalogDetail, CatalogDetailItem, CatalogEpisode, CatalogEpisodeGroup, ChannelSource,
-    DoubanHot, HomeCatalogItem, HomePayload, LiveChannel, LiveChannelGroup, LiveChannelGroupItem,
-    MergedLiveChannel, PlayHistory, RefreshResult, Subscription, VodItem,
+    DoubanHot, DoubanSubjectMeta, HomeCatalogItem, HomePayload, LiveChannel, LiveChannelGroup,
+    LiveChannelGroupItem, MergedLiveChannel, PlayHistory, RefreshResult, Subscription, VodItem,
 };
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
@@ -328,6 +328,28 @@ impl Storage {
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_douban_name ON douban_hot(name)",
+            [],
+        )?;
+
+        // douban_subject_meta table: cached scraped metadata for each Douban subject
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS douban_subject_meta (
+                douban_id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                rating REAL,
+                rating_count INTEGER,
+                director TEXT NOT NULL DEFAULT '',
+                writer TEXT NOT NULL DEFAULT '',
+                actors TEXT NOT NULL DEFAULT '',
+                genre TEXT NOT NULL DEFAULT '',
+                country TEXT NOT NULL DEFAULT '',
+                language TEXT NOT NULL DEFAULT '',
+                release_date TEXT NOT NULL DEFAULT '',
+                runtime TEXT,
+                summary TEXT,
+                poster TEXT,
+                updated_at TEXT NOT NULL
+            )",
             [],
         )?;
 
@@ -1353,6 +1375,64 @@ impl Storage {
         rows.collect()
     }
 
+    pub fn get_douban_subject_meta(&self, douban_id: i64) -> SqliteResult<Option<DoubanSubjectMeta>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT douban_id, title, rating, rating_count, director, writer, actors,
+                    genre, country, language, release_date, runtime, summary, poster, updated_at
+             FROM douban_subject_meta WHERE douban_id = ?1"
+        )?;
+        let mut rows = stmt.query([douban_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(DoubanSubjectMeta {
+                douban_id: row.get(0)?,
+                title: row.get(1)?,
+                rating: row.get(2)?,
+                rating_count: row.get(3)?,
+                director: split_str(row.get::<_, String>(4)?),
+                writer: split_str(row.get::<_, String>(5)?),
+                actors: split_str(row.get::<_, String>(6)?),
+                genre: split_str(row.get::<_, String>(7)?),
+                country: split_str(row.get::<_, String>(8)?),
+                language: split_str(row.get::<_, String>(9)?),
+                release_date: split_str(row.get::<_, String>(10)?),
+                runtime: row.get(11)?,
+                summary: row.get(12)?,
+                poster: row.get(13)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn upsert_douban_subject_meta(&self, meta: &DoubanSubjectMeta) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO douban_subject_meta
+             (douban_id, title, rating, rating_count, director, writer, actors,
+              genre, country, language, release_date, runtime, summary, poster, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            rusqlite::params![
+                meta.douban_id,
+                meta.title,
+                meta.rating,
+                meta.rating_count,
+                meta.director.join(","),
+                meta.writer.join(","),
+                meta.actors.join(","),
+                meta.genre.join(","),
+                meta.country.join(","),
+                meta.language.join(","),
+                meta.release_date.join(","),
+                meta.runtime,
+                meta.summary,
+                meta.poster,
+                chrono_now(),
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn get_merged_live_channels(&self) -> SqliteResult<Vec<MergedLiveChannel>> {
         let conn = self.conn.lock().unwrap();
         query_merged_live_channels(&conn, None)
@@ -1365,6 +1445,14 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         query_merged_live_channels(&conn, Some(category))
     }
+}
+
+/// Split comma-separated string into Vec<String>, filtering empty strings
+fn split_str(s: String) -> Vec<String> {
+    s.split(',')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
 }
 
 fn query_home_catalog_items(
