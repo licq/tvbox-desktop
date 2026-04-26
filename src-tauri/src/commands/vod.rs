@@ -88,6 +88,42 @@ pub async fn get_catalog_detail(
     .map_err(|e| e.to_string())??;
 
     if detail.episode_groups.is_empty() {
+        // Try provider-based detail resolution first
+        if let Some(ref detail_json) = detail.item.detail_json {
+            let parsed: serde_json::Value = match serde_json::from_str(detail_json) {
+                Ok(v) => v,
+                Err(_) => { /* fall through to scrape_catalog_detail_from_json */ return Ok(detail); }
+            };
+            let source = parsed.get("source").and_then(|v| v.as_str()).unwrap_or("");
+            let ids = parsed.get("ids").and_then(|v| v.as_str()).unwrap_or("");
+            let detail_key = if !ids.is_empty() { ids } else {
+                parsed.get("url").and_then(|v| v.as_str()).unwrap_or("")
+            };
+
+            if !source.is_empty() && !detail_key.is_empty() {
+                let registry = state.provider_registry.read().await;
+                if let Some(provider) = registry.get(source) {
+                    match provider.detail(detail_key).await {
+                        Ok(Some(scraped)) if !scraped.episodes.is_empty() => {
+                            let storage = state.storage.clone();
+                            let storage2 = storage.clone();
+                            tokio::task::spawn_blocking({
+                                let scraped = scraped.clone();
+                                move || storage.replace_catalog_item_detail(id, &scraped).map_err(|e| e.to_string())
+                            }).await.map_err(|e| e.to_string())??;
+
+                            return tokio::task::spawn_blocking(move || {
+                                storage2.get_catalog_detail(id).map_err(|e| e.to_string())
+                            }).await.map_err(|e| e.to_string())?;
+                        }
+                        Ok(_) => {}
+                        Err(e) => log::warn!("Provider detail failed for {}: {}", source, e),
+                    }
+                }
+            }
+        }
+
+        // Fall back to scrape_catalog_detail_from_json
         if let Some(detail_json) = detail.item.detail_json.clone() {
             match scrape_catalog_detail_from_json(&detail_json).await {
                 Ok(Some(scraped)) if !scraped.episodes.is_empty() => {
