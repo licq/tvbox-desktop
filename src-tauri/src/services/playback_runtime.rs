@@ -1303,65 +1303,6 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires live upstream access"]
-    async fn reflects_live_libvio_runtime_as_external_when_upstream_is_cloud_disk() {
-        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
-        let item = crate::services::libvio::scrape_libvio_detail(
-            "https://www.libvio.me/detail/714893377.html",
-        )
-        .await
-        .expect("libvio detail should fetch")
-        .expect("libvio detail should parse");
-        let play_url = item
-            .episodes
-            .first()
-            .expect("libvio detail should include an episode")
-            .play_url
-            .clone();
-
-        let resolved = resolve_playback_for_input(&storage, &play_url, None)
-            .await
-            .expect("runtime should resolve libvio play url");
-
-        println!(
-            "libvio runtime status={} candidates={}",
-            resolved.status,
-            resolved.candidates.len()
-        );
-        assert_eq!(resolved.status, "external_required");
-    }
-
-    #[tokio::test]
-    #[ignore = "requires live upstream access"]
-    async fn resolves_live_auete_runtime_to_playable_candidates() {
-        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
-        let item = crate::services::auete::scrape_auete_detail(
-            "https://auete.top/Movie/aqp/miaosu5limizhenrenban/",
-        )
-        .await
-        .expect("auete detail should fetch")
-        .expect("auete detail should parse");
-        let play_url = item
-            .episodes
-            .first()
-            .expect("auete detail should include an episode")
-            .play_url
-            .clone();
-
-        let resolved = resolve_playback_for_input(&storage, &play_url, None)
-            .await
-            .expect("runtime should resolve auete play url");
-
-        println!(
-            "auete runtime status={} candidates={}",
-            resolved.status,
-            resolved.candidates.len()
-        );
-        assert_eq!(resolved.status, "ready");
-        assert!(!resolved.candidates.is_empty());
-    }
-
-    #[tokio::test]
-    #[ignore = "requires live upstream access"]
     async fn reflects_live_xb6v_runtime_request_failure() {
         let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
         let play_url =
@@ -1373,25 +1314,6 @@ mod tests {
 
         println!("xb6v runtime error={error}");
         assert!(error.contains("error sending request"));
-    }
-
-    #[tokio::test]
-    #[ignore = "requires live upstream access"]
-    async fn resolves_live_guard_jianpian_runtime_to_playable_candidates() {
-        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
-        let play_url = "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/77083/1/1";
-
-        let resolved = resolve_playback_for_input(&storage, play_url, None)
-            .await
-            .expect("runtime should resolve guard jianpian play url");
-
-        println!(
-            "guard_jianpian runtime status={} candidates={}",
-            resolved.status,
-            resolved.candidates.len()
-        );
-        assert_eq!(resolved.status, "ready");
-        assert!(!resolved.candidates.is_empty());
     }
 
     fn unique_test_dir() -> PathBuf {

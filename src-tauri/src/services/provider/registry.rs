@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use reqwest::Client;
-use tokio::sync::RwLock;
 
 use crate::services::tvbox::{TvboxSiteRecord, TvboxConfigRecords};
 use crate::services::xb6v::ScrapedCatalogItem;
-use super::{VideoProvider, ProviderError, CmsProvider, SpiderProvider};
+use super::{VideoProvider, CmsProvider, SpiderProvider};
 
 pub struct SearchResult {
     pub source_key: String,

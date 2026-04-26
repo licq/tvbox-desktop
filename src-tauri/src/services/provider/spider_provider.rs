@@ -26,7 +26,7 @@ struct JsThreadHandle {
 }
 
 impl JsThreadHandle {
-    fn new(site_key: String, _site_name: String, ext: String, client: Client) -> Result<Self, ProviderError> {
+    fn new(site_key: String, _site_name: String, _ext: String, client: Client) -> Result<Self, ProviderError> {
         let (sender, mut receiver) = mpsc::channel(32);
 
         // Spawn a dedicated thread for this provider's JS runtime
@@ -158,10 +158,7 @@ impl JsThreadHandle {
 pub struct SpiderProvider {
     site_key: String,
     site_name: String,
-    ext: String,
-    spider_js_url: String,
     js_thread: JsThreadHandle,
-    client: Client,
 }
 
 impl SpiderProvider {
@@ -189,10 +186,7 @@ impl SpiderProvider {
         Self {
             site_key,
             site_name,
-            ext: ext.clone(),
-            spider_js_url: ext,
             js_thread,
-            client,
         }
     }
 

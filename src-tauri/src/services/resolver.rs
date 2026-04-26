@@ -603,12 +603,9 @@ fn apply_request_headers(
 #[cfg(test)]
 mod tests {
     use super::{
-        absolutize_url, classify_playback_target, detect_kind, extract_aliplayer_source,
-        first_playlist_resource, is_known_cdn_url, looks_like_cloud_disk_link,
-        looks_like_xb6v_play_page, map_target_kind_to_probe_gate, normalize_master_playlist,
-        probe_candidate_for_runtime, rewrite_relative_urls, PlaybackResolver,
+        classify_playback_target, detect_kind, looks_like_cloud_disk_link,
+        looks_like_xb6v_play_page, map_target_kind_to_probe_gate, PlaybackResolver,
     };
-    use crate::models::ResolvedPlayback;
 
     #[tokio::test]
     async fn marks_hls_url_as_ready_candidate() {
