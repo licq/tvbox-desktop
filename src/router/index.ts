@@ -19,6 +19,12 @@ const router = createRouter({
       component: () => import('@/views/PlayerPage.vue')
     },
     {
+      path: '/player/source/:detailUrl',
+      name: 'player-source',
+      component: () => import('@/views/PlayerPage.vue'),
+      props: true
+    },
+    {
       path: '/subscriptions',
       name: 'subscriptions',
       component: () => import('@/views/Subscriptions.vue')

@@ -46,6 +46,9 @@ const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? 
 const isEmbedSource = computed(() => currentSource.value?.kind === 'embed')
 const mode = computed(() => String(route.params.mode ?? 'live'))
 const itemId = computed(() => Number(route.params.id))
+const sourceDetailUrl = computed(() => route.params.detailUrl as string | undefined)
+const sourceName = computed(() => route.query.source as string | undefined)
+const sourceTitle = computed(() => route.query.title as string | undefined)
 const episodeUrl = computed(() => {
   const value = route.query.episode
   return typeof value === 'string' ? value : null
@@ -56,6 +59,30 @@ const episodeId = computed(() => {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined
 })
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
+
+async function loadSourceDetail() {
+  if (!sourceDetailUrl.value || !sourceName.value) {
+    errorMsg.value = '缺少播放地址参数'
+    return
+  }
+  try {
+    const playUrl = await invoke<string>('play_from_source_detail', {
+      detailUrl: sourceDetailUrl.value,
+      source: sourceName.value,
+    })
+    sources.value = [{
+      url: playUrl,
+      label: sourceTitle.value || sourceName.value || '来源',
+      kind: playUrl.includes('.m3u8') ? 'hls' : 'http'
+    }]
+    currentSourceIndex.value = 0
+    if (sources.value.length > 0) {
+      await playSource(sources.value[0])
+    }
+  } catch (e) {
+    errorMsg.value = `加载播放地址失败: ${e}`
+  }
+}
 const playerStatusText = computed(() => {
   if (errorMsg.value) return '需要处理'
   if (pendingAutoplay.value) return '等待播放'
@@ -136,6 +163,8 @@ onMounted(async () => {
     } else {
       errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
     }
+  } else if (mode.value === 'source') {
+    await loadSourceDetail()
   } else {
     errorMsg.value = '缺少播放地址'
   }

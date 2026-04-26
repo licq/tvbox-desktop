@@ -122,8 +122,8 @@ function handlePlay(episode: CatalogEpisode) {
 }
 
 function handleSearchResultPlay(result: SearchResult) {
-  // Open source detail page in new tab since we don't have direct playback yet
-  window.open(result.detail_url, '_blank')
+  // Navigate to player with source detail URL for playback
+  router.push(`/player/source/${encodeURIComponent(result.detail_url)}?source=${result.source}&title=${encodeURIComponent(result.title || '')}`)
 }
 </script>
 

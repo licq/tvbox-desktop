@@ -26,6 +26,7 @@ fn main() {
             tvbox_lib::commands::player::get_play_history,
             tvbox_lib::commands::player::resolve_playback,
             tvbox_lib::commands::player::fetch_hls_manifest,
+            tvbox_lib::commands::player::play_from_source_detail,
             tvbox_lib::commands::douban::get_douban_hot,
             tvbox_lib::commands::douban::fetch_douban_hot,
             tvbox_lib::commands::douban::get_matched_hot_list,
@@ -34,6 +35,7 @@ fn main() {
             tvbox_lib::commands::douban::get_douban_hot_by_type,
             tvbox_lib::commands::douban::proxy_image,
             tvbox_lib::commands::douban::fetch_douban_subject_metadata,
+            tvbox_lib::commands::douban::fetch_douban_metadata_by_id,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");

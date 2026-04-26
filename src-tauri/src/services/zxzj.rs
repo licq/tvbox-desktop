@@ -251,6 +251,12 @@ pub fn extract_player_url(body: &str) -> Option<String> {
         })
 }
 
+pub async fn extract_player_url_from_detail(detail_url: &str) -> Result<String, String> {
+    let client = build_client()?;
+    let html = fetch_text(&client, detail_url).await?;
+    extract_player_url(&html).ok_or_else(|| "无法从页面提取播放地址".to_string())
+}
+
 fn is_external_source(source_name: &str) -> bool {
     ["网盘", "夸克", "迅雷", "下载", "磁力"]
         .iter()

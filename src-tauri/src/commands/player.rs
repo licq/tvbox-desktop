@@ -49,3 +49,14 @@ pub async fn fetch_hls_manifest(
     crate::services::resolver::fetch_hls_manifest_internal(&url, headers.as_ref())
         .await
 }
+
+#[tauri::command]
+pub async fn play_from_source_detail(
+    detail_url: String,
+    source: String,
+) -> Result<String, String> {
+    match source.as_str() {
+        "zxzj" => crate::services::zxzj::extract_player_url_from_detail(&detail_url).await,
+        _ => Err(format!("Unknown source: {}", source)),
+    }
+}
