@@ -204,9 +204,41 @@ function handlePlay(episode: CatalogEpisode) {
   router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
 }
 
-function handleSearchResultPlay(result: SearchResult) {
-  // Navigate to player with source detail URL for playback
-  router.push(`/player/source/${encodeURIComponent(result.detail_url)}?source=${result.source}&title=${encodeURIComponent(result.title || '')}`)
+async function handleSearchResultPlay(result: SearchResult) {
+  // detail_url is JSON string: {"source": "site_key", "ids": "vod_id", ...}
+  let parsed: { source?: string; ids?: string; url?: string; flag?: string } = {}
+  try {
+    parsed = JSON.parse(result.detail_url)
+  } catch {
+    searchError.value = '播放地址解析失败'
+    return
+  }
+
+  const source = parsed.source || result.source
+  const ids = parsed.ids || parsed.url || result.detail_url
+
+  if (!source || !ids) {
+    searchError.value = '播放信息不完整'
+    return
+  }
+
+  try {
+    const targets = await invoke<PlaybackTarget[]>('provider_play', {
+      source,
+      flag: parsed.flag || 'auto',
+      play_url: ids,
+    })
+
+    if (targets.length > 0) {
+      const target = targets[0]
+      router.push(`/player/source/${encodeURIComponent(target.target_url)}?source=${source}`)
+    } else {
+      searchError.value = '播放地址获取失败'
+    }
+  } catch (e) {
+    console.error('[VodDetail] provider_play failed:', e)
+    searchError.value = String(e)
+  }
 }
 </script>
 
