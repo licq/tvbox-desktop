@@ -6,6 +6,7 @@ pub mod libvio;
 pub mod parser;
 pub mod playback_runtime;
 pub mod playback_types;
+pub mod provider;
 pub mod resolver;
 pub mod search;
 pub mod storage;
