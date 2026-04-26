@@ -12,7 +12,6 @@ use crate::services::xb6v::{ScrapedCatalogItem, ScrapedCatalogEpisode};
 use crate::services::playback_types::{PlaybackTarget, PlaybackTargetKind};
 
 enum JsThreadCommand {
-    LoadScript(String),
     CallMethod {
         method: String,
         args: Vec<String>,
@@ -26,7 +25,7 @@ struct JsThreadHandle {
 }
 
 impl JsThreadHandle {
-    fn new(site_key: String, _site_name: String, _ext: String, client: Client) -> Result<Self, ProviderError> {
+    fn new(site_key: String, _site_name: String, ext: String, client: Client) -> Result<Self, ProviderError> {
         let (sender, mut receiver) = mpsc::channel(32);
 
         // Spawn a dedicated thread for this provider's JS runtime
@@ -41,12 +40,37 @@ impl JsThreadHandle {
                 let mut js_script: Option<String> = None;
                 let client = client;
 
+                // If ext is a URL, fetch the script content synchronously on this thread
+                if ext.starts_with("http://") || ext.starts_with("https://") {
+                    // Use tokio runtime to fetch the script synchronously
+                    let rt = tokio::runtime::Handle::current();
+                    let ext_url = ext.clone();
+                    let result = rt.block_on(async {
+                        client.get(&ext_url).send().await
+                    });
+                    match result {
+                        Ok(resp) => {
+                            let text_result = rt.block_on(resp.text());
+                            if let Ok(text) = text_result {
+                                js_script = Some(text);
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("[spider-js-{}] Failed to fetch spider script from {}: {}", site_key, ext, e);
+                        }
+                    }
+                } else {
+                    // Base64 encoded
+                    if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&ext) {
+                        js_script = Some(String::from_utf8_lossy(&decoded).to_string());
+                    } else {
+                        js_script = Some(ext.clone());
+                    }
+                }
+
                 // Process commands
                 while let Some(cmd) = receiver.blocking_recv() {
                     match cmd {
-                        JsThreadCommand::LoadScript(script) => {
-                            js_script = Some(script);
-                        }
                         JsThreadCommand::CallMethod { method, args, response } => {
                             let result = Self::execute_method(
                                 &rt, &ctx,
@@ -163,25 +187,9 @@ pub struct SpiderProvider {
 
 impl SpiderProvider {
     pub fn new(site_key: String, site_name: String, ext: String, client: Client) -> Self {
-        let js_thread = JsThreadHandle::new(site_key.clone(), site_name.clone(), ext.clone(), client.clone())
+        // JsThreadHandle::new() now handles URL fetching and base64 decoding internally
+        let js_thread = JsThreadHandle::new(site_key.clone(), site_name.clone(), ext, client.clone())
             .expect("Failed to create JS thread");
-
-        // Load the script synchronously on the JS thread
-        let script = if ext.starts_with("http://") || ext.starts_with("https://") {
-            // This is a URL, we need to fetch it
-            // For now, we'll load it lazily
-            ext.clone()
-        } else {
-            // Base64 encoded
-            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&ext) {
-                String::from_utf8_lossy(&decoded).to_string()
-            } else {
-                ext.clone()
-            }
-        };
-
-        // Send script to thread
-        let _ = js_thread.sender.try_send(JsThreadCommand::LoadScript(script));
 
         Self {
             site_key,
