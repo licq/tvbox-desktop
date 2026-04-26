@@ -43,6 +43,7 @@ const doubanMeta = ref<DoubanSubjectMeta | null>(null)
 const loadingDouban = ref(false)
 const searchResults = ref<GroupedSearchResults[]>([])
 const loadingSearch = ref(false)
+const searchError = ref<string | null>(null)
 
 async function loadDetail() {
   // Direct from Douban hot list - use itemId as douban_id directly
@@ -88,6 +89,7 @@ async function loadDetail() {
 
 async function searchSources(title: string) {
   loadingSearch.value = true
+  searchError.value = null
   try {
     const results = await invoke<SearchResult[]>('search_vod_sources', { title })
     // Group by source
@@ -98,11 +100,14 @@ async function searchSources(title: string) {
       }
       grouped[r.source_name].push(r)
     }
-    searchResults.value = Object.entries(grouped).map(([source_name, results]) => ({
-      source_name,
-      results,
-    }))
-  } catch {
+    searchResults.value = Object.entries(grouped)
+      .filter(([, results]) => results.length > 0)
+      .map(([source_name, results]) => ({
+        source_name,
+        results,
+      }))
+  } catch (e) {
+    searchError.value = String(e)
     searchResults.value = []
   } finally {
     loadingSearch.value = false
@@ -117,8 +122,8 @@ function handlePlay(episode: CatalogEpisode) {
 }
 
 function handleSearchResultPlay(result: SearchResult) {
-  // 使用 detail_url 作为播放标识，导航到播放器页面
-  router.push(`/player/vod/${itemId.value}?source=${result.source}&detailUrl=${encodeURIComponent(result.detail_url)}&title=${encodeURIComponent(result.title || doubanMeta.value?.title || '')}`)
+  // Open source detail page in new tab since we don't have direct playback yet
+  window.open(result.detail_url, '_blank')
 }
 </script>
 
@@ -176,6 +181,9 @@ function handleSearchResultPlay(result: SearchResult) {
           </div>
         </section>
 
+        <div v-else-if="searchError" class="home-empty-state text-red-500">
+          {{ searchError }}
+        </div>
         <div v-else-if="doubanMeta && !loadingSearch" class="home-empty-state">
           暂未找到可用的播放源
         </div>
