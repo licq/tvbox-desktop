@@ -39,12 +39,41 @@ export interface DoubanHot {
 export type SourceId = 'zxzj' | 'jpvod' | 'xb6v';
 
 export interface SearchResult {
-  source: SourceId;
+  source: string;
   source_name: string;
   detail_url: string;
   item_type: 'movie' | 'series' | 'variety' | 'anime' | 'generic';
   title?: string;
   poster?: string;
+}
+
+// Provider search result structure (returned by search_all_sources)
+export interface SourceSearchResult {
+  source_key: string
+  source_name: string
+  items: ProviderCatalogItem[]
+}
+
+export interface ProviderCatalogItem {
+  source_item_key: string
+  title: string
+  item_type: string
+  poster?: string
+  summary?: string
+  detail_json?: string
+  episodes: CatalogEpisode[]
+}
+
+// Playback target (returned by provider_play)
+export interface PlaybackTarget {
+  episode_id: number | null
+  source_key: string
+  target_url: string
+  target_kind: 'direct' | 'resolvable' | 'embedded' | 'external_required'
+  resolver_key: string | null
+  headers: Record<string, string> | null
+  sort_hint: number
+  meta: string | null
 }
 
 export interface VodItem {
