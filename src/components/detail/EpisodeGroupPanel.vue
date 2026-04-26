@@ -1,45 +1,25 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
 import EpisodeChip from '@/components/media/EpisodeChip.vue'
 import SourceBadge from '@/components/media/SourceBadge.vue'
 import type { CatalogEpisode, CatalogEpisodeGroup } from '@/types'
 
-const props = defineProps<{
+defineProps<{
   group: CatalogEpisodeGroup
-  recommended?: boolean
 }>()
 
 const emit = defineEmits<{
   play: [episode: CatalogEpisode]
 }>()
-
-const expanded = ref(false)
-
-watch(
-  () => props.recommended,
-  (isRecommended) => {
-    if (isRecommended) {
-      expanded.value = true
-    }
-  },
-  { immediate: true }
-)
 </script>
 
 <template>
-  <section :class="['episode-group-panel', recommended ? 'episode-group-panel-recommended' : '']">
-    <button class="episode-group-header" type="button" @click="expanded = !expanded">
-      <span>
-        <span class="section-title">{{ group.source_name }}</span>
-        <small>{{ recommended ? '推荐来源，默认展开' : '备用来源，按需展开' }}</small>
-      </span>
-      <span class="episode-group-meta">
-        <SourceBadge :label="`${group.episodes.length} episodes`" :tone="recommended ? 'warm' : 'neutral'" />
-        <span>{{ expanded ? '收起' : '展开' }}</span>
-      </span>
-    </button>
+  <section class="source-group-panel">
+    <div class="source-group-header">
+      <span class="section-title">{{ group.source_name }}</span>
+      <SourceBadge :label="`${group.episodes.length} 个播放源`" tone="neutral" />
+    </div>
 
-    <div v-if="expanded" class="episode-chip-grid">
+    <div class="episode-chip-grid">
       <EpisodeChip
         v-for="episode in group.episodes"
         :key="episode.id"
@@ -50,3 +30,22 @@ watch(
     </div>
   </section>
 </template>
+
+<style scoped>
+.source-group-panel {
+  padding: 1rem 1.25rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 1.25rem;
+}
+.source-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.episode-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+</style>
