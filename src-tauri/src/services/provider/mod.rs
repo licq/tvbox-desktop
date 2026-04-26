@@ -22,6 +22,12 @@ pub enum ProviderError {
     Serde(#[from] serde_json::Error),
 }
 
+impl From<rquickjs::Error> for ProviderError {
+    fn from(e: rquickjs::Error) -> Self {
+        ProviderError::JsRuntime(e.to_string())
+    }
+}
+
 pub mod traits;
 pub mod cms_provider;
 pub mod spider_provider;
@@ -30,4 +36,4 @@ pub mod registry;
 pub use traits::VideoProvider;
 pub use cms_provider::CmsProvider;
 pub use spider_provider::SpiderProvider;
-pub use registry::ProviderRegistry;
+// ProviderRegistry will be exported when registry module is implemented
