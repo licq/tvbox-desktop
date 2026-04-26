@@ -35,11 +35,6 @@ const router = createRouter({
       component: () => import('@/views/VodDetail.vue')
     },
     {
-      path: '/detail/hot/:doubanId',
-      name: 'HotDetail',
-      component: () => import('@/views/HotDetail.vue')
-    },
-    {
       path: '/vod/:id',
       redirect: to => `/detail/${to.params.id}`
     },

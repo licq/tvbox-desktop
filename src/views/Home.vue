@@ -181,7 +181,7 @@ function handlePlayChannel(channel: LiveChannel, _sourceUrl?: string) {
 }
 
 function handleHotClick(hot: DoubanHot) {
-  router.push(`/detail/hot/${hot.id}?type=${hot.item_type}`)
+  router.push(`/detail/${hot.id}?douban=1`)
 }
 
 function toggleChannelExpansion(category: string) {

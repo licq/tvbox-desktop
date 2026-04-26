@@ -25,15 +25,6 @@ export interface LiveChannelGroup {
   channels: LiveChannel[];
 }
 
-export interface DoubanHotItem {
-  id: number;
-  name: string;
-  year?: number;
-  poster?: string;
-  rating?: number;
-  rank: number;
-}
-
 export interface DoubanHot {
   id: number;
   name: string;
