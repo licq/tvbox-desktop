@@ -95,14 +95,15 @@ pub fn rank_targets(
 
 pub fn playback_source_rank(source_key: &str) -> i32 {
     let normalized = source_key.trim().to_ascii_lowercase();
-
     match normalized.as_str() {
         "auete" | "wencai" | "jianpian" | "csp_jpysguard" | "csp_jpjguard" => 0,
         "libvio" => 1,
         "xb6v" => 2,
         "default" | "guard" => 3,
         "zxzj" => 4,
-        _ => 3,
+        // Dynamic sources from TVBox config: rank based on known prefixes
+        s if s.starts_with("csp_") => 0, // All CSP sources ranked as preferred
+        _ => 5, // Unknown sources ranked lowest
     }
 }
 
