@@ -125,10 +125,6 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
                 log::info!("Registered {} providers from TVBox config", registry.count());
             }
 
-            // Old scraper-based catalog scraping is no longer available.
-// VOD catalog is now handled through the provider system.
-log::debug!("VOD catalog scraping via old scrapers is disabled");
-
             Ok(RefreshResult {
                 subscription_name,
                 live_count: parsed.lives.len() as i32,
