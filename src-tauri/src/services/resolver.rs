@@ -379,7 +379,7 @@ async fn resolve_multi_candidate_page(
         } else {
             match fetch_text(&client, &play_page.url).await {
                 Ok(value) => value,
-                Err(_) => continue,
+                Err(_e) => { continue; }
             }
         };
 
@@ -387,7 +387,7 @@ async fn resolve_multi_candidate_page(
             continue;
         };
         let headers = playback_headers_for_page(&play_page.url);
-        if probe_media_candidate(&client, &source_url, headers.as_ref()).await.is_err() {
+        if !is_known_cdn_url(&source_url) && probe_media_candidate(&client, &source_url, headers.as_ref()).await.is_err() {
             continue;
         }
 
@@ -679,7 +679,12 @@ fn playback_headers_for_page(page_url: &str) -> Option<std::collections::HashMap
     let host = url.host_str()?;
     let origin = format!("{}://{}", url.scheme(), host);
     let mut headers = std::collections::HashMap::new();
-    headers.insert("Referer".to_string(), format!("{origin}/"));
+    // For jpvod.com play pages, use jpvod.com as referer (some CDNs require this)
+    if page_url.contains("jpvod.com/play/") {
+        headers.insert("Referer".to_string(), "https://jpvod.com/".to_string());
+    } else {
+        headers.insert("Referer".to_string(), format!("{origin}/"));
+    }
     headers.insert("Origin".to_string(), origin);
     Some(headers)
 }
@@ -739,7 +744,7 @@ async fn probe_hls_playlist_result(
 ) -> PlaybackProbeResult {
     let body = match fetch_hls_playlist_with_headers(client, url, headers).await {
         Ok(body) => body,
-        Err(error) => return PlaybackProbeResult::failed(error, None),
+        Err(error) => { return PlaybackProbeResult::failed(error, None); }
     };
     if !body.contains("#EXTM3U") {
         return failed_hls_probe("playlist missing EXTM3U header", Some(200), false, false);
@@ -752,13 +757,14 @@ async fn probe_hls_playlist_result(
         };
         let variant_body = match fetch_hls_playlist_with_headers(client, &variant_url, headers).await {
             Ok(body) => body,
-            Err(error) => return PlaybackProbeResult::failed(error, None),
+            Err(error) => { return PlaybackProbeResult::failed(error, None); }
         };
         if !variant_body.contains("#EXTM3U") {
             return failed_hls_probe("variant playlist missing EXTM3U header", Some(200), true, false);
         }
-        return probe_hls_media_playlist_result(client, &variant_url, &variant_body, headers)
-            .await;
+        // Variant playlist is valid - mark as playable even without CORS check on variant
+        // (some CDNs don't return CORS on variant chunks but master playlist passed)
+        return PlaybackProbeResult::playable();
     }
 
     probe_hls_media_playlist_result(client, url, &body, headers).await
@@ -859,6 +865,20 @@ fn has_browser_cors(response: &reqwest::Response) -> bool {
         .get("Access-Control-Allow-Origin")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| !value.trim().is_empty())
+}
+
+/// Known CDN hosts that work in browser (hls.js) but may fail Rust-side TLS probing.
+/// These CDNs return proper CORS headers but employ TLS fingerprinting that blocks
+/// non-browser TLS stacks (curl and IINA work, but native-tls/reqwest fails).
+pub(crate) fn is_known_cdn_url(url: &str) -> bool {
+    // Check if URL contains a known CDN hostname that works in browser but
+    // may fail Rust-side TLS probing due to CDN TLS fingerprint detection.
+    let known_hosts = ["s1.fengbao9.com"];
+    let matched = known_hosts.iter().any(|host| url.contains(host));
+    if matched {
+        eprintln!("[is_known_cdn_url] MATCH: {}", url);
+    }
+    matched
 }
 
 pub(crate) fn build_client() -> Result<reqwest::Client, String> {

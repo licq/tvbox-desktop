@@ -20,6 +20,35 @@ pub fn is_jianpian_site(site: &crate::services::tvbox::TvboxSiteRecord) -> bool 
             .is_some_and(|ext| ext.contains("jianpian") || ext.contains("jpys"))
 }
 
+pub async fn fetch_detail_page(detail_url: &str) -> Result<String, String> {
+    let client = build_client()?;
+    fetch_text(&client, detail_url).await
+}
+
+fn build_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    client
+        .get(url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        )
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub(crate) fn parse_listing_page(
     page_url: &str,
     item_type: &str,

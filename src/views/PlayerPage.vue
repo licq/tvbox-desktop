@@ -70,13 +70,33 @@ async function loadSourceDetail() {
       detailUrl: sourceDetailUrl.value,
       source: sourceName.value,
     })
-    sources.value = [{
-      url: playUrl,
-      label: sourceTitle.value || sourceName.value || '来源',
-      kind: playUrl.includes('.m3u8') ? 'hls' : 'http'
-    }]
-    currentSourceIndex.value = 0
-    if (sources.value.length > 0) {
+    // For jpvod/jianpian, the returned URL is a play page that needs resolution
+    // Pass through playbackStore to get actual stream URL
+    if (sourceName.value === 'jpvod' || sourceName.value === 'jianpian') {
+      const resolved = await playbackStore.resolve(playUrl, undefined)
+      if (resolved.candidates.length > 0) {
+        sources.value = resolved.candidates.map(c => ({
+          url: c.url,
+          label: c.label,
+          kind: c.kind
+        }))
+        currentSourceIndex.value = 0
+        if (resolved.status === 'ready' || resolved.status === 'external_required') {
+          await playSource(sources.value[0])
+        } else {
+          errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+        }
+      } else {
+        errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+      }
+    } else {
+      // Direct stream URL for other sources
+      sources.value = [{
+        url: playUrl,
+        label: sourceTitle.value || sourceName.value || '来源',
+        kind: playUrl.includes('.m3u8') ? 'hls' : 'http'
+      }]
+      currentSourceIndex.value = 0
       await playSource(sources.value[0])
     }
   } catch (e) {
@@ -123,7 +143,9 @@ function handleUserInteraction() {
 }
 
 onMounted(async () => {
-  if (mode.value === 'live') {
+  if (route.name === 'player-source') {
+    await loadSourceDetail()
+  } else if (mode.value === 'live') {
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(channel => channel.id === itemId.value)
     if (channel && channel.sources.length > 0) {
@@ -163,8 +185,6 @@ onMounted(async () => {
     } else {
       errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
     }
-  } else if (mode.value === 'source') {
-    await loadSourceDetail()
   } else {
     errorMsg.value = '缺少播放地址'
   }
@@ -440,7 +460,7 @@ async function initHlsPlayer(url: string) {
           const url = context.url
           // Intercept ALL requests to problematic CDNs (not just .m3u8)
           // Segments (.ts) also need to be proxied through Rust
-          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng')) {
+          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng') || url.includes('fengbao9')) {
             // Fetch via Tauri command to bypass CORS
             invoke<string>('fetch_hls_manifest', { url })
               .then((data) => {

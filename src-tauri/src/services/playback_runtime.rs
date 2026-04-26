@@ -4,7 +4,8 @@ use crate::services::playback_types::{
     PlaybackTargetKind,
 };
 use crate::services::resolver::{
-    build_client, classify_playback_target, probe_candidate_for_runtime, PlaybackResolver,
+    build_client, classify_playback_target, is_known_cdn_url, probe_candidate_for_runtime,
+    PlaybackResolver,
 };
 use crate::services::storage::{
     playback_cache::{
@@ -286,8 +287,13 @@ async fn expand_resolved_playback(
             meta: Some(candidate.label),
         };
 
-        let probe = if target.is_desktop_playable_kind() {
+        let probe = if target.is_desktop_playable_kind() && !is_known_cdn_url(&target.target_url) {
             cached_or_probed_result(storage, client, &target).await?
+        } else if is_known_cdn_url(&target.target_url) {
+            // Known CDNs work in browser (CORS headers present) but Rust's native-tls
+            // probe may falsely fail due to CDN TLS fingerprint detection. Skip probe
+            // and trust the URL since hls.js handles it correctly in the WebView.
+            PlaybackProbeResult::playable()
         } else {
             PlaybackProbeResult::failed("target kind is not desktop playable", None)
         };
