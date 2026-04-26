@@ -1,7 +1,9 @@
+use crate::models::DoubanSubjectMeta;
+use crate::services::douban::DoubanSubjectScraper;
 use crate::AppState;
 use crate::models::DoubanHot;
 use crate::models::DoubanHotItem;
-use tauri::State;
+use tauri::{AppHandle, State};
 use serde::{Deserialize, Serialize};
 use base64::Engine;
 use std::collections::HashMap;
@@ -252,5 +254,61 @@ mod tests {
 
         // Cleanup
         std::fs::remove_dir_all(&app_data_dir).ok();
+    }
+}
+
+#[tauri::command]
+pub async fn fetch_douban_subject_metadata(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_id: i64,
+) -> Result<Option<DoubanSubjectMeta>, String> {
+    // 获取 item 的 title 和 douban_id
+    let catalog_item = state.storage.get_catalog_item(item_id).map_err(|e| e.to_string())?;
+
+    let douban_id = {
+        // 先查 catalog_items 是否有 douban_id
+        if let Some(id) = state.storage.get_catalog_item_douban_id(item_id).map_err(|e| e.to_string())? {
+            Some(id)
+        } else {
+            // 尝试模糊匹配 - 使用 Storage 内部逻辑
+            let normalized = catalog_item.title
+                .chars()
+                .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+                .collect::<String>()
+                .to_lowercase();
+
+            let douban_items = state.storage.get_douban_hot().map_err(|e| e.to_string())?;
+            let mut best_match: Option<i64> = None;
+            let mut best_score = 0.8f64;
+
+            for item in douban_items.iter().take(500) {
+                let item_normalized = item.name
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+                    .collect::<String>()
+                    .to_lowercase();
+
+                let score = calculate_similarity(&normalized, &item_normalized);
+                if score > best_score {
+                    best_score = score;
+                    best_match = Some(item.id);
+                }
+            }
+            best_match
+        }
+    };
+
+    if let Some(dbid) = douban_id {
+        let meta = DoubanSubjectScraper::scrape(&app, dbid).await;
+        match meta {
+            Ok(m) => Ok(Some(m)),
+            Err(e) => {
+                log::warn!("Failed to fetch Douban meta for {}: {}", dbid, e);
+                Ok(None)
+            }
+        }
+    } else {
+        Ok(None)
     }
 }

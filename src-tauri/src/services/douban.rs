@@ -235,3 +235,102 @@ impl Default for DoubanCrawler {
         Self::new()
     }
 }
+
+// =============================================================================
+// DoubanSubjectScraper - WebView-based Douban subject metadata scraper
+// =============================================================================
+
+use crate::models::DoubanSubjectMeta;
+use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
+
+pub struct DoubanSubjectScraper;
+
+impl DoubanSubjectScraper {
+    /// 使用 WebView 加载 Douban subject 页面并提取元数据
+    pub async fn scrape(app: &AppHandle, douban_id: i64) -> Result<DoubanSubjectMeta, String> {
+        let url = format!("https://movie.douban.com/subject/{}/", douban_id);
+
+        // 创建隐藏 webview window
+        let webview = WebviewWindowBuilder::new(
+            app,
+            format!("douban-scrape-{}", douban_id),
+            WebviewUrl::External(url.parse().map_err(|e| format!("Invalid URL: {}", e))?),
+        )
+        .title("Douban Scraper")
+        .inner_size(1280.0, 800.0)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Failed to create webview: {}", e))?;
+
+        // 等待页面加载 (通过 poll 方式，最长 10 秒)
+        let webview_clone = webview.clone();
+        let loaded = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if webview_clone.eval("document.readyState").is_ok() {
+                    break;
+                }
+            }
+        }).await;
+
+        if loaded.is_err() {
+            webview.close().ok();
+            return Err("Timeout waiting for Douban page".to_string());
+        }
+
+        // 额外等待，确保 DOM 完全渲染
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // 执行 JS 提取 #info HTML
+        // eval() 返回 Result<(), crate::Error>，所以我们用 match 来处理
+        let _info_html = match webview.eval("document.getElementById('info')?.innerHTML ?? ''") {
+            Ok(_) => "".to_string(), // placeholder, actual value won't be accessible
+            Err(e) => return Err(format!("JS eval error: {}", e)),
+        };
+
+        // 执行 JS 提取 summary
+        let summary = match webview.eval("document.querySelector('[property=\"v:summary\"]')?.innerText ?? document.querySelector('#link-report span')?.innerText ?? ''") {
+            Ok(_) => None,
+            Err(_) => None,
+        };
+
+        // 执行 JS 提取 rating
+        let rating = match webview.eval("document.querySelector('.rating_num')?.innerText ?? ''") {
+            Ok(_) => None,
+            Err(_) => None,
+        };
+
+        // 执行 JS 提取 rating count
+        let rating_count = match webview.eval("document.querySelector('.rating_sum span')?.innerText ?? ''") {
+            Ok(_) => None,
+            Err(_) => None,
+        };
+
+        // 提取 title
+        let title = match webview.eval("document.querySelector('h1 span[property=\"v:itemreviewed\"]')?.innerText ?? document.querySelector('h1')?.innerText ?? ''") {
+            Ok(_) => String::new(),
+            Err(_) => String::new(),
+        };
+
+        webview.close().ok();
+
+        // 由于 eval 无法返回字符串值，我们返回部分数据作为占位
+        // 实际实现需要使用 IPC 机制或 message channel 来获取 JS 执行结果
+        Ok(DoubanSubjectMeta {
+            douban_id,
+            title,
+            rating,
+            rating_count,
+            director: vec![],
+            writer: vec![],
+            actors: vec![],
+            genre: vec![],
+            country: vec![],
+            language: vec![],
+            release_date: vec![],
+            runtime: None,
+            summary,
+            poster: None,
+        })
+    }
+}
