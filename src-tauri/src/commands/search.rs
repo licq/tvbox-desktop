@@ -1,6 +1,7 @@
 use tauri::State;
 use crate::AppState;
 use crate::services::xb6v::ScrapedCatalogEpisode;
+use crate::services::playback_types::PlaybackTarget;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,4 +42,19 @@ pub async fn provider_detail(
             Err(e.to_string())
         }
     }
+}
+
+#[tauri::command]
+pub async fn provider_play(
+    source: String,
+    flag: String,
+    play_url: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<PlaybackTarget>, String> {
+    let registry = state.provider_registry.read().await;
+    let provider = registry.get(&source).ok_or_else(|| format!("provider not found: {}", source))?;
+    provider.play(&flag, &play_url).await.map_err(|e| {
+        log::warn!("[provider_play] {} failed: {}", source, e);
+        e.to_string()
+    })
 }
