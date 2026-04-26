@@ -36,6 +36,7 @@ fn main() {
             tvbox_lib::commands::douban::proxy_image,
             tvbox_lib::commands::douban::fetch_douban_subject_metadata,
             tvbox_lib::commands::douban::fetch_douban_metadata_by_id,
+            tvbox_lib::commands::search::search_all_sources,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");

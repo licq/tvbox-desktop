@@ -14,11 +14,12 @@ use crate::services::wencai::{
 };
 use crate::services::zxzj::{is_zxzj_site, scrape_zxzj_catalog, scrape_zxzj_detail};
 use regex::Regex;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use tokio::task::JoinSet;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ScrapedCatalogEpisode {
     pub source_name: String,
     pub episode_label: String,
@@ -26,7 +27,7 @@ pub struct ScrapedCatalogEpisode {
     pub order_index: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ScrapedCatalogItem {
     pub source_item_key: String,
     pub title: String,
