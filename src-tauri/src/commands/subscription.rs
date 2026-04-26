@@ -157,31 +157,10 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
                 .map(|live| (live.name, live.logo, live.url, live.category))
                 .collect();
 
-            let vods_data: Vec<_> = parsed
-                .vods
-                .unwrap_or_default()
-                .into_iter()
-                .map(|vod| {
-                    (
-                        vod.name,
-                        vod.vtype.unwrap_or_default(),
-                        vod.poster,
-                        vod.description,
-                        Parser::parse_episodes(vod.episodes),
-                    )
-                })
-                .collect();
-
-            log::info!(
-                "提取简单源数据: {} lives, {} vods",
-                lives_data.len(),
-                vods_data.len()
-            );
-
             let refresh_storage = storage.clone();
             let result = tokio::task::spawn_blocking(move || {
                 refresh_storage
-                    .refresh_subscription(id, lives_data, vods_data)
+                    .refresh_subscription(id, lives_data, vec![])
                     .map_err(|e| e.to_string())
             })
             .await
