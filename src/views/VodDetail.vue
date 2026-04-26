@@ -141,18 +141,46 @@ async function loadDetail() {
   }
 }
 
+interface SourceSearchResult {
+  source_key: string
+  source_name: string
+  items: Array<{
+    title: string
+    poster: string
+    detail_json: string
+    item_type: string
+  }>
+}
+
 async function searchSources(title: string) {
   loadingSearch.value = true
   searchError.value = null
   try {
-    const results = await invoke<SearchResult[]>('search_vod_sources', { title })
-    // Group by source
+    const results = await invoke<SourceSearchResult[]>('search_all_sources', { keyword: title })
+    // Group by source, transform to SearchResult format
     const grouped: Record<string, SearchResult[]> = {}
     for (const r of results) {
-      if (!grouped[r.source_name]) {
-        grouped[r.source_name] = []
+      for (const item of r.items) {
+        let detailData: { source?: string; ids?: string } = { source: r.source_key, ids: '' }
+        if (item.detail_json) {
+          try {
+            detailData = JSON.parse(item.detail_json)
+          } catch {
+            // skip malformed detail_json
+            continue
+          }
+        }
+        if (!r.source_name) continue // skip items with no source name
+        grouped[r.source_name] ||= []
+        grouped[r.source_name].push({
+          source: detailData.source || r.source_key,
+          source_name: r.source_name,
+          detail_url: item.detail_json || '',
+          item_type: item.item_type as SearchResult['item_type'],
+          title: item.title,
+          poster: item.poster,
+        })
       }
-      grouped[r.source_name].push(r)
     }
     searchResults.value = Object.entries(grouped)
       .filter(([, results]) => results.length > 0)
