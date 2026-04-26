@@ -195,3 +195,22 @@ pub struct RefreshResult {
     pub anime_count: i32,
     pub other_count: i32,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoubanSubjectMeta {
+    pub douban_id: i64,
+    pub title: String,
+    pub rating: Option<f64>,
+    pub rating_count: Option<i64>,
+    pub director: Vec<String>,
+    pub writer: Vec<String>,
+    pub actors: Vec<String>,
+    pub genre: Vec<String>,
+    pub country: Vec<String>,
+    pub language: Vec<String>,
+    pub release_date: Vec<String>,
+    pub runtime: Option<String>,
+    pub summary: Option<String>,
+    pub poster: Option<String>,
+}
