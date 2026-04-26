@@ -1,6 +1,6 @@
 use crate::models::{RefreshResult, Subscription};
 use crate::services::tvbox::TvboxLiveRecord;
-use crate::services::{scrape_supported_tvbox_catalogs, Parser, TvboxConfigParser};
+use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
 use encoding_rs::{GB18030, GBK};
 use flate2::read::GzDecoder;
@@ -125,28 +125,9 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
                 log::info!("Registered {} providers from TVBox config", registry.count());
             }
 
-            match scrape_supported_tvbox_catalogs(&parsed.sites).await {
-                Ok(items) => {
-                    if !items.is_empty() {
-                        let catalog_storage = storage.clone();
-                        tokio::task::spawn_blocking(move || {
-                            catalog_storage
-                                .replace_catalog_for_subscription(id, &items)
-                                .map_err(|e| e.to_string())
-                        })
-                        .await
-                        .map_err(|e| e.to_string())?
-                        .map_err(|e| {
-                            log::warn!("写入点播目录失败: {}", e);
-                            e
-                        })
-                        .ok();
-                    }
-                }
-                Err(error) => {
-                    log::warn!("抓取点播目录失败: {}", error);
-                }
-            }
+            // Old scraper-based catalog scraping is no longer available.
+// VOD catalog is now handled through the provider system.
+log::debug!("VOD catalog scraping via old scrapers is disabled");
 
             Ok(RefreshResult {
                 subscription_name,

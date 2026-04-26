@@ -1,5 +1,4 @@
 use crate::models::{CatalogDetail, HomeCatalogItem, HomePayload, VodItem};
-use crate::services::scrape_catalog_detail_from_json;
 use crate::AppState;
 use tauri::State;
 
@@ -119,35 +118,6 @@ pub async fn get_catalog_detail(
                         Ok(_) => {}
                         Err(e) => log::warn!("Provider detail failed for {}: {}", source, e),
                     }
-                }
-            }
-        }
-
-        // Fall back to scrape_catalog_detail_from_json
-        if let Some(detail_json) = detail.item.detail_json.clone() {
-            match scrape_catalog_detail_from_json(&detail_json).await {
-                Ok(Some(scraped)) if !scraped.episodes.is_empty() => {
-                    tokio::task::spawn_blocking({
-                        let storage = storage.clone();
-                        let scraped = scraped.clone();
-                        move || {
-                            storage
-                                .replace_catalog_item_detail(id, &scraped)
-                                .map_err(|e| e.to_string())
-                        }
-                    })
-                    .await
-                    .map_err(|e| e.to_string())??;
-
-                    return tokio::task::spawn_blocking(move || {
-                        storage.get_catalog_detail(id).map_err(|e| e.to_string())
-                    })
-                    .await
-                    .map_err(|e| e.to_string())?;
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    log::warn!("抓取 catalog detail 失败 item_id={id}: {error}");
                 }
             }
         }
