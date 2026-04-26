@@ -80,25 +80,26 @@ function formatList(list: string[], max: number): string {
           <dd>{{ meta.runtime }}</dd>
         </template>
       </dl>
+    </div>
 
-      <div v-if="meta.summary" class="douban-meta-summary">
-        <p>{{ meta.summary }}</p>
-      </div>
+    <div v-if="meta.summary" class="douban-meta-summary">
+      <h3>剧情简介</h3>
+      <p>{{ meta.summary }}</p>
     </div>
   </section>
 </template>
 
 <style scoped>
 .douban-meta-panel {
-  display: flex;
-  gap: 2rem;
+  display: grid;
+  grid-template-columns: 180px 1fr 280px;
+  gap: 1.5rem;
   padding: 1.5rem;
   background: rgba(255,255,255,0.05);
   border-radius: 1.5rem;
 }
 .douban-meta-poster {
   flex-shrink: 0;
-  width: 180px;
 }
 .poster-img {
   width: 180px;
@@ -118,7 +119,6 @@ function formatList(list: string[], max: number): string {
   color: rgba(255,255,255,0.5);
 }
 .douban-meta-content {
-  flex: 1;
   min-width: 0;
 }
 .douban-meta-title {
@@ -162,9 +162,14 @@ function formatList(list: string[], max: number): string {
   font-size: 0.875rem;
 }
 .douban-meta-summary {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255,255,255,0.1);
+  border-left: 1px solid rgba(255,255,255,0.1);
+  padding-left: 1.5rem;
+}
+.douban-meta-summary h3 {
+  font-size: 1rem;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 0.75rem;
+  font-weight: 500;
 }
 .douban-meta-summary p {
   color: rgba(255,255,255,0.7);
