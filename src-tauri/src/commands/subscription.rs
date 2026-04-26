@@ -117,6 +117,14 @@ pub async fn refresh_subscription(id: i64, state: State<'_, AppState>) -> Result
                 return Err(error);
             }
 
+            // After parsing tvbox_config, register providers (clear old ones first for re-refresh)
+            {
+                let mut registry = state.provider_registry.write().await;
+                registry.clear();
+                registry.register_from_config(&parsed);
+                log::info!("Registered {} providers from TVBox config", registry.count());
+            }
+
             match scrape_supported_tvbox_catalogs(&parsed.sites).await {
                 Ok(items) => {
                     if !items.is_empty() {

@@ -36,4 +36,4 @@ pub mod registry;
 pub use traits::VideoProvider;
 pub use cms_provider::CmsProvider;
 pub use spider_provider::SpiderProvider;
-// ProviderRegistry will be exported when registry module is implemented
+pub use registry::ProviderRegistry;

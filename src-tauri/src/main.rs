@@ -40,7 +40,10 @@ fn main() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             let storage = tvbox_lib::Storage::new(app_data_dir).expect("无法初始化数据库");
-            app.manage(tvbox_lib::AppState { storage });
+            let provider_registry = tokio::sync::RwLock::new(
+                tvbox_lib::services::provider::ProviderRegistry::new()
+            );
+            app.manage(tvbox_lib::AppState { storage, provider_registry });
             log::info!("TVBox 应用启动成功");
             Ok(())
         })
