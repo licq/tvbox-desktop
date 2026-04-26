@@ -58,6 +58,20 @@ impl Storage {
             )?;
             log::info!("Migrated douban_hot table: added item_type column");
         }
+
+        // 迁移: 检查 catalog_items 是否有 douban_id 字段
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*) FROM pragma_table_info('catalog_items') WHERE name='douban_id'"
+        )?;
+        let has_douban_id: bool = stmt.query_row([], |row| row.get::<_, i32>(0))? > 0;
+
+        if !has_douban_id {
+            conn.execute(
+                "ALTER TABLE catalog_items ADD COLUMN douban_id INTEGER REFERENCES douban_hot(id)",
+                [],
+            )?;
+            log::info!("Migrated catalog_items: added douban_id column");
+        }
         Ok(())
     }
 
@@ -175,6 +189,7 @@ impl Storage {
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
                 UNIQUE(subscription_id, source_item_key)
+                -- NOTE:正式建表时需包含 douban_id INTEGER 字段，此处通过 ALTER TABLE 迁移添加
             )",
             [],
         )?;
@@ -2216,6 +2231,88 @@ mod tests {
             ],
         )
         .expect("catalog episode should insert");
+    }
+
+    /// 更新 catalog_item 的 douban_id
+    pub fn update_catalog_douban_id(&self, catalog_id: i64, douban_id: i64) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE catalog_items SET douban_id = ?1 WHERE id = ?2",
+            rusqlite::params![douban_id, catalog_id],
+        )?;
+        Ok(())
+    }
+
+    /// 根据 title + year 在 douban_hot 中模糊匹配，返回 douban_id
+    pub fn find_douban_id_by_title(&self, title: &str, year: Option<i32>) -> SqliteResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, year FROM douban_hot LIMIT 500"
+        )?;
+        let mut best_match: Option<i64> = None;
+        let mut best_score = 0.8f64;
+
+        let normalized = normalize_for_match(title);
+        let mut rows = stmt.query([])?;
+
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            let douban_year: Option<i32> = row.get(2)?;
+
+            let score = calculate_match_score(&normalized, &normalize_for_match(&name));
+            if score > best_score {
+                if let (Some(dy), Some(vy)) = (douban_year, year) {
+                    if (dy - vy).abs() > 1 {
+                        continue;
+                    }
+                }
+                best_score = score;
+                best_match = Some(id);
+            }
+        }
+
+        Ok(best_match)
+    }
+
+    fn normalize_for_match(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .to_lowercase()
+    }
+
+    fn calculate_match_score(a: &str, b: &str) -> f64 {
+        let a_chars: Vec<char> = a.chars().collect();
+        let b_chars: Vec<char> = b.chars().collect();
+        if a_chars.is_empty() || b_chars.is_empty() {
+            return 0.0;
+        }
+        let a_ngrams: std::collections::HashSet<String> = (0..a_chars.len())
+            .filter_map(|i| {
+                if i + 2 <= a_chars.len() {
+                    Some(a_chars[i..i + 2].iter().collect())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let b_ngrams: std::collections::HashSet<String> = (0..b_chars.len())
+            .filter_map(|i| {
+                if i + 2 <= b_chars.len() {
+                    Some(b_chars[i..i + 2].iter().collect())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let intersection = a_ngrams.intersection(&b_ngrams).count();
+        let union = a_ngrams.union(&b_ngrams).count();
+        if union == 0 {
+            0.0
+        } else {
+            intersection as f64 / union as f64
+        }
     }
 
     fn unique_test_dir() -> PathBuf {
