@@ -4,7 +4,7 @@ use reqwest::Client;
 
 use crate::services::tvbox::{TvboxSiteRecord, TvboxConfigRecords};
 use crate::services::xb6v::ScrapedCatalogItem;
-use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper, Xb6vScraper, AueteScraper};
+use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper, Xb6vScraper, AueteScraper, ZxzjScraper};
 
 pub struct SearchResult {
     pub source_key: String,
@@ -143,5 +143,7 @@ impl ProviderRegistry {
         self.providers.insert("xb6v".to_string(), Arc::new(Box::new(Xb6vScraper::new())));
         // auete
         self.providers.insert("auete".to_string(), Arc::new(Box::new(AueteScraper::new())));
+        // zxzj
+        self.providers.insert("zxzj".to_string(), Arc::new(Box::new(ZxzjScraper::new())));
     }
 }
