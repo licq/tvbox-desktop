@@ -37,6 +37,7 @@ pub mod auete_scraper;
 pub mod zxzj_scraper;
 pub mod jianpian_scraper;
 pub mod wencai_scraper;
+pub mod libvio_scraper;
 pub mod registry;
 
 pub use traits::VideoProvider;
@@ -49,3 +50,4 @@ pub use zxzj_scraper::ZxzjScraper;
 pub use jianpian_scraper::JianpianScraper;
 pub use wencai_scraper::WencaiScraper;
 pub use registry::ProviderRegistry;
+pub use libvio_scraper::LibvioScraper;
