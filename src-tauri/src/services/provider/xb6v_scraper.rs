@@ -19,15 +19,19 @@ impl Xb6vScraper {
     }
 
     pub async fn search(&self, keyword: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
-        let url = format!("{}/e/search/index.php?keyword={}", self.base.base_url, keyword);
-        let body = self.base.fetch_text(&url).await?;
-
-        // Parse HTML to find search results
-        // Look for elements like .movie-item or similar CSS selectors
-        // For now return empty results if we can't parse
-        // Real implementation would use scraper crate to find .vod-item or similar
-        let items = self.parse_search_results(&body)?;
-        Ok(items)
+        // xb6v uses POST form that redirects to results page
+        let body = self.base.post_form_follow_redirect(
+            &format!("{}/e/search/1index.php", self.base.base_url),
+            &[
+                ("keyboard", keyword),
+                ("show", "title"),
+                ("tempid", "1"),
+                ("tbname", "article"),
+                ("mid", "1"),
+                ("dopost", "search"),
+            ],
+        ).await?;
+        self.parse_search_results(&body)
     }
 
     pub async fn home(&self) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
@@ -38,7 +42,8 @@ impl Xb6vScraper {
     }
 
     pub async fn detail(&self, ids: &str) -> Result<Option<ScrapedCatalogItem>, ProviderError> {
-        let url = format!("{}/e/DownSys/play/?{}", self.base.base_url, ids);
+        // ids is now like "donghuapian/24219" - convert to URL path
+        let url = format!("{}/{}.html", self.base.base_url, ids);
         let body = self.base.fetch_text(&url).await?;
         let item = self.parse_detail_page(&body, ids)?;
         Ok(item)
@@ -61,37 +66,98 @@ impl Xb6vScraper {
     /// Parse search results from HTML.
     /// Returns empty vec if HTML structure can't be determined.
     fn parse_search_results(&self, body: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
-        // Use simple string parsing or scraper crate
-        // TVBox sites typically return HTML with vod items
-        // Try to find patterns like: <a href="/vod/xxx">title</a>
+        let lines: Vec<&str> = body.lines().collect();
         let mut items = Vec::new();
 
-        // Simple approach: look for common patterns
-        // If we find vod detail links, extract them
-        for line in body.lines() {
+        let category_patterns = ["dongzuopian", "xijupian", "juqingpian", "aiqingpian",
+            "donghuapian", "kongbupian", "kehuanpian", "zhanzhengpian",
+            "jilupian", "dianshiju", "ZongYi"];
+
+        let mut item_keys: Vec<(String, usize)> = Vec::new();
+
+        for (i, line) in lines.iter().enumerate() {
             let line = line.trim();
-            // Pattern: link to detail page with a title nearby
-            if line.contains("/e/DownSys/play/") {
-                if let Some(title) = self.extract_title_from_line(line) {
-                    let source_item_key = format!("xb6v-{}", items.len());
-                    items.push(ScrapedCatalogItem {
-                        source_item_key,
-                        title,
-                        item_type: "movie".to_string(),
-                        poster: None,
-                        summary: None,
-                        detail_json: None,
-                        episodes: vec![],
-                    });
-                }
+            let has_category = category_patterns.iter().any(|cat| line.contains(cat));
+            if !has_category {
+                continue;
             }
+            if let Some(key) = self.extract_key_from_line(line) {
+                item_keys.push((key, i));
+            }
+        }
+
+        for (key, href_line_idx) in item_keys {
+            let title = self.find_title_at_or_after(&lines, href_line_idx);
+            items.push(ScrapedCatalogItem {
+                source_item_key: key.clone(),
+                title,
+                item_type: "movie".to_string(),
+                poster: None,
+                summary: None,
+                detail_json: None,
+                episodes: vec![],
+            });
         }
 
         Ok(items)
     }
 
+    fn line_matches_category(&self, line: &str) -> bool {
+        line.contains("/donghuapian/") || line.contains("/dongzuopian/") ||
+        line.contains("/xijupian/") || line.contains("/juqingpian/") ||
+        line.contains("/aiqingpian/") || line.contains("/kongbupian/") ||
+        line.contains("/kehuanpian/") || line.contains("/zhanzhengpian/") ||
+        line.contains("/jilupian/") || line.contains("/dianshiju/") ||
+        line.contains("/ZongYi/")
+    }
+
+    fn extract_key_from_line(&self, line: &str) -> Option<String> {
+        let href_start = line.find("href='/")?;
+        let remaining = &line[href_start + 7..];
+        let html_pos = remaining.find(".html'")?;
+        let before_html = &remaining[..html_pos];
+        let last_slash = before_html.rfind('/')?;
+        let category = &before_html[..last_slash];
+        let id = &before_html[last_slash + 1..];
+        Some(format!("{}/{}", category, id))
+    }
+
+    fn find_title_at_or_after(&self, lines: &[&str], href_line_idx: usize) -> String {
+        if let Some(title) = self.extract_title_from_full_line(lines[href_line_idx]) {
+            return title;
+        }
+        if href_line_idx + 1 < lines.len() {
+            if let Some(title) = self.extract_title_from_full_line(lines[href_line_idx + 1]) {
+                return title;
+            }
+        }
+        if href_line_idx + 2 < lines.len() {
+            if let Some(title) = self.extract_title_from_full_line(lines[href_line_idx + 2]) {
+                return title;
+            }
+        }
+        "Unknown".to_string()
+    }
+
+    fn extract_title_from_full_line(&self, line: &str) -> Option<String> {
+        let line = line.trim();
+        if !line.contains("</a>") {
+            return None;
+        }
+        if let Some(close_bracket) = line.rfind("</a>") {
+            let before_close = &line[..close_bracket];
+            if let Some(open_bracket) = before_close.rfind('>') {
+                let text = &before_close[open_bracket + 1..];
+                let text = text.trim();
+                if !text.is_empty() && text.len() < 200 && !text.contains('<') && !text.contains("href") {
+                    return Some(text.to_string());
+                }
+            }
+        }
+        None
+    }
+
     fn parse_home_results(&self, body: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
-        // Similar to parse_search_results but for homepage
         self.parse_search_results(body)
     }
 
@@ -134,8 +200,23 @@ impl Xb6vScraper {
     }
 
     fn extract_title_from_line(&self, line: &str) -> Option<String> {
-        // Try to extract text content near the link
-        // Simple heuristic: look for text between > and < after the link
+        // For lines with href containing .html, the title comes after the closing > of the href
+        // e.g. <li><a href='/donghuapian/24219.html'>剑来[第二季全]</a>
+        // Look for .html'> pattern and extract title after that >
+        if let Some(html_end) = line.find(".html'") {
+            let after_html = &line[html_end + 5..]; // skip ".html'"
+            if let Some(gt_pos) = after_html.find('>') {
+                let text_start = &after_html[gt_pos + 1..];
+                if let Some(lt_pos) = text_start.find('<') {
+                    let text = &text_start[..lt_pos];
+                    let text = text.trim();
+                    if !text.is_empty() && text.len() < 200 && !text.contains("href") {
+                        return Some(text.to_string());
+                    }
+                }
+            }
+        }
+        // Fallback for other lines (e.g., play links)
         if let Some(start) = line.find('>') {
             let remaining = &line[start+1..];
             if let Some(end) = remaining.find('<') {
@@ -150,14 +231,38 @@ impl Xb6vScraper {
     }
 
     fn extract_episode_label(&self, line: &str) -> Option<String> {
-        // Extract episode label from play URL line
-        self.extract_title_from_line(line)
+        // Extract episode label from play URL line like:
+        // <a title='S01E01' href= "/e/DownSys/play/?classid=20&id=24219&pathid1=0&bf=0" ... >S01E01</a>
+        // The label is the text between the last > and </a>
+        if let Some(close_a) = line.find("</a>") {
+            let before_close = &line[..close_a];
+            if let Some(last_gt) = before_close.rfind('>') {
+                let text = &before_close[last_gt + 1..];
+                let text = text.trim();
+                if !text.is_empty() && text.len() < 50 && !text.contains('<') {
+                    return Some(text.to_string());
+                }
+            }
+        }
+        None
     }
 
     fn extract_play_url(&self, line: &str) -> String {
         // Extract the href URL from an anchor tag
+        // Pattern: href= "URL" (note space after =)
         if let Some(href_start) = line.find("href=\"") {
             let remaining = &line[href_start + 6..];
+            if let Some(href_end) = remaining.find('"') {
+                let url = &remaining[..href_end];
+                if url.starts_with('/') {
+                    return format!("https://www.xb6v.com{}", url);
+                }
+                return url.to_string();
+            }
+        }
+        // Try with space: href= "..."
+        if let Some(href_start) = line.find("href= \"") {
+            let remaining = &line[href_start + 7..];
             if let Some(href_end) = remaining.find('"') {
                 let url = &remaining[..href_end];
                 if url.starts_with('/') {

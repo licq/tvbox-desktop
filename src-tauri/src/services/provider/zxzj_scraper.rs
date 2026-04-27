@@ -6,7 +6,7 @@ use crate::services::provider::traits::CatalogCategory;
 use crate::services::provider::{VideoProvider, ProviderError};
 use crate::services::provider::native::NativeScraper;
 
-/// zxzj native scraper for https://www.zxzjhd.com/
+/// zxzj native scraper for https://www.zxzjys.com/
 pub struct ZxzjScraper {
     base: NativeScraper,
 }
@@ -14,12 +14,13 @@ pub struct ZxzjScraper {
 impl ZxzjScraper {
     pub fn new() -> Self {
         Self {
-            base: NativeScraper::new("zxzj", "🍊在线┃秒播", "https://www.zxzjhd.com"),
+            base: NativeScraper::new("zxzj", "🍊在线┃秒播", "https://www.zxzjys.com"),
         }
     }
 
     pub async fn search(&self, keyword: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
-        let url = format!("{}/search?wd={}", self.base.base_url, keyword);
+        // URL format: /vodsearch/keyword-------------.html
+        let url = format!("{}/vodsearch/{}-------------.html", self.base.base_url, keyword);
         let body = self.base.fetch_text(&url).await?;
 
         let items = self.parse_search_results(&body)?;
@@ -34,7 +35,7 @@ impl ZxzjScraper {
     }
 
     pub async fn detail(&self, ids: &str) -> Result<Option<ScrapedCatalogItem>, ProviderError> {
-        let url = format!("{}/vod/{}", self.base.base_url, ids);
+        let url = format!("{}/voddetail/{}.html", self.base.base_url, ids);
         let body = self.base.fetch_text(&url).await?;
         let item = self.parse_detail_page(&body, ids)?;
         Ok(item)
@@ -59,26 +60,41 @@ impl ZxzjScraper {
     fn parse_search_results(&self, body: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
         let mut items = Vec::new();
 
-        // zxzj search results typically have links like /vod/xxx
+        // zxzj search results have links like /voddetail/1778.html
         for line in body.lines() {
             let line = line.trim();
-            if line.contains("/vod/") {
+            if line.contains("/voddetail/") {
                 if let Some(title) = self.extract_title_from_line(line) {
-                    let source_item_key = format!("zxzj-{}", items.len());
-                    items.push(ScrapedCatalogItem {
-                        source_item_key,
-                        title,
-                        item_type: "movie".to_string(),
-                        poster: None,
-                        summary: None,
-                        detail_json: None,
-                        episodes: vec![],
-                    });
+                    if let Some(id) = self.extract_id_from_voddetail_line(line) {
+                        items.push(ScrapedCatalogItem {
+                            source_item_key: id,
+                            title,
+                            item_type: "movie".to_string(),
+                            poster: None,
+                            summary: None,
+                            detail_json: None,
+                            episodes: vec![],
+                        });
+                    }
                 }
             }
         }
 
         Ok(items)
+    }
+
+    fn extract_id_from_voddetail_line(&self, line: &str) -> Option<String> {
+        // Extract id from /voddetail/1234.html
+        if let Some(pos) = line.find("/voddetail/") {
+            let remaining = &line[pos + 11..]; // skip "/voddetail/" (11 chars)
+            if let Some(end_pos) = remaining.find(".html") {
+                let id = &remaining[..end_pos];
+                if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) {
+                    return Some(id.to_string());
+                }
+            }
+        }
+        None
     }
 
     fn parse_home_results(&self, body: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
@@ -91,21 +107,40 @@ impl ZxzjScraper {
         let mut episodes = Vec::new();
         let mut order_index = 0i64;
 
-        for line in body.lines() {
-            let line = line.trim();
-            if line.contains("/vod/") || line.contains("/play/") {
-                if let Some(label) = self.extract_episode_label(line) {
-                    let play_url = self.extract_play_url(line);
-                    if !play_url.is_empty() {
-                        episodes.push(ScrapedCatalogEpisode {
-                            source_name: "zxzj".to_string(),
-                            episode_label: label,
-                            play_url,
-                            order_index,
-                        });
-                        order_index += 1;
+        // Search for all /vodplay/ patterns in the body
+        // Since HTML may be on one line, we search the entire body
+        let mut search_start = 0;
+        while let Some(pos) = body[search_start..].find("/vodplay/") {
+            let absolute_pos = search_start + pos;
+            let remaining = &body[absolute_pos..];
+
+            // Extract URL: find the closing quote after /vodplay/XXX-XXX-X.html"
+            if let Some(close_quote) = remaining.find('"') {
+                let url_with_quote = &remaining[..close_quote];
+                let play_url = format!("https://www.zxzjys.com{}", url_with_quote);
+
+                // Extract label: text after the > before </a>
+                let after_url = &remaining[close_quote + 1..];
+                if let Some(gt_pos) = after_url.find('>') {
+                    let text_start = &after_url[gt_pos + 1..];
+                    if let Some(lt_pos) = text_start.find('<') {
+                        let label = &text_start[..lt_pos];
+                        let label = label.trim();
+                        if !label.is_empty() && label.len() < 50 {
+                            episodes.push(ScrapedCatalogEpisode {
+                                source_name: "zxzj".to_string(),
+                                episode_label: label.to_string(),
+                                play_url,
+                                order_index,
+                            });
+                            order_index += 1;
+                        }
                     }
                 }
+
+                search_start = absolute_pos + 1;
+            } else {
+                break;
             }
         }
 
@@ -114,7 +149,7 @@ impl ZxzjScraper {
         }
 
         Ok(Some(ScrapedCatalogItem {
-            source_item_key: format!("zxzj-{}", ids),
+            source_item_key: ids.to_string(),
             title: "Detail".to_string(),
             item_type: "movie".to_string(),
             poster: None,
@@ -125,40 +160,24 @@ impl ZxzjScraper {
     }
 
     fn extract_title_from_line(&self, line: &str) -> Option<String> {
-        // Try to extract text content near the link
-        if let Some(start) = line.find('>') {
-            let remaining = &line[start+1..];
-            if let Some(end) = remaining.find('<') {
-                let text = &remaining[..end];
-                let text = text.trim();
-                if !text.is_empty() && text.len() < 100 && !text.contains("href") {
-                    return Some(text.to_string());
+        // Search result title is in title="..." attribute
+        // e.g. title="蜡笔小新：爆盛！功夫男孩〜拉面大乱〜"
+        if let Some(title_start) = line.find("title=\"") {
+            let remaining = &line[title_start + 7..];
+            if let Some(title_end) = remaining.find('"') {
+                let title = &remaining[..title_end];
+                let title = title.trim();
+                if !title.is_empty() && title.len() < 200 {
+                    return Some(title.to_string());
                 }
             }
         }
         None
     }
 
-    fn extract_episode_label(&self, line: &str) -> Option<String> {
-        // Extract episode label from play URL line
-        self.extract_title_from_line(line)
-    }
-
-    fn extract_play_url(&self, line: &str) -> String {
-        // Extract the href URL from an anchor tag
-        if let Some(href_start) = line.find("href=\"") {
-            let remaining = &line[href_start + 6..];
-            if let Some(href_end) = remaining.find('"') {
-                let url = &remaining[..href_end];
-                if url.starts_with('/') {
-                    return format!("https://www.zxzjhd.com{}", url);
-                }
-                return url.to_string();
-            }
-        }
-        String::new()
-    }
 }
+
+
 
 impl Default for ZxzjScraper {
     fn default() -> Self {

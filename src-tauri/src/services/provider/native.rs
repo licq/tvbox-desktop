@@ -37,4 +37,37 @@ impl NativeScraper {
         let text = self.fetch_text(url).await?;
         serde_json::from_str(&text).map_err(|e| ProviderError::Parse(e.to_string()))
     }
+
+    /// POST form data and follow redirect (for search endpoints that redirect to results)
+    pub async fn post_form_follow_redirect(&self, url: &str, data: &[(&str, &str)]) -> Result<String, ProviderError> {
+        let resp = self.client.post(url)
+            .form(data)
+            .send()
+            .await?;
+
+        // Check if we got redirected (xb6v returns 302 to result page)
+        if let Some(location) = resp.headers().get("location") {
+            let loc = location.to_str().unwrap_or("");
+            if !loc.is_empty() {
+                // Build full redirect URL - location is relative to current path
+                let redirect_url = if loc.starts_with("http") {
+                    loc.to_string()
+                } else {
+                    // e.g. "result/?searchid=606" -> "https://www.xb6v.com/e/search/result/?searchid=606"
+                    // Extract base path from original URL
+                    let base_path = &url[self.base_url.len()..]; // e.g. "/e/search/1index.php"
+                    let search_base = &base_path[..base_path.rfind('/').unwrap_or(0)]; // e.g. "/e/search"
+                    format!("{}{}{}", self.base_url, search_base, loc)
+                };
+                return self.client.get(&redirect_url)
+                    .send()
+                    .await?
+                    .text()
+                    .await
+                    .map_err(|e| ProviderError::Http(e));
+            }
+        }
+
+        resp.text().await.map_err(|e| ProviderError::Http(e))
+    }
 }
