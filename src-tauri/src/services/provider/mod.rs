@@ -31,6 +31,7 @@ impl From<rquickjs::Error> for ProviderError {
 pub mod traits;
 pub mod cms_provider;
 pub mod spider_provider;
+pub mod native;
 pub mod registry;
 
 pub use traits::VideoProvider;
