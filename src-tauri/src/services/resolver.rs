@@ -73,7 +73,9 @@ pub fn classify_playback_target(input: &str) -> &'static str {
         return "direct";
     }
 
-    "direct"
+    // Non-media URLs that aren't recognized as guard/external/resolvable
+    // are treated as embedded targets (player pages with iframes, etc.)
+    "embedded"
 }
 
 pub fn is_visible_playback_target(input: &str) -> bool {
