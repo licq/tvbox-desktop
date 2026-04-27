@@ -37,4 +37,5 @@ pub mod registry;
 pub use traits::VideoProvider;
 pub use cms_provider::CmsProvider;
 pub use spider_provider::SpiderProvider;
+pub use native::NativeScraper;
 pub use registry::ProviderRegistry;

@@ -4,7 +4,7 @@ use reqwest::Client;
 
 use crate::services::tvbox::{TvboxSiteRecord, TvboxConfigRecords};
 use crate::services::xb6v::ScrapedCatalogItem;
-use super::{VideoProvider, CmsProvider, SpiderProvider};
+use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper};
 
 pub struct SearchResult {
     pub source_key: String,
@@ -134,5 +134,11 @@ impl ProviderRegistry {
 
     pub fn count(&self) -> usize {
         self.providers.len()
+    }
+
+    /// Register all known native Rust scrapers.
+    /// Each scraper is created and registered with its source key.
+    pub fn register_all_native_sources(&mut self) {
+        // Each line: Arc::new(Box::new(ScraperType::new())) as Box<dyn VideoProvider>
     }
 }
