@@ -4,7 +4,7 @@ use reqwest::Client;
 
 use crate::services::tvbox::{TvboxSiteRecord, TvboxConfigRecords};
 use crate::services::xb6v::ScrapedCatalogItem;
-use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper, Xb6vScraper, AueteScraper, ZxzjScraper, JianpianScraper, WencaiScraper, LibvioScraper};
+use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper, Xb6vScraper, AueteScraper, ZxzjScraper, JianpianScraper, WencaiScraper, LibvioScraper, YgpScraper, KkssScraper, UussScraper, YcyzScraper, LiteAppleScraper, NuomiScraper};
 
 pub struct SearchResult {
     pub source_key: String,
@@ -151,5 +151,17 @@ impl ProviderRegistry {
         self.providers.insert("wencai".to_string(), Arc::new(Box::new(WencaiScraper::new())));
         // libvio
         self.providers.insert("libvio".to_string(), Arc::new(Box::new(LibvioScraper::new())));
+        // YGP
+        self.providers.insert("YGP".to_string(), Arc::new(Box::new(YgpScraper::new())));
+        // 抠搜
+        self.providers.insert("抠搜".to_string(), Arc::new(Box::new(KkssScraper::new())));
+        // UC
+        self.providers.insert("UC".to_string(), Arc::new(Box::new(UussScraper::new())));
+        // 原创
+        self.providers.insert("原创".to_string(), Arc::new(Box::new(YcyzScraper::new())));
+        // 苹果
+        self.providers.insert("苹果".to_string(), Arc::new(Box::new(LiteAppleScraper::new())));
+        // 糯米
+        self.providers.insert("糯米".to_string(), Arc::new(Box::new(NuomiScraper::new())));
     }
 }
