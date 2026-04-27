@@ -4,13 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useLiveStore } from '@/stores/live'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useLibraryStore } from '@/stores/library'
+import { invoke } from '@tauri-apps/api/core'
 import ChannelCard from '@/components/ChannelCard.vue'
 import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
-import type { CatalogItemType, DoubanHot, LiveChannel } from '@/types'
+import MediaCard from '@/components/media/MediaCard.vue'
+import type { CatalogItemType, DoubanHot, LiveChannel, SourceSearchResult, ProviderCatalogItem } from '@/types'
 
-type HomeTabKey = 'live' | CatalogItemType
+type HomeTabKey = 'live' | CatalogItemType | 'search'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,12 +21,13 @@ const subStore = useSubscriptionStore()
 const libraryStore = useLibraryStore()
 
 const tabs = computed(() => {
-  const fixedTabs = [
+  const fixedTabs: { key: HomeTabKey; label: string; eyebrow?: string }[] = [
     { key: 'live', label: '直播', eyebrow: 'Live' },
     { key: 'movie', label: '电影', eyebrow: 'Movie' },
     { key: 'series', label: '剧集', eyebrow: 'Series' },
     { key: 'variety', label: '综艺', eyebrow: 'Shows' },
     { key: 'anime', label: '动漫', eyebrow: 'Anime' },
+    { key: 'search', label: '搜索', eyebrow: 'Search' },
   ]
   return fixedTabs
 })
@@ -32,6 +35,26 @@ const tabs = computed(() => {
 const activeTab = ref<HomeTabKey>('live')
 const searchKeyword = ref('')
 const expandedChannels = ref<Set<string>>(new Set())
+const providerSearchResults = ref<{ source_name: string; results: ProviderCatalogItem[] }[]>([])
+const loadingProviderSearch = ref(false)
+const searchFilter = ref<'all' | CatalogItemType>('all')
+
+interface FlatSearchItem extends ProviderCatalogItem {
+  source_name: string
+}
+
+const allSearchItems = computed(() => {
+  return providerSearchResults.value.flatMap(group =>
+    group.results.map(item => ({ ...item, source_name: group.source_name } as FlatSearchItem))
+  )
+})
+
+const filteredSearchItems = computed(() => {
+  if (searchFilter.value === 'all') return allSearchItems.value
+  return allSearchItems.value.filter(
+    item => item.item_type === searchFilter.value
+  )
+})
 
 const validTabs = computed(() => new Set(tabs.value.map(tab => tab.key)))
 
@@ -68,6 +91,8 @@ const displayedHotItems = computed(() => {
 })
 
 async function hydrateSources() {
+  if (activeTab.value === 'search') return
+
   // Minimal data fetch only (skip subscription refresh to avoid blocking)
   try {
     await libraryStore.fetchCatalog()
@@ -144,6 +169,12 @@ watch(
 
     activeTab.value = nextTab
     searchKeyword.value = ''
+    providerSearchResults.value = []
+    searchFilter.value = 'all'
+
+    if (nextTab === 'search') {
+      return
+    }
 
     if (nextTab === 'live') {
       // existing live logic remains
@@ -159,21 +190,43 @@ function onTabChange(tab: string) {
   router.push(`/library/${tab}`)
 }
 
-function handleLiveSearch(keyword: string) {
-  searchKeyword.value = keyword
-}
-
-function handleVodSearch(keyword: string) {
+async function handleVodSearch(keyword: string) {
   if (keyword) {
-    if (activeTab.value !== 'live') {
-      void libraryStore.fetchCatalog(activeTab.value, keyword)
-    }
+    searchKeyword.value = keyword
+    providerSearchResults.value = []
+    void libraryStore.fetchCatalog(activeTab.value, keyword)
+    await searchAllProviders(keyword)
     return
   }
+  searchKeyword.value = ''
+  providerSearchResults.value = []
+}
 
-  if (activeTab.value !== 'live') {
-    void libraryStore.fetchCatalog(activeTab.value)
+async function searchAllProviders(keyword: string) {
+  loadingProviderSearch.value = true
+  try {
+    const results = await invoke<SourceSearchResult[]>('search_all_sources', { keyword })
+    const grouped: Record<string, ProviderCatalogItem[]> = {}
+    for (const r of results) {
+      if (!r.source_name) continue
+      if (r.items.length === 0) continue
+      grouped[r.source_name] = r.items
+    }
+    providerSearchResults.value = Object.entries(grouped)
+      .filter(([, items]) => items.length > 0)
+      .map(([source_name, results]) => ({ source_name, results }))
+  } catch (e) {
+    console.error('[Home] searchAllProviders failed:', e)
+    providerSearchResults.value = []
+  } finally {
+    loadingProviderSearch.value = false
   }
+}
+
+function handleProviderResultClick(item: ProviderCatalogItem) {
+  // Navigate to detail page with search keyword so episodes can be displayed
+  const keyword = item.title || searchKeyword.value
+  router.push(`/detail/0?search=1&keyword=${encodeURIComponent(keyword)}`)
 }
 
 function handlePlayChannel(channel: LiveChannel, _sourceUrl?: string) {
@@ -245,10 +298,10 @@ function toggleChannelExpansion(category: string) {
         </section>
 
         <section class="home-secondary-browser">
-          <div class="home-secondary-search">
+          <div v-if="activeTab === 'search'" class="home-secondary-search">
             <SearchBar
-              :placeholder="activeTab === 'live' ? '搜索频道、卫视、央视频道...' : `搜索${formatTypeLabel(activeTab)}...`"
-              @search="activeTab === 'live' ? handleLiveSearch($event) : handleVodSearch($event)"
+              placeholder="搜索电影、剧集、综艺..."
+              @search="handleVodSearch"
             />
           </div>
 
@@ -292,6 +345,60 @@ function toggleChannelExpansion(category: string) {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div v-else-if="activeTab === 'search'">
+            <div v-if="loadingProviderSearch" class="flex min-h-[220px] items-center justify-center">
+              <LoadingSpinner />
+            </div>
+
+            <div v-else-if="searchKeyword && providerSearchResults.length" class="mt-6">
+              <!-- Filter pills -->
+              <div class="mb-4 flex flex-wrap gap-2">
+                <button
+                  :class="['rounded-full px-3 py-1 text-xs transition-colors', searchFilter === 'all' ? 'bg-accent/20 text-accent-strong' : 'bg-white/5 text-white/50 hover:text-white/70']"
+                  @click="searchFilter = 'all'"
+                >
+                  全部
+                  <span class="opacity-50">({{ allSearchItems.length }})</span>
+                </button>
+                <button
+                  v-for="type in (['movie', 'series', 'variety', 'anime'] as const)"
+                  :key="type"
+                  :class="['rounded-full px-3 py-1 text-xs transition-colors', searchFilter === type ? 'bg-accent/20 text-accent-strong' : 'bg-white/5 text-white/50 hover:text-white/70']"
+                  @click="searchFilter = type"
+                >
+                  {{ formatTypeLabel(type) }}
+                  <span class="opacity-50">({{ allSearchItems.filter(i => i.item_type === type).length }})</span>
+                </button>
+              </div>
+
+              <!-- Result count -->
+              <div class="mb-4 text-sm text-white/40">
+                找到 <span class="text-white/60">{{ filteredSearchItems.length }}</span> 个结果
+              </div>
+
+              <!-- Result grid -->
+              <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                <MediaCard
+                  v-for="item in filteredSearchItems"
+                  :key="item.source_item_key"
+                  :title="item.title"
+                  :poster="item.poster"
+                  :subtitle="item.source_name"
+                  class="cursor-pointer"
+                  @click="handleProviderResultClick(item)"
+                />
+              </div>
+            </div>
+
+            <div v-else-if="searchKeyword && !loadingProviderSearch" class="home-empty-state">
+              未找到与"{{ searchKeyword }}"相关的内容
+            </div>
+
+            <div v-else class="home-empty-state">
+              输入关键词搜索电影、剧集、综艺和动漫
             </div>
           </div>
 
