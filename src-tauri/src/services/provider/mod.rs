@@ -107,3 +107,5 @@ pub use bili_scraper::BiliScraper;
 pub use biliych_scraper::BiliychScraper;
 pub use fan_scraper::FanScraper;
 pub use cc_scraper::CcScraper;
+
+pub mod scraper_tests;
