@@ -144,3 +144,19 @@ impl VideoProvider for ReboScraper {
     async fn detail(&self, ids: &str) -> Result<Option<ScrapedCatalogItem>, ProviderError> { self.detail(ids).await }
     async fn play(&self, flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> { self.play(flag, play_url).await }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::provider::scraper_tests::test_scraper;
+
+    const TEST_KEYWORD: &str = "功夫";
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_search_then_detail_then_play() {
+        let scraper = ReboScraper::new();
+        test_scraper(&scraper, "热播", TEST_KEYWORD).await
+            .expect("热播 test failed");
+    }
+}
