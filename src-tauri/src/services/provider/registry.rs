@@ -4,7 +4,7 @@ use reqwest::Client;
 
 use crate::services::tvbox::{TvboxSiteRecord, TvboxConfigRecords};
 use crate::services::xb6v::ScrapedCatalogItem;
-use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper, Xb6vScraper, AueteScraper, ZxzjScraper, JianpianScraper, WencaiScraper, LibvioScraper, YgpScraper, KkssScraper, UussScraper, YcyzScraper, LiteAppleScraper, NuomiScraper, BaibaiScraper, ChangzhangScraper, YicaiScraper, BiteScraper, DdrkScraper, MengmiScraper};
+use super::{VideoProvider, CmsProvider, SpiderProvider, NativeScraper, Xb6vScraper, AueteScraper, ZxzjScraper, JianpianScraper, WencaiScraper, LibvioScraper, YgpScraper, KkssScraper, UussScraper, YcyzScraper, LiteAppleScraper, NuomiScraper, BaibaiScraper, ChangzhangScraper, YicaiScraper, BiteScraper, DdrkScraper, MengmiScraper, XiongdiScraper, ReboScraper, HuanshiScraper, Dm84Scraper, YsjScraper, Anime1Scraper, YpansoScraper, XzsoScraper, MisoScraper, KuasouScraper, AlisoScraper, YisoScraper, BiliScraper, BiliychScraper, FanScraper, CcScraper};
 
 pub struct SearchResult {
     pub source_key: String,
@@ -175,5 +175,37 @@ impl ProviderRegistry {
         self.providers.insert("低端".to_string(), Arc::new(Box::new(DdrkScraper::new())));
         // 萌米
         self.providers.insert("萌米".to_string(), Arc::new(Box::new(MengmiScraper::new())));
+        // 兄弟
+        self.providers.insert("兄弟".to_string(), Arc::new(Box::new(XiongdiScraper::new())));
+        // 热播
+        self.providers.insert("热播".to_string(), Arc::new(Box::new(ReboScraper::new())));
+        // 欢视
+        self.providers.insert("欢视".to_string(), Arc::new(Box::new(HuanshiScraper::new())));
+        // Dm84
+        self.providers.insert("Dm84".to_string(), Arc::new(Box::new(Dm84Scraper::new())));
+        // Ysj
+        self.providers.insert("Ysj".to_string(), Arc::new(Box::new(YsjScraper::new())));
+        // Anime1
+        self.providers.insert("Anime1".to_string(), Arc::new(Box::new(Anime1Scraper::new())));
+        // YpanSo
+        self.providers.insert("YpanSo".to_string(), Arc::new(Box::new(YpansoScraper::new())));
+        // xzso
+        self.providers.insert("xzso".to_string(), Arc::new(Box::new(XzsoScraper::new())));
+        // 米搜
+        self.providers.insert("米搜".to_string(), Arc::new(Box::new(MisoScraper::new())));
+        // 夸搜
+        self.providers.insert("夸搜".to_string(), Arc::new(Box::new(KuasouScraper::new())));
+        // Aliso
+        self.providers.insert("Aliso".to_string(), Arc::new(Box::new(AlisoScraper::new())));
+        // 易搜
+        self.providers.insert("易搜".to_string(), Arc::new(Box::new(YisoScraper::new())));
+        // Bili
+        self.providers.insert("Bili".to_string(), Arc::new(Box::new(BiliScraper::new())));
+        // Biliych
+        self.providers.insert("Biliych".to_string(), Arc::new(Box::new(BiliychScraper::new())));
+        // fan
+        self.providers.insert("fan".to_string(), Arc::new(Box::new(FanScraper::new())));
+        // cc
+        self.providers.insert("cc".to_string(), Arc::new(Box::new(CcScraper::new())));
     }
 }
