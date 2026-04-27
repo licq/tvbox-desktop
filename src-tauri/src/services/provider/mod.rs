@@ -35,6 +35,7 @@ pub mod native;
 pub mod xb6v_scraper;
 pub mod auete_scraper;
 pub mod zxzj_scraper;
+pub mod jianpian_scraper;
 pub mod registry;
 
 pub use traits::VideoProvider;
@@ -44,4 +45,5 @@ pub use native::NativeScraper;
 pub use xb6v_scraper::Xb6vScraper;
 pub use auete_scraper::AueteScraper;
 pub use zxzj_scraper::ZxzjScraper;
+pub use jianpian_scraper::JianpianScraper;
 pub use registry::ProviderRegistry;
