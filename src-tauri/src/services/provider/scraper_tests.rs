@@ -1,19 +1,15 @@
-use crate::services::provider::{VideoProvider, ProviderError};
+use crate::services::provider::VideoProvider;
 
-/// Test keyword for each scraper - hardcoded per source
-pub struct TestKeyword(&'static str);
-
-impl TestKeyword {
-    pub fn for_provider(provider_key: &str) -> &'static str {
-        match provider_key {
-            "xb6v" | "auete" | "zxzj" | "jianpian" | "wencai" | "libvio"
-            | "YGP" | "抠搜" | "UC" | "原创" | "苹果" | "糯米"
-            | "白白" | "厂长" | "溢彩" | "比特" | "低端" | "萌米"
-            | "兄弟" | "热播" | "欢视" | "Dm84" | "Ysj" | "Anime1"
-            | "YpanSo" | "xzso" | "米搜" | "夸搜" | "Aliso" | "易搜"
-            | "Bili" | "Biliych" | "fan" | "cc" => "功夫",
-            _ => "test",
-        }
+/// Get test keyword for a provider key
+pub fn test_keyword_for(provider_key: &str) -> &'static str {
+    match provider_key {
+        "xb6v" | "auete" | "zxzj" | "jianpian" | "wencai" | "libvio"
+        | "YGP" | "抠搜" | "UC" | "原创" | "苹果" | "糯米"
+        | "白白" | "厂长" | "溢彩" | "比特" | "低端" | "萌米"
+        | "兄弟" | "热播" | "欢视" | "Dm84" | "Ysj" | "Anime1"
+        | "YpanSo" | "xzso" | "米搜" | "夸搜" | "Aliso" | "易搜"
+        | "Bili" | "Biliych" | "fan" | "cc" => "功夫",
+        _ => "test",
     }
 }
 
@@ -104,6 +100,6 @@ pub async fn test_provider_by_key(
     let provider = registry.get(provider_key)
         .ok_or_else(|| format!("provider '{}' not found", provider_key))?;
 
-let keyword = TestKeyword::for_provider(provider_key);
+let keyword = test_keyword_for(provider_key);
     test_scraper(provider.as_ref().as_ref(), provider_key, keyword).await
 }
