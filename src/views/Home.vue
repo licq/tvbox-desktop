@@ -38,6 +38,7 @@ const expandedChannels = ref<Set<string>>(new Set())
 const providerSearchResults = ref<{ source_name: string; results: ProviderCatalogItem[] }[]>([])
 const loadingProviderSearch = ref(false)
 const searchFilter = ref<'all' | CatalogItemType>('all')
+let searchVersion = 0
 
 interface FlatSearchItem extends ProviderCatalogItem {
   source_name: string
@@ -56,6 +57,16 @@ const filteredSearchItems = computed(() => {
   )
 })
 
+const countByType = computed(() => {
+  const counts: Record<string, number> = { movie: 0, series: 0, variety: 0, anime: 0 }
+  for (const item of allSearchItems.value) {
+    if (item.item_type in counts) {
+      counts[item.item_type]++
+    }
+  }
+  return counts
+})
+
 const validTabs = computed(() => new Set(tabs.value.map(tab => tab.key)))
 
 function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
@@ -69,8 +80,6 @@ function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
 function formatTypeLabel(type: CatalogItemType | HomeTabKey) {
   return tabs.value.find(tab => tab.key === type)?.label ?? '片库'
 }
-
-const enabledSubscriptions = computed(() => subStore.subscriptions.filter(sub => sub.enabled))
 
 const filteredGroups = computed(() => {
   if (!searchKeyword.value || activeTab.value !== 'live') return liveStore.groups
@@ -108,50 +117,6 @@ async function hydrateSources() {
 
   if (activeTab.value !== 'live') {
     await libraryStore.fetchDoubanHotByType(activeTab.value)
-  }
-
-  // Original auto-refresh logic (skip for debugging):
-  // To re-enable subscription refresh, remove the early return below
-  return;
-
-  try {
-    await subStore.fetchSubscriptions()
-  } catch {
-    // Keep rendering with whatever cache exists.
-  }
-
-  const enabledList = enabledSubscriptions.value
-  for (let i = 0; i < enabledList.length; i++) {
-    const subscription = enabledList[i]
-    try {
-      subStore.setRefreshing(subscription.name, i + 1, enabledList.length)
-      await subStore.refreshSubscription(subscription.id, false)
-    } catch {
-      // Continue refreshing even if one fails.
-    }
-  }
-  subStore.clearRefreshing()
-
-  try {
-    await subStore.fetchSubscriptions()
-  } catch {
-    // Keep rendering with whatever cache exists.
-  }
-
-  try {
-    await liveStore.fetchGroups()
-  } catch (e) {
-    console.error('[hydrateSources] fetchGroups failed:', e)
-  }
-
-  try {
-    await libraryStore.fetchHome()
-  } catch (e) {
-    console.error('[hydrateSources] fetchHome failed:', e)
-  }
-
-  if (activeTab.value !== 'live') {
-    await libraryStore.fetchCatalog(activeTab.value)
   }
 }
 
@@ -194,7 +159,6 @@ async function handleVodSearch(keyword: string) {
   if (keyword) {
     searchKeyword.value = keyword
     providerSearchResults.value = []
-    void libraryStore.fetchCatalog(activeTab.value, keyword)
     await searchAllProviders(keyword)
     return
   }
@@ -203,9 +167,11 @@ async function handleVodSearch(keyword: string) {
 }
 
 async function searchAllProviders(keyword: string) {
+  const currentVersion = ++searchVersion
   loadingProviderSearch.value = true
   try {
     const results = await invoke<SourceSearchResult[]>('search_all_sources', { keyword })
+    if (currentVersion !== searchVersion) return // stale, discard
     const grouped: Record<string, ProviderCatalogItem[]> = {}
     for (const r of results) {
       if (!r.source_name) continue
@@ -219,7 +185,9 @@ async function searchAllProviders(keyword: string) {
     console.error('[Home] searchAllProviders failed:', e)
     providerSearchResults.value = []
   } finally {
-    loadingProviderSearch.value = false
+    if (currentVersion === searchVersion) {
+      loadingProviderSearch.value = false
+    }
   }
 }
 
@@ -370,7 +338,7 @@ function toggleChannelExpansion(category: string) {
                   @click="searchFilter = type"
                 >
                   {{ formatTypeLabel(type) }}
-                  <span class="opacity-50">({{ allSearchItems.filter(i => i.item_type === type).length }})</span>
+                  <span class="opacity-50">({{ countByType[type] }})</span>
                 </button>
               </div>
 
