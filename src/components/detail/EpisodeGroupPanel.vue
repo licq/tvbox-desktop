@@ -16,6 +16,17 @@ const emit = defineEmits<{
 }>()
 
 const isMovie = computed(() => props.item_type === 'movie')
+
+const typeLabel = computed(() => {
+  switch (props.item_type) {
+    case 'movie': return '电影'
+    case 'series': return '剧集'
+    case 'variety': return '综艺'
+    case 'anime': return '动漫'
+    default: return '剧集'
+  }
+})
+
 const expanded = ref(false)
 
 const displayEpisodes = computed(() => {
@@ -36,7 +47,7 @@ const displayEpisodes = computed(() => {
           tone="warm"
         />
       </div>
-      <span class="source-group-type-tag">{{ isMovie ? '电影' : '剧集' }}</span>
+      <span class="source-group-type-tag">{{ typeLabel }}</span>
     </div>
 
     <div class="source-group-body">

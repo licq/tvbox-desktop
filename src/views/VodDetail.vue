@@ -225,7 +225,7 @@ async function handleSearchResultPlay(result: SearchResult) {
   loadingProviderDetail.value = true
   providerDetailError.value = null
   providerEpisodes.value = null
-  providerItemType.value = result.item_type as CatalogItemType
+  providerItemType.value = (result.item_type === 'generic' ? 'movie' : result.item_type) as CatalogItemType
   try {
     const episodes = await invoke<CatalogEpisode[]>('provider_detail', {
       source,
