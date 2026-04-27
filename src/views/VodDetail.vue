@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDetailStore } from '@/stores/detail'
 import { useLibraryStore } from '@/stores/library'
@@ -9,7 +9,7 @@ import DoubanMetaPanel from '@/components/detail/DoubanMetaPanel.vue'
 import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
-import type { CatalogEpisode, DoubanHot, SearchResult } from '@/types'
+import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult } from '@/types'
 
 interface DoubanSubjectMeta {
   doubanId: number
@@ -40,6 +40,7 @@ const libraryStore = useLibraryStore()
 
 const itemId = computed(() => Number(route.params.itemId))
 const isFromDouban = computed(() => route.query.douban === '1')
+const isSearch = computed(() => route.query.search === '1')
 
 // Quick lookup from library store (already has DoubanHot data from home page)
 const hotItem = ref<DoubanHot | null>(null)
@@ -94,6 +95,17 @@ const searchResults = ref<GroupedSearchResults[]>([])
 const loadingSearch = ref(false)
 const searchError = ref<string | null>(null)
 
+// Provider detail state for selected search result
+interface ProviderEpisodeGroup {
+  source_name: string
+  source_key: string
+  episodes: CatalogEpisode[]
+}
+const providerEpisodes = ref<ProviderEpisodeGroup[] | null>(null)
+const providerItemType = ref<CatalogItemType>('movie')
+const loadingProviderDetail = ref(false)
+const providerDetailError = ref<string | null>(null)
+
 async function loadDetail() {
   // Direct from Douban hot list - use itemId as douban_id directly
   if (isFromDouban.value && itemId.value) {
@@ -119,6 +131,15 @@ async function loadDetail() {
     return
   }
 
+  // Direct search from home page - use keyword from query param
+  if (isSearch.value) {
+    const keyword = route.query.keyword as string
+    if (keyword) {
+      searchSources(keyword)
+    }
+    return
+  }
+
   // Normal catalog item flow
   if (!Number.isFinite(itemId.value) || itemId.value <= 0) {
     return
@@ -141,41 +162,24 @@ async function loadDetail() {
   }
 }
 
-interface SourceSearchResult {
-  source_key: string
-  source_name: string
-  items: Array<{
-    title: string
-    poster: string
-    detail_json: string
-    item_type: string
-  }>
-}
-
 async function searchSources(title: string) {
   loadingSearch.value = true
   searchError.value = null
+  providerEpisodes.value = null
+  providerDetailError.value = null
   try {
     const results = await invoke<SourceSearchResult[]>('search_all_sources', { keyword: title })
     // Group by source, transform to SearchResult format
     const grouped: Record<string, SearchResult[]> = {}
     for (const r of results) {
       for (const item of r.items) {
-        let detailData: { source?: string; ids?: string } = { source: r.source_key, ids: '' }
-        if (item.detail_json) {
-          try {
-            detailData = JSON.parse(item.detail_json)
-          } catch {
-            // skip malformed detail_json
-            continue
-          }
-        }
         if (!r.source_name) continue // skip items with no source name
         grouped[r.source_name] ||= []
         grouped[r.source_name].push({
-          source: detailData.source || r.source_key,
+          source: r.source_key,
           source_name: r.source_name,
-          detail_url: item.detail_json || '',
+          // detail_url carries source_item_key for provider_detail lookup
+          detail_url: item.source_item_key,
           item_type: item.item_type as SearchResult['item_type'],
           title: item.title,
           poster: item.poster,
@@ -198,46 +202,73 @@ async function searchSources(title: string) {
 }
 
 onMounted(loadDetail)
-watch(itemId, loadDetail)
+const stopWatch = watch(itemId, loadDetail, { immediate: false })
+onUnmounted(() => {
+  stopWatch()
+})
 
 function handlePlay(episode: CatalogEpisode) {
   router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
 }
 
 async function handleSearchResultPlay(result: SearchResult) {
-  // detail_url is JSON string: {"source": "site_key", "ids": "vod_id", ...}
-  let parsed: { source?: string; ids?: string; url?: string; flag?: string } = {}
-  try {
-    parsed = JSON.parse(result.detail_url)
-  } catch {
-    searchError.value = '播放地址解析失败'
-    return
-  }
-
-  const source = parsed.source || result.source
-  const ids = parsed.ids || parsed.url || result.detail_url
+  // detail_url is the source_item_key from the scraped item
+  const source = result.source
+  const ids = result.detail_url
 
   if (!source || !ids) {
     searchError.value = '播放信息不完整'
     return
   }
 
+  // Fetch episodes from provider detail
+  loadingProviderDetail.value = true
+  providerDetailError.value = null
+  providerEpisodes.value = null
+  providerItemType.value = result.item_type as CatalogItemType
+  try {
+    const episodes = await invoke<CatalogEpisode[]>('provider_detail', {
+      source,
+      ids,
+    })
+    if (episodes.length === 0) {
+      providerDetailError.value = '该视频没有可播放的剧集'
+      return
+    }
+    providerEpisodes.value = [{
+      source_name: result.source_name,
+      source_key: source,
+      episodes,
+    }]
+  } catch (e) {
+    console.error('[VodDetail] provider_detail failed:', e)
+    providerDetailError.value = String(e)
+  } finally {
+    loadingProviderDetail.value = false
+  }
+}
+
+async function handleProviderEpisodePlay(episode: CatalogEpisode) {
+  if (!providerEpisodes.value?.length) return
+  const source = providerEpisodes.value[0].source_key
+
   try {
     const targets = await invoke<PlaybackTarget[]>('provider_play', {
       source,
-      flag: parsed.flag || 'auto',
-      play_url: ids,
+      flag: 'auto',
+      playUrl: episode.play_url,
     })
-
     if (targets.length > 0) {
       const target = targets[0]
-      router.push(`/player/source/${encodeURIComponent(target.target_url)}?source=${source}`)
+      // Navigate to vod player which uses playbackStore.resolve() to handle
+      // various play page formats (xb6v, zxzj, etc.)
+      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source}`)
     } else {
-      searchError.value = '播放地址获取失败'
+      providerDetailError.value = '播放地址获取失败'
     }
   } catch (e) {
     console.error('[VodDetail] provider_play failed:', e)
-    searchError.value = String(e)
+    providerDetailError.value = String(e)
   }
 }
 </script>
@@ -254,16 +285,18 @@ async function handleSearchResultPlay(result: SearchResult) {
         <LoadingSpinner size="lg" />
       </div>
 
-      <!-- Douban hot direct entry -->
-      <div v-else-if="isFromDouban" class="mt-6 space-y-6">
-        <!-- Top zone: Douban metadata (preliminary immediately, enriched when scraper returns) -->
-        <DoubanMetaPanel
-          v-if="displayMeta"
-          :meta="displayMeta"
-          :loading="loadingDouban"
-          class="top-zone"
-        />
-        <DetailMetaSkeleton v-else-if="loadingDouban && !preliminaryMeta" class="top-zone" />
+      <!-- Douban hot direct entry or search results -->
+      <div v-else-if="isFromDouban || isSearch" class="mt-6 space-y-6">
+        <!-- Top zone: Douban metadata (only for douban flow, not search) -->
+        <template v-if="isFromDouban">
+          <DoubanMetaPanel
+            v-if="displayMeta"
+            :meta="displayMeta"
+            :loading="loadingDouban"
+            class="top-zone"
+          />
+          <DetailMetaSkeleton v-else-if="loadingDouban && !preliminaryMeta" class="top-zone" />
+        </template>
 
         <!-- Search results from sources -->
         <section v-if="loadingSearch" class="space-y-4">
@@ -297,10 +330,27 @@ async function handleSearchResultPlay(result: SearchResult) {
           </div>
         </section>
 
+        <!-- Provider detail episodes (shown after clicking a search result) -->
+        <section v-if="loadingProviderDetail" class="space-y-4">
+          <EpisodeGroupSkeleton :count="4" />
+        </section>
+        <section v-else-if="providerEpisodes" class="source-list space-y-4">
+          <EpisodeGroupPanel
+            v-for="group in providerEpisodes"
+            :key="group.source_name"
+            :group="group"
+            :item_type="providerItemType"
+            @play="handleProviderEpisodePlay"
+          />
+        </section>
+        <div v-else-if="providerDetailError" class="home-empty-state text-red-500">
+          {{ providerDetailError }}
+        </div>
+
         <div v-else-if="searchError" class="home-empty-state text-red-500">
           {{ searchError }}
         </div>
-        <div v-else-if="doubanMeta && !loadingSearch" class="home-empty-state">
+        <div v-else-if="!loadingSearch" class="home-empty-state">
           暂未找到可用的播放源
         </div>
       </div>
@@ -326,6 +376,7 @@ async function handleSearchResultPlay(result: SearchResult) {
             v-for="group in detailStore.episodeGroups"
             :key="group.source_name"
             :group="group"
+            :item_type="detailStore.item?.item_type"
             @play="handlePlay"
           />
         </section>
