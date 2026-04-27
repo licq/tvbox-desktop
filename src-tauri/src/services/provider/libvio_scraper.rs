@@ -212,3 +212,19 @@ impl VideoProvider for LibvioScraper {
         self.play(flag, play_url).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::provider::scraper_tests::test_scraper;
+
+    const TEST_KEYWORD: &str = "功夫";
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_search_then_detail_then_play() {
+        let scraper = LibvioScraper::new();
+        test_scraper(&scraper, "libvio", TEST_KEYWORD).await
+            .expect("libvio test failed");
+    }
+}
