@@ -146,3 +146,64 @@ impl ProviderRegistry {
         self.providers.insert("cc".to_string(), Arc::new(Box::new(CcScraper::new())));
     }
 }
+
+#[cfg(test)]
+mod native_scraper_tests {
+    use super::*;
+
+    /// Integration test: verifies all native scrapers are registered and search infrastructure works.
+    #[tokio::test]
+    async fn native_scrapers_register_and_search() {
+        let mut registry = ProviderRegistry::new();
+        registry.register_all_native_sources();
+
+        let provider_count = registry.count();
+        println!("Registered {} native scraper providers", provider_count);
+        assert!(provider_count > 0, "should have registered providers");
+
+        // Test that search_all runs without panicking and returns results structure
+        let keyword = "功夫";
+        let results = registry.search_all(keyword).await;
+        let result_groups = results.len();
+        let total_items: usize = results.iter().map(|r| r.items.len()).sum();
+
+        println!("Search '{}': {} providers returned results, {} total items",
+            keyword, result_groups, total_items);
+
+        for result in &results {
+            if !result.items.is_empty() {
+                println!("  {} ({}): {} items", result.source_name, result.source_key, result.items.len());
+                for item in result.items.iter().take(2) {
+                    println!("    - {}", item.title);
+                }
+            }
+        }
+
+        // The test passes if we get here without panic
+        // Note: actual results depend on whether the sites are reachable and return data
+        // We just verify the infrastructure works (providers registered, search runs)
+        assert!(provider_count >= 28, "should have at least 28 native scrapers registered");
+    }
+
+    /// Test that individual scraper can be retrieved by key
+    #[tokio::test]
+    async fn native_scrapers_get_by_key() {
+        let mut registry = ProviderRegistry::new();
+        registry.register_all_native_sources();
+
+        // Test a few known keys
+        let keys = vec!["xb6v", "auete", "zxzj", "jianpian", "wencai", "libvio"];
+        for key in keys {
+            let provider = registry.get(key);
+            assert!(provider.is_some(), "provider {} should be registered", key);
+            println!("Provider '{}' found: {} ({})", key, provider.unwrap().source_name(), provider.unwrap().source_key());
+        }
+
+        // Test some of the batch-2 keys
+        let batch2_keys = vec!["白白", "厂长", "溢彩", "比特", "低端", "萌米"];
+        for key in batch2_keys {
+            let provider = registry.get(key);
+            assert!(provider.is_some(), "provider {} should be registered", key);
+        }
+    }
+}
