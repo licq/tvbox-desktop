@@ -33,6 +33,13 @@ interface GroupedSearchResults {
   results: SearchResult[]
 }
 
+interface DedupSearchItem {
+  title: string
+  poster?: string
+  item_type: SearchResult['item_type']
+  sources: Array<{ source: string; source_name: string; detail_url: string }>
+}
+
 const route = useRoute()
 const router = useRouter()
 const detailStore = useDetailStore()
@@ -41,6 +48,21 @@ const libraryStore = useLibraryStore()
 const itemId = computed(() => Number(route.params.itemId))
 const isFromDouban = computed(() => route.query.douban === '1')
 const isSearch = computed(() => route.query.search === '1')
+
+// Clean common Chinese suffixes from search result titles (e.g. "生命树[全集]" → "生命树")
+function cleanTitle(title: string): string {
+  return title
+    .replace(/\[全集\]/g, '')
+    .replace(/\[全\]/g, '')
+    .replace(/\[完结\]/g, '')
+    .replace(/\[更新至\d+集\]/g, '')
+    .replace(/\[更新\d+集\]/g, '')
+    .replace(/第\d+季/g, '')
+    .replace(/第\d+部/g, '')
+    .replace(/\[HD\]/gi, '')
+    .replace(/\[高清\]/g, '')
+    .trim()
+}
 
 // Quick lookup from library store (already has DoubanHot data from home page)
 const hotItem = ref<DoubanHot | null>(null)
@@ -88,17 +110,68 @@ const preliminaryMeta = computed<DoubanSubjectMeta | null>(() => {
 // Enriched meta from WebView scraper (arrives later)
 const doubanMeta = ref<DoubanSubjectMeta | null>(null)
 
-// Display meta: use enriched meta when available, otherwise preliminary from hot list
-const displayMeta = computed(() => doubanMeta.value ?? preliminaryMeta.value)
+// Meta from source detail page (after clicking a source)
+const sourceDetailMeta = ref<DoubanSubjectMeta | null>(null)
+
+// Display meta: doubanMeta (richest) when available, else source detail from play sources, else hot list, else fallback
+const displayMeta = computed(() => doubanMeta.value ?? sourceDetailMeta.value ?? preliminaryMeta.value ?? fallbackMeta.value)
+
+
+const fallbackMeta = computed<DoubanSubjectMeta | null>(() => {
+  const first = dedupSearchItems.value[0]
+  if (!first) return null
+  return {
+    doubanId: 0,
+    title: cleanTitle(first.title),
+    rating: null,
+    ratingCount: null,
+    director: [],
+    writer: [],
+    actors: [],
+    genre: [],
+    country: [],
+    language: [],
+    releaseDate: [],
+    runtime: null,
+    summary: null,
+    poster: first.poster ?? null,
+  }
+})
+
 const loadingDouban = ref(false)
 const searchResults = ref<GroupedSearchResults[]>([])
 const loadingSearch = ref(false)
 const searchError = ref<string | null>(null)
 
+const dedupSearchItems = computed<DedupSearchItem[]>(() => {
+  const map = new Map<string, DedupSearchItem>()
+  for (const group of searchResults.value) {
+    for (const r of group.results) {
+      const key = `${r.title ?? ''}-${r.item_type}`
+      let item = map.get(key)
+      if (!item) {
+        item = { title: r.title ?? '', poster: r.poster, item_type: r.item_type, sources: [] }
+        map.set(key, item)
+      }
+      if (!item.sources.some(s => s.source === r.source)) {
+        item.sources.push({ source: r.source, source_name: group.source_name, detail_url: r.detail_url })
+      }
+    }
+  }
+  return Array.from(map.values())
+})
+
 // Provider detail state for selected search result
 interface ProviderEpisodeGroup {
   source_name: string
   source_key: string
+  episodes: CatalogEpisode[]
+}
+
+interface ProviderDetailResult {
+  title: string | null
+  poster: string | null
+  summary: string | null
   episodes: CatalogEpisode[]
 }
 const providerEpisodes = ref<ProviderEpisodeGroup[] | null>(null)
@@ -136,6 +209,19 @@ async function loadDetail() {
     const keyword = route.query.keyword as string
     if (keyword) {
       searchSources(keyword)
+      // Try to get Douban metadata for the top panel (use cleaned keyword)
+      const cleanKeyword = cleanTitle(keyword)
+      loadingDouban.value = true
+      invoke<DoubanSubjectMeta | null>('search_douban_subject_by_keyword', { keyword: cleanKeyword })
+        .then(meta => {
+          doubanMeta.value = meta
+        })
+        .catch(e => {
+          console.error('[VodDetail] search_douban_subject_by_keyword failed:', e)
+        })
+        .finally(() => {
+          loadingDouban.value = false
+        })
     }
     return
   }
@@ -227,18 +313,37 @@ async function handleSearchResultPlay(result: SearchResult) {
   providerEpisodes.value = null
   providerItemType.value = (result.item_type === 'generic' ? 'movie' : result.item_type) as CatalogItemType
   try {
-    const episodes = await invoke<CatalogEpisode[]>('provider_detail', {
+    const detailResult = await invoke<ProviderDetailResult>('provider_detail', {
       source,
       ids,
     })
-    if (episodes.length === 0) {
+    if (detailResult.episodes.length === 0) {
       providerDetailError.value = '该视频没有可播放的剧集'
       return
+    }
+    // Update top panel with source detail metadata (poster, title, summary)
+    if (detailResult.title || detailResult.poster) {
+      sourceDetailMeta.value = {
+        doubanId: 0,
+        title: detailResult.title || cleanTitle(result.title || ''),
+        rating: null,
+        ratingCount: null,
+        director: [],
+        writer: [],
+        actors: [],
+        genre: [],
+        country: [],
+        language: [],
+        releaseDate: [],
+        runtime: null,
+        summary: detailResult.summary,
+        poster: detailResult.poster || result.poster || null,
+      }
     }
     providerEpisodes.value = [{
       source_name: result.source_name,
       source_key: source,
-      episodes,
+      episodes: detailResult.episodes,
     }]
   } catch (e) {
     console.error('[VodDetail] provider_detail failed:', e)
@@ -246,6 +351,17 @@ async function handleSearchResultPlay(result: SearchResult) {
   } finally {
     loadingProviderDetail.value = false
   }
+}
+
+function handleSourceClick(item: DedupSearchItem, src: { source: string; source_name: string; detail_url: string }) {
+  handleSearchResultPlay({
+    source: src.source,
+    source_name: src.source_name,
+    detail_url: src.detail_url,
+    item_type: item.item_type,
+    title: item.title,
+    poster: item.poster,
+  })
 }
 
 async function handleProviderEpisodePlay(episode: CatalogEpisode) {
@@ -287,45 +403,43 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
 
       <!-- Douban hot direct entry or search results -->
       <div v-else-if="isFromDouban || isSearch" class="mt-6 space-y-6">
-        <!-- Top zone: Douban metadata (only for douban flow, not search) -->
-        <template v-if="isFromDouban">
+        <!-- Top zone: Douban metadata (for douban flow and search results with matched meta) -->
+        <template v-if="displayMeta">
           <DoubanMetaPanel
-            v-if="displayMeta"
             :meta="displayMeta"
             :loading="loadingDouban"
             class="top-zone"
           />
-          <DetailMetaSkeleton v-else-if="loadingDouban && !preliminaryMeta" class="top-zone" />
         </template>
+        <DetailMetaSkeleton v-else-if="loadingDouban" class="top-zone" />
 
         <!-- Search results from sources -->
         <section v-if="loadingSearch" class="space-y-4">
           <EpisodeGroupSkeleton :count="4" />
         </section>
 
-        <section v-else-if="searchResults.length" class="source-list space-y-4">
+        <section v-else-if="dedupSearchItems.length" class="source-list space-y-4">
           <div
-            v-for="group in searchResults"
-            :key="group.source_name"
-            class="rounded-xl bg-white/5 p-4"
+            v-for="item in dedupSearchItems"
+            :key="item.title"
+            class="dedup-search-card"
           >
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-lg font-semibold text-white">{{ group.source_name }}</h3>
-              <span class="text-sm text-white/40">{{ group.results.length }} 个结果</span>
-            </div>
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              <div
-                v-for="result in group.results"
-                :key="result.detail_url"
-                class="flex items-center gap-3 rounded-lg bg-white/5 p-3 cursor-pointer hover:bg-white/10 transition-colors"
-                @click="handleSearchResultPlay(result)"
-              >
-                <img v-if="result.poster" :src="result.poster" class="w-12 h-16 object-cover rounded" />
-                <div class="flex-1 min-w-0">
-                  <p class="text-white text-sm font-medium truncate">{{ result.title || doubanMeta?.title }}</p>
-                  <p class="text-white/40 text-xs">{{ result.source_name }}</p>
-                </div>
+            <div class="dedup-search-card-header">
+              <img v-if="item.poster" :src="item.poster" class="dedup-poster" />
+              <div class="dedup-search-card-info">
+                <h3 class="text-lg font-semibold text-white">{{ item.title }}</h3>
+                <p class="text-sm text-white/40">{{ item.sources.length }} 个播放源</p>
               </div>
+            </div>
+            <div class="version-button-row">
+              <button
+                v-for="src in item.sources"
+                :key="src.detail_url"
+                class="version-button"
+                @click="handleSourceClick(item, src)"
+              >
+                ▶ {{ src.source_name }}
+              </button>
             </div>
           </div>
         </section>
@@ -392,3 +506,52 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.dedup-search-card {
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(10, 14, 21, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1rem;
+}
+.dedup-search-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.dedup-poster {
+  width: 3.5rem;
+  height: 5rem;
+  object-fit: cover;
+  border-radius: 0.5rem;
+}
+.dedup-search-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.version-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.version-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+.version-button:hover {
+  background: rgba(117, 169, 195, 0.12);
+  border-color: rgba(117, 169, 195, 0.25);
+  color: rgba(200, 230, 245, 0.95);
+}
+</style>

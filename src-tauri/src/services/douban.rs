@@ -246,47 +246,74 @@ impl Default for DoubanCrawler {
 // =============================================================================
 
 use crate::models::DoubanSubjectMeta;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use tauri::Manager;
+use tokio::sync::Semaphore;
 
 pub struct DoubanSubjectScraper;
 
+// Semaphore to limit concurrent WebView scrapes to 1 to prevent memory leak
+static SCRAPE_SEMAPHORE: Semaphore = Semaphore::const_new(1);
+
+// Shared result channel for on_navigation callback (persists across scrape calls)
+// This allows us to reuse a single persistent WebView instead of creating/destroying one per call,
+// which prevented WKWebView processes from accumulating on macOS (fixing the 80GB memory leak).
+static SCRAPE_RESULT: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
 impl DoubanSubjectScraper {
     pub async fn scrape(app: &tauri::AppHandle, douban_id: i64) -> Result<DoubanSubjectMeta, String> {
+        // Acquire permit before using WebView to serialize all scrape operations
+        let _permit = SCRAPE_SEMAPHORE.acquire().await
+            .map_err(|_| "Failed to acquire scrape permit")?;
+
         let url_str = format!("https://movie.douban.com/subject/{}/", douban_id);
         log::info!("[DoubanSubjectScraper] Starting scrape for douban_id={}", douban_id);
 
         let url: tauri::Url = url_str.parse()
             .map_err(|e| format!("Invalid URL: {}", e))?;
 
-        // Shared state for communication between on_navigation callback and async fn
-        let result = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
-        let result_clone = result.clone();
-
-        // Create hidden WebView window with on_navigation callback
-        let webview = tauri::webview::WebviewWindowBuilder::new(
-            app,
-            format!("douban-scraper-{}", douban_id),
-            tauri::WebviewUrl::External(url),
-        )
-        .title("豆瓣")
-        .inner_size(1.0, 1.0) // Tiny window, off-screen
-        .on_navigation(move |nav_url| {
-            let nav_str = nav_url.as_str();
-            // Intercept our custom communication URL
-            if let Some(data_encoded) = nav_str.strip_prefix("http://scraper.internal/result?data=") {
-                if let Ok(decoded) = urlencoding::decode(data_encoded) {
-                    *result_clone.lock().unwrap() = Some(decoded.into_owned());
-                }
-                return false; // Prevent actual navigation
+        // Reuse existing WebView if available; create once on first call
+        let webview = match app.get_webview_window("douban-scraper-shared") {
+            Some(wv) => {
+                log::info!("[DoubanSubjectScraper] Reusing existing WebView for douban_id={}", douban_id);
+                // Navigate existing WebView to new URL via JavaScript
+                let nav_js = format!("window.location.href = '{}';", url_str);
+                wv.eval(&nav_js).map_err(|e| format!("Failed to navigate WebView: {}", e))?;
+                wv
             }
-            true
-        })
-        .build()
-        .map_err(|e| format!("Failed to create WebView: {}", e))?;
+            None => {
+                log::info!("[DoubanSubjectScraper] Creating new WebView for douban_id={}", douban_id);
+                tauri::webview::WebviewWindowBuilder::new(
+                    app,
+                    "douban-scraper-shared",
+                    tauri::WebviewUrl::External(url),
+                )
+                .title("豆瓣")
+                .inner_size(1.0, 1.0) // Tiny window, off-screen
+                .on_navigation(|nav_url| {
+                    let nav_str = nav_url.as_str();
+                    // Intercept our custom communication URL
+                    if let Some(data_encoded) = nav_str.strip_prefix("http://scraper.internal/result?data=") {
+                        if let Ok(decoded) = urlencoding::decode(data_encoded) {
+                            *SCRAPE_RESULT.lock().unwrap() = Some(decoded.into_owned());
+                        }
+                        return false; // Prevent actual navigation
+                    }
+                    true
+                })
+                .build()
+                .map_err(|e| format!("Failed to create WebView: {}", e))?
+            }
+        };
 
         // Wait for page to load and anti-scraping challenge to complete
         // (SHA-512 computation + redirect to real page can take 10-15 seconds)
         log::info!("[DoubanSubjectScraper] Waiting for page load + anti-scraping challenge...");
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Clear any stale result from previous scrape
+        *SCRAPE_RESULT.lock().unwrap() = None;
 
         // Inject JS to extract metadata from DOM and communicate via navigation.
         // Uses retry loop: checks for real content repeatedly until found or timeout.
@@ -347,18 +374,19 @@ impl DoubanSubjectScraper {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(50);
         let data_str = loop {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            if let Some(d) = result.lock().unwrap().take() {
+            if let Some(d) = SCRAPE_RESULT.lock().unwrap().take() {
                 break d;
             }
             if tokio::time::Instant::now() > deadline {
-                webview.close().ok();
                 return Err("Timeout waiting for scrape result".to_string());
             }
         };
 
-        // Clean up the WebView window
-        webview.close().ok();
-        log::info!("[DoubanSubjectScraper] Data received, WebView closed");
+        // NOTE: We intentionally do NOT close the WebView here.
+        // Reusing a single persistent WebView prevents WKWebView process accumulation on macOS,
+        // which was the root cause of the 80GB memory leak (each create/close cycle could leak
+        // a WebKit WebContent process using 100-500MB).
+        log::info!("[DoubanSubjectScraper] Data received, WebView kept alive for reuse");
 
         // Parse the JSON response from the extracted data
         let v: serde_json::Value = serde_json::from_str(&data_str)
@@ -413,6 +441,131 @@ impl DoubanSubjectScraper {
             summary,
             poster,
         })
+    }
+
+    /// Search Douban by keyword using the persistent WebView, return found subject IDs.
+    /// This is separate from scrape() because the search page has a different URL and JS extraction logic.
+    /// Uses the same persistent WebView mechanism as scrape().
+    pub async fn search_subject_ids(app: &tauri::AppHandle, keyword: &str) -> Result<Vec<i64>, String> {
+        // Acquire permit before using WebView to serialize all WebView operations
+        let _permit = SCRAPE_SEMAPHORE.acquire().await
+            .map_err(|_| "Failed to acquire scrape permit")?;
+
+        let encoded_keyword = urlencoding::encode(keyword);
+        let search_url = format!("https://movie.douban.com/subject_search?search_text={}", encoded_keyword);
+
+        log::info!("[DoubanSubjectScraper::search] Searching Douban for keyword='{}'", keyword);
+
+        let url: tauri::Url = search_url.parse()
+            .map_err(|e| format!("Invalid URL: {}", e))?;
+
+        // Reuse existing WebView if available; create once on first call
+        let webview = match app.get_webview_window("douban-scraper-shared") {
+            Some(wv) => {
+                log::info!("[DoubanSubjectScraper::search] Reusing existing WebView");
+                let nav_js = format!("window.location.href = '{}';", search_url);
+                wv.eval(&nav_js).map_err(|e| format!("Failed to navigate WebView: {}", e))?;
+                wv
+            }
+            None => {
+                log::info!("[DoubanSubjectScraper::search] Creating new WebView");
+                tauri::webview::WebviewWindowBuilder::new(
+                    app,
+                    "douban-scraper-shared",
+                    tauri::WebviewUrl::External(url),
+                )
+                .title("豆瓣")
+                .inner_size(1.0, 1.0)
+                .on_navigation(|nav_url| {
+                    let nav_str = nav_url.as_str();
+                    if let Some(data_encoded) = nav_str.strip_prefix("http://scraper.internal/result?data=") {
+                        if let Ok(decoded) = urlencoding::decode(data_encoded) {
+                            *SCRAPE_RESULT.lock().unwrap() = Some(decoded.into_owned());
+                        }
+                        return false;
+                    }
+                    true
+                })
+                .build()
+                .map_err(|e| format!("Failed to create WebView: {}", e))?
+            }
+        };
+
+        // Wait for initial page load + anti-scraping challenge
+        log::info!("[DoubanSubjectScraper::search] Waiting for page load + anti-scraping challenge...");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Clear any stale result from previous operation
+        *SCRAPE_RESULT.lock().unwrap() = None;
+
+        // Inject JS to extract subject links from the rendered search results
+        // Uses retry loop: checks for real content repeatedly until found or timeout.
+        let js = r#"
+            (function() {
+                var maxRetries = 25;
+                var retryDelay = 1500;
+                var retryCount = 0;
+
+                var sendData = function() {
+                    // Find all links containing /subject/ in their href
+                    var links = document.querySelectorAll('a[href*="/subject/"]');
+                    var ids = [];
+                    var seen = {};
+                    links.forEach(function(link) {
+                        var match = link.href.match(/\/subject\/(\d+)/);
+                        if (match && !seen[match[1]]) {
+                            seen[match[1]] = true;
+                            ids.push(parseInt(match[1], 10));
+                        }
+                    });
+
+                    // Check if we have real content (not the challenge/loading page)
+                    var hasRealContent = ids.length > 0 || document.title.indexOf('验证') === -1;
+                    var isFinal = retryCount >= maxRetries;
+
+                    if (!isFinal && !hasRealContent) {
+                        retryCount++;
+                        setTimeout(sendData, retryDelay);
+                        return;
+                    }
+
+                    window.location = 'http://scraper.internal/result?data=' + encodeURIComponent(JSON.stringify({ids: ids}));
+                };
+
+                setTimeout(sendData, 1000);
+            })();
+        "#;
+
+        log::info!("[DoubanSubjectScraper::search] Executing JS extraction...");
+        if let Err(e) = webview.eval(String::from(js)) {
+            log::warn!("[DoubanSubjectScraper::search] eval failed: {:?}", e);
+        }
+
+        // Wait for result with timeout
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(50);
+        let data_str = loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if let Some(d) = SCRAPE_RESULT.lock().unwrap().take() {
+                break d;
+            }
+            if tokio::time::Instant::now() > deadline {
+                return Err("Timeout waiting for search result".to_string());
+            }
+        };
+
+        let v: serde_json::Value = serde_json::from_str(&data_str)
+            .map_err(|e| format!("Failed to parse search JSON: {}", e))?;
+
+        let ids: Vec<i64> = v["ids"].as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|id| id.as_i64())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        log::info!("[DoubanSubjectScraper::search] Found {} subject IDs for keyword='{}'", ids.len(), keyword);
+        Ok(ids)
     }
 }
 

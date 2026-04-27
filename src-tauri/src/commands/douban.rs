@@ -10,9 +10,32 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
-// In-memory cache for proxy_image results
+// Bounded in-memory cache for proxy_image results
 // Key: URL, Value: base64-encoded image data
+// Bounded to prevent unbounded memory growth.
+const IMAGE_CACHE_CAPACITY: usize = 500;
 static IMAGE_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Insert into bounded image cache, evicting oldest entry when full.
+fn cache_image(url: String, b64: String) {
+    let mut cache = IMAGE_CACHE.lock().unwrap();
+    // Evict one entry when at capacity to keep cache bounded
+    if cache.len() >= IMAGE_CACHE_CAPACITY && !cache.contains_key(&url) {
+        if let Some(key) = cache.keys().next().cloned() {
+            cache.remove(&key);
+        }
+    }
+    cache.insert(url, b64);
+}
+
+/// Static HTTP client for proxy_image (reused across calls instead of creating one per call)
+static PROXY_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("Failed to create proxy HTTP client")
+});
 
 #[tauri::command]
 pub async fn get_douban_hot(state: State<'_, AppState>) -> Result<Vec<DoubanHot>, String> {
@@ -96,14 +119,8 @@ pub async fn proxy_image(url: String) -> Result<String, String> {
         }
     }
 
-    // Fetch image with correct Referer header
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    let resp = client
+    // Use static/reusable HTTP client (prevents creating new connection pool per call)
+    let resp = PROXY_CLIENT
         .get(&url)
         .header("Referer", "https://movie.douban.com/")
         .send()
@@ -119,11 +136,8 @@ pub async fn proxy_image(url: String) -> Result<String, String> {
 
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-    // Cache the result
-    {
-        let mut cache = IMAGE_CACHE.lock().unwrap();
-        cache.insert(url.clone(), b64.clone());
-    }
+    // Cache the result (bounded to prevent unbounded memory growth)
+    cache_image(url.clone(), b64.clone());
 
     Ok(b64)
 }
@@ -339,4 +353,82 @@ pub async fn fetch_douban_metadata_by_id(
             Ok(None)
         }
     }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn search_douban_subject_by_keyword(
+    app: AppHandle,
+    keyword: String,
+    state: State<'_, AppState>,
+) -> Result<Option<DoubanSubjectMeta>, String> {
+    // Step 1: Try DB hot list first (fast path, no WebView needed)
+    {
+        let douban_items = state.storage.get_douban_hot().map_err(|e| e.to_string())?;
+        let normalized = keyword.chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .to_lowercase();
+
+        for item in douban_items.iter().take(500) {
+            let item_normalized = item.name
+                .chars()
+                .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+                .collect::<String>()
+                .to_lowercase();
+
+            let score = calculate_similarity(&normalized, &item_normalized);
+            if score > 0.8 {
+                // Found in hot list, check cache then scrape
+                if let Ok(Some(cached)) = state.storage.get_douban_subject_meta(item.id) {
+                    log::info!("[search_douban_subject_by_keyword] Cache hit for douban_id={}", item.id);
+                    return Ok(Some(cached));
+                }
+                log::info!("[search_douban_subject_by_keyword] Found in hot list, scraping douban_id={}", item.id);
+                let meta = DoubanSubjectScraper::scrape(&app, item.id).await;
+                match meta {
+                    Ok(m) => {
+                        let _ = state.storage.upsert_douban_subject_meta(&m);
+                        return Ok(Some(m));
+                    }
+                    Err(e) => log::warn!("Failed to scrape hot list item {}: {}", item.id, e),
+                }
+            }
+        }
+    }
+
+    // Step 2: Search Douban via WebView (handles anti-scraping JS challenges)
+    log::info!("[search_douban_subject_by_keyword] Using WebView to search Douban for keyword: {}", keyword);
+    let found_ids = match DoubanSubjectScraper::search_subject_ids(&app, &keyword).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            log::warn!("[search_douban_subject_by_keyword] WebView search failed: {}", e);
+            Vec::new()
+        }
+    };
+
+    // Try each found id (check cache first, then scrape)
+    for douban_id in found_ids {
+        log::info!("[search_douban_subject_by_keyword] Found douban_id={} via WebView search", douban_id);
+
+        // Check cache
+        if let Ok(Some(cached)) = state.storage.get_douban_subject_meta(douban_id) {
+            log::info!("[search_douban_subject_by_keyword] Cache hit for douban_id={}", douban_id);
+            return Ok(Some(cached));
+        }
+
+        // Scrape for rich metadata
+        match DoubanSubjectScraper::scrape(&app, douban_id).await {
+            Ok(m) => {
+                let _ = state.storage.upsert_douban_subject_meta(&m);
+                return Ok(Some(m));
+            }
+            Err(e) => {
+                log::warn!("Scrape failed for douban_id {}: {}", douban_id, e);
+                continue;
+            }
+        }
+    }
+
+    log::info!("[search_douban_subject_by_keyword] No matching Douban subject found for keyword: {}", keyword);
+    Ok(None)
 }
