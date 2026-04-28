@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import EpisodeChip from '@/components/media/EpisodeChip.vue'
-import SourceBadge from '@/components/media/SourceBadge.vue'
 import type { CatalogEpisode, CatalogEpisodeGroup, CatalogItemType } from '@/types'
-
-const COLLAPSE_THRESHOLD = 24
 
 const props = defineProps<{
   group: CatalogEpisodeGroup
@@ -27,13 +24,21 @@ const typeLabel = computed(() => {
   }
 })
 
+const EXPAND_THRESHOLD = 24
+const needsExpand = computed(() => {
+  return !isMovie.value && props.group.episodes.length > EXPAND_THRESHOLD
+})
 const expanded = ref(false)
 
-const displayEpisodes = computed(() => {
-  if (expanded.value || props.group.episodes.length <= COLLAPSE_THRESHOLD) {
+const visibleEpisodes = computed(() => {
+  if (isMovie.value || !needsExpand.value || expanded.value) {
     return props.group.episodes
   }
-  return props.group.episodes.slice(0, COLLAPSE_THRESHOLD)
+  return props.group.episodes.slice(0, EXPAND_THRESHOLD)
+})
+
+const remainingCount = computed(() => {
+  return props.group.episodes.length - EXPAND_THRESHOLD
 })
 </script>
 
@@ -42,46 +47,59 @@ const displayEpisodes = computed(() => {
     <div class="source-group-header">
       <div class="source-group-header-left">
         <span class="source-group-name">{{ group.source_name }}</span>
-        <SourceBadge
-          :label="isMovie ? `${group.episodes.length} 个版本` : `${group.episodes.length} 集`"
-          tone="warm"
-        />
+        <span class="source-group-count-badge">
+          {{ isMovie ? `${group.episodes.length} 个播放源` : `${group.episodes.length} 集` }}
+        </span>
       </div>
       <span class="source-group-type-tag">{{ typeLabel }}</span>
     </div>
 
     <div class="source-group-body">
-      <!-- Movie mode: version buttons -->
-      <div v-if="isMovie" class="version-button-row">
+      <div v-if="isMovie" class="play-button-row">
         <button
           v-for="episode in group.episodes"
           :key="episode.id"
-          class="version-button"
+          class="play-button"
           @click="emit('play', episode)"
         >
-          ▶ {{ episode.episode_label }}
+          <span class="play-icon">▶</span>
+          <span class="play-label">{{ episode.episode_label }}</span>
         </button>
       </div>
 
-      <!-- Series mode: episode chips grid -->
-      <div v-else>
+      <template v-else>
         <div class="episode-chip-grid">
           <EpisodeChip
-            v-for="episode in displayEpisodes"
+            v-for="episode in visibleEpisodes"
             :key="episode.id"
             :label="episode.episode_label"
             state="playable"
             @click="emit('play', episode)"
           />
         </div>
+
         <button
-          v-if="group.episodes.length > COLLAPSE_THRESHOLD && !expanded"
-          class="expand-button"
+          v-if="needsExpand && !expanded"
+          class="expand-toggle-button"
           @click="expanded = true"
         >
-          展开全部 ({{ group.episodes.length }}集)
+          <span>展开剩余 {{ remainingCount }} 集</span>
+          <svg class="expand-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </button>
-      </div>
+
+        <button
+          v-else-if="needsExpand && expanded"
+          class="expand-toggle-button"
+          @click="expanded = false"
+        >
+          <span>收起</span>
+          <svg class="expand-chevron expanded" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 10L8 6L12 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </template>
     </div>
   </section>
 </template>
@@ -92,12 +110,17 @@ const displayEpisodes = computed(() => {
   background: linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(10, 14, 21, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
+  transition: transform 200ms ease, border-color 200ms ease;
+}
+.source-group-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 .source-group-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.7rem 1rem;
+  padding: 0.75rem 1rem;
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -107,29 +130,37 @@ const displayEpisodes = computed(() => {
   gap: 0.6rem;
 }
 .source-group-name {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.85);
+}
+.source-group-count-badge {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 0.15rem 0.4rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 0.25rem;
 }
 .source-group-type-tag {
   font-size: 0.65rem;
   color: rgba(255, 255, 255, 0.3);
 }
 .source-group-body {
-  padding: 0.7rem 1rem;
+  padding: 0.75rem 1rem;
 }
-.version-button-row {
+.play-button-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
-.version-button {
+.play-button {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.35rem;
   border-radius: 0.5rem;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.72rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.78rem;
   font-weight: 500;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
@@ -137,9 +168,16 @@ const displayEpisodes = computed(() => {
   cursor: pointer;
   transition: all 180ms ease;
 }
-.version-button:hover {
+.play-button:hover {
   background: rgba(117, 169, 195, 0.12);
   border-color: rgba(117, 169, 195, 0.25);
+  color: rgba(200, 230, 245, 0.95);
+}
+.play-icon {
+  color: rgba(117, 169, 195, 0.7);
+  font-size: 0.65rem;
+}
+.play-button:hover .play-icon {
   color: rgba(200, 230, 245, 0.95);
 }
 .episode-chip-grid {
@@ -147,18 +185,33 @@ const displayEpisodes = computed(() => {
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-.expand-button {
-  margin-top: 0.5rem;
-  border-radius: 0.5rem;
-  padding: 0.35rem 0.8rem;
-  font-size: 0.72rem;
-  background: rgba(216, 154, 87, 0.1);
-  border: 1px solid rgba(216, 154, 87, 0.2);
-  color: rgba(240, 179, 107, 0.9);
+.expand-toggle-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: rgba(117, 169, 195, 0.06);
+  border: 1px solid rgba(117, 169, 195, 0.15);
+  color: rgba(200, 230, 245, 0.7);
   cursor: pointer;
   transition: all 180ms ease;
 }
-.expand-button:hover {
-  background: rgba(216, 154, 87, 0.18);
+.expand-toggle-button:hover {
+  background: rgba(117, 169, 195, 0.12);
+  border-color: rgba(117, 169, 195, 0.3);
+  color: rgba(200, 230, 245, 0.95);
+}
+.expand-chevron {
+  opacity: 0.6;
+  transition: transform 200ms ease;
+}
+.expand-chevron.expanded {
+  transform: rotate(180deg);
 }
 </style>
