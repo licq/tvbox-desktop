@@ -9,6 +9,7 @@ import DoubanMetaPanel from '@/components/detail/DoubanMetaPanel.vue'
 import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
+import SearchResultCard from '@/components/detail/SearchResultCard.vue'
 import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult } from '@/types'
 
 interface DoubanSubjectMeta {
@@ -50,16 +51,6 @@ const isFromDouban = computed(() => route.query.douban === '1')
 const isSearch = computed(() => route.query.search === '1')
 
 // Clean common Chinese suffixes from search result titles (e.g. "生命树[全集]" → "生命树")
-function typeLabel(itemType: string): string {
-  switch (itemType) {
-    case 'movie': return '电影'
-    case 'series': return '剧集'
-    case 'variety': return '综艺'
-    case 'anime': return '动漫'
-    default: return '剧集'
-  }
-}
-
 function cleanTitle(title: string): string {
   return title
     .replace(/\[全集\]/g, '')
@@ -188,6 +179,73 @@ const providerEpisodes = ref<ProviderEpisodeGroup[] | null>(null)
 const providerItemType = ref<CatalogItemType>('movie')
 const loadingProviderDetail = ref(false)
 const providerDetailError = ref<string | null>(null)
+const providerDetailCache = ref(new Map<string, ProviderDetailResult>())
+const preloadingKeys = ref(new Set<string>())
+
+function getCacheKey(item: DedupSearchItem): string {
+  return `${item.title}-${item.item_type}`
+}
+
+async function preloadFirstSource(item: DedupSearchItem) {
+  const key = getCacheKey(item)
+  if (providerDetailCache.value.has(key) || preloadingKeys.value.has(key)) return
+
+  const first = item.sources[0]
+  if (!first) return
+
+  preloadingKeys.value.add(key)
+  try {
+    const detail = await invoke<ProviderDetailResult>('provider_detail', {
+      source: first.source,
+      ids: first.detail_url,
+    })
+    providerDetailCache.value.set(key, detail)
+  } catch (e) {
+    console.error('[VodDetail] preload failed for', item.title, e)
+  } finally {
+    preloadingKeys.value.delete(key)
+  }
+}
+
+async function handleCardEpisodePlay(episode: CatalogEpisode, item: DedupSearchItem) {
+  const firstSource = item.sources[0]
+  if (!firstSource) return
+
+  try {
+    const targets = await invoke<PlaybackTarget[]>('provider_play', {
+      source: firstSource.source,
+      flag: 'auto',
+      playUrl: episode.play_url,
+    })
+    if (targets.length > 0) {
+      const target = targets[0]
+      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${firstSource.source}`)
+    } else {
+      searchError.value = '播放地址获取失败'
+    }
+  } catch (e) {
+    console.error('[VodDetail] provider_play failed:', e)
+    searchError.value = '播放地址获取失败'
+  }
+}
+
+async function handleCardSourcePlay(source: string, ids: string, item: DedupSearchItem) {
+  const key = getCacheKey(item)
+  const cached = providerDetailCache.value.get(key)
+  if (cached && cached.episodes.length > 0) {
+    await handleCardEpisodePlay(cached.episodes[0], item)
+    return
+  }
+
+  handleSearchResultPlay({
+    source,
+    source_name: item.sources.find(s => s.source === source)?.source_name || '',
+    detail_url: ids,
+    item_type: item.item_type,
+    title: item.title,
+    poster: item.poster,
+  })
+}
 
 async function loadDetail() {
   // Direct from Douban hot list - use itemId as douban_id directly
@@ -263,18 +321,18 @@ async function searchSources(title: string) {
   searchError.value = null
   providerEpisodes.value = null
   providerDetailError.value = null
+  providerDetailCache.value.clear()
+  preloadingKeys.value.clear()
   try {
     const results = await invoke<SourceSearchResult[]>('search_all_sources', { keyword: title })
-    // Group by source, transform to SearchResult format
     const grouped: Record<string, SearchResult[]> = {}
     for (const r of results) {
       for (const item of r.items) {
-        if (!r.source_name) continue // skip items with no source name
+        if (!r.source_name) continue
         grouped[r.source_name] ||= []
         grouped[r.source_name].push({
           source: r.source_key,
           source_name: r.source_name,
-          // detail_url carries source_item_key for provider_detail lookup
           detail_url: item.source_item_key,
           item_type: item.item_type as SearchResult['item_type'],
           title: item.title,
@@ -288,6 +346,11 @@ async function searchSources(title: string) {
         source_name,
         results,
       }))
+
+    // Preload first source detail for each dedup result
+    for (const item of dedupSearchItems.value) {
+      preloadFirstSource(item)
+    }
   } catch (e) {
     console.error('[VodDetail] searchSources failed:', e)
     searchError.value = String(e)
@@ -363,17 +426,6 @@ async function handleSearchResultPlay(result: SearchResult) {
   }
 }
 
-function handleSourceClick(item: DedupSearchItem, src: { source: string; source_name: string; detail_url: string }) {
-  handleSearchResultPlay({
-    source: src.source,
-    source_name: src.source_name,
-    detail_url: src.detail_url,
-    item_type: item.item_type,
-    title: item.title,
-    poster: item.poster,
-  })
-}
-
 async function handleProviderEpisodePlay(episode: CatalogEpisode) {
   if (!providerEpisodes.value?.length) return
   const source = providerEpisodes.value[0].source_key
@@ -429,35 +481,19 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
         </section>
 
         <section v-else-if="dedupSearchItems.length" class="source-list space-y-4">
-          <div
+          <SearchResultCard
             v-for="item in dedupSearchItems"
             :key="item.title"
-            class="source-group-card"
-          >
-            <div class="source-group-header">
-              <div class="source-group-header-left">
-                <img v-if="item.poster" :src="item.poster" class="dedup-poster" />
-                <div class="dedup-search-info">
-                  <span class="source-group-name">{{ item.title }}</span>
-                  <span class="source-group-count-badge">{{ item.sources.length }} 个播放源</span>
-                </div>
-              </div>
-              <span class="source-group-type-tag">{{ typeLabel(item.item_type) }}</span>
-            </div>
-            <div class="source-group-body">
-              <div class="play-button-row">
-                <button
-                  v-for="src in item.sources"
-                  :key="src.detail_url"
-                  class="play-button"
-                  @click="handleSourceClick(item, src)"
-                >
-                  <span class="play-icon">▶</span>
-                  <span class="play-label">{{ src.source_name }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
+            :title="item.title"
+            :poster="item.poster"
+            :item-type="(item.item_type === 'generic' ? 'movie' : item.item_type) as CatalogItemType"
+            :sources="item.sources"
+            :episodes="providerDetailCache.get(getCacheKey(item))?.episodes"
+            :loading-episodes="preloadingKeys.has(getCacheKey(item))"
+            @play-episode="(ep) => handleCardEpisodePlay(ep, item)"
+            @play-source="(source, detailUrl) => handleCardSourcePlay(source, detailUrl, item)"
+            @load-episodes="preloadFirstSource(item)"
+          />
         </section>
 
         <!-- Provider detail episodes (shown after clicking a search result) -->
@@ -524,91 +560,4 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
 </template>
 
 <style scoped>
-.dedup-poster {
-  width: 3rem;
-  height: 4.5rem;
-  object-fit: cover;
-  border-radius: 0.4rem;
-  flex-shrink: 0;
-}
-.dedup-search-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.source-group-card {
-  border-radius: 1rem;
-  background: linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(10, 14, 21, 0.9));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-  transition: transform 200ms ease, border-color 200ms ease;
-}
-.source-group-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.12);
-}
-.source-group-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.source-group-header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.source-group-name {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
-}
-.source-group-count-badge {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.35);
-  padding: 0.15rem 0.4rem;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 0.25rem;
-}
-.source-group-type-tag {
-  font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.3);
-}
-.source-group-body {
-  padding: 0.75rem 1rem;
-}
-.play-button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.play-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  border-radius: 0.5rem;
-  padding: 0.4rem 0.9rem;
-  font-size: 0.78rem;
-  font-weight: 500;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.8);
-  cursor: pointer;
-  transition: all 180ms ease;
-}
-.play-button:hover {
-  background: rgba(117, 169, 195, 0.12);
-  border-color: rgba(117, 169, 195, 0.25);
-  color: rgba(200, 230, 245, 0.95);
-}
-.play-icon {
-  color: rgba(117, 169, 195, 0.7);
-  font-size: 0.65rem;
-}
-.play-button:hover .play-icon {
-  color: rgba(200, 230, 245, 0.95);
-}
 </style>
