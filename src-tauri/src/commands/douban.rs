@@ -431,74 +431,56 @@ pub async fn search_douban_subject_by_keyword(
 
     // Step 2: Search Douban via WebView (handles anti-scraping JS challenges)
     log::info!("[search_douban_subject_by_keyword] Using WebView to search Douban for keyword: {}", keyword);
-    let found_ids = match DoubanSubjectScraper::search_subject_ids(&app, &keyword).await {
-        Ok(ids) => ids,
-        Err(e) => {
-            log::warn!("[search_douban_subject_by_keyword] WebView search failed: {}", e);
-            Vec::new()
-        }
-    };
-
-    for douban_id in found_ids {
-        log::info!("[search_douban_subject_by_keyword] Found douban_id={} via WebView search", douban_id);
-
-        if let Ok(Some(cached)) = state.storage.get_douban_subject_meta(douban_id) {
-            log::info!("[search_douban_subject_by_keyword] Cache hit for douban_id={}", douban_id);
-            if let Ok(json) = serde_json::to_string(&cached) {
-                let _ = state.storage.set_douban_search_cache(&keyword, &json);
-            }
-            return Ok(Some(cached));
-        }
-
-        match DoubanSubjectScraper::scrape(&app, douban_id).await {
-            Ok(m) => {
-                let _ = state.storage.upsert_douban_subject_meta(&m);
-                if let Ok(json) = serde_json::to_string(&m) {
-                    let _ = state.storage.set_douban_search_cache(&keyword, &json);
-                }
-                return Ok(Some(m));
-            }
-            Err(e) => {
-                log::warn!("Scrape failed for douban_id {}: {}", douban_id, e);
-                continue;
-            }
-        }
+    if let Some(meta) = search_and_scrape_douban(&app, &keyword, &state.storage).await {
+        log::info!("[search_douban_subject_by_keyword] Found result via WebView search for: {}", keyword);
+        return Ok(Some(meta));
     }
 
     log::info!("[search_douban_subject_by_keyword] No matching Douban subject found for keyword: {}", keyword);
     Ok(None)
 }
 
-/// Helper: refresh douban search cache by re-scraping via WebView
-async fn refresh_douban_search_cache(app: &AppHandle, keyword: &str, storage: &crate::services::Storage) {
+/// Shared logic: search Douban via WebView and return the first successful scrape result.
+/// Returns the meta if found, None otherwise. On success, also writes to douban_search_cache.
+async fn search_and_scrape_douban(
+    app: &AppHandle,
+    keyword: &str,
+    storage: &crate::services::Storage,
+) -> Option<DoubanSubjectMeta> {
     let found_ids = match DoubanSubjectScraper::search_subject_ids(app, keyword).await {
         Ok(ids) => ids,
         Err(e) => {
-            log::warn!("[refresh_douban_search_cache] WebView search failed: {}", e);
-            return;
+            log::warn!("[search_and_scrape] WebView search failed for '{}': {}", keyword, e);
+            return None;
         }
     };
-
     for douban_id in found_ids {
+        log::info!("[search_and_scrape] Found douban_id={} via WebView search for '{}'", douban_id, keyword);
         if let Ok(Some(cached)) = storage.get_douban_subject_meta(douban_id) {
+            log::info!("[search_and_scrape] Cache hit for douban_id={}", douban_id);
             if let Ok(json) = serde_json::to_string(&cached) {
                 let _ = storage.set_douban_search_cache(keyword, &json);
             }
-            return;
+            return Some(cached);
         }
-
         match DoubanSubjectScraper::scrape(app, douban_id).await {
             Ok(m) => {
                 let _ = storage.upsert_douban_subject_meta(&m);
                 if let Ok(json) = serde_json::to_string(&m) {
                     let _ = storage.set_douban_search_cache(keyword, &json);
                 }
-                return;
+                return Some(m);
             }
             Err(e) => {
-                log::warn!("[refresh_douban_search_cache] Scrape failed for {}: {}", douban_id, e);
+                log::warn!("[search_and_scrape] Scrape failed for {}: {}", douban_id, e);
                 continue;
             }
         }
     }
+    None
+}
+
+/// Helper: refresh douban search cache by re-scraping via WebView (used for background refresh)
+async fn refresh_douban_search_cache(app: &AppHandle, keyword: &str, storage: &crate::services::Storage) {
+    search_and_scrape_douban(app, keyword, storage).await;
 }
