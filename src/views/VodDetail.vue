@@ -559,5 +559,3 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
   </div>
 </template>
 
-<style scoped>
-</style>
