@@ -1,0 +1,119 @@
+<h2>搜索结果页 — 布局方案</h2>
+<p class="subtitle">全屏搜索结果页，带搜索框 + 筛选 + 结果卡片网格</p>
+
+<div class="section">
+  <h3>方案 A：左导航 + 内容</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="padding: 0;">
+      <div style="display: flex; min-height: 400px;">
+        <div style="width: 200px; background: rgba(255,255,255,0.04); padding: 1rem; border-right: 1px solid rgba(255,255,255,0.08);">
+          <div style="font-size: 0.7rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 1rem;">筛选</div>
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div class="mock-button" style="width: 100%; text-align: left; background: rgba(216,154,87,0.2);">全部 (42)</div>
+            <div class="mock-button" style="width: 100%; text-align: left;">电影 (18)</div>
+            <div class="mock-button" style="width: 100%; text-align: left;">剧集 (14)</div>
+            <div class="mock-button" style="width: 100%; text-align: left;">综艺 (6)</div>
+            <div class="mock-button" style="width: 100%; text-align: left;">动漫 (4)</div>
+          </div>
+          <div style="font-size: 0.7rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.2em; margin: 1.5rem 0 0.75rem;">来源</div>
+          <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+            <div class="mock-button" style="width: 100%; text-align: left; font-size: 0.75rem;">全线源</div>
+            <div class="mock-button" style="width: 100%; text-align: left; font-size: 0.75rem;">线路A</div>
+            <div class="mock-button" style="width: 100%; text-align: left; font-size: 0.75rem;">线路B</div>
+          </div>
+        </div>
+        <div style="flex: 1; padding: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+            <input class="mock-input" style="flex: 1;" placeholder="搜索电影、剧集...">
+            <button class="mock-button" style="background: rgba(216,154,87,0.3);">搜索</button>
+          </div>
+          <div style="color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-bottom: 1rem;">找到 42 个结果</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem;">
+            <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+              <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+              <div style="padding: 0.5rem;">
+                <div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div>
+                <div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div>
+              </div>
+            </div>
+            <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+              <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+              <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+            </div>
+            <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+              <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+              <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+            </div>
+            <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+              <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+              <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>方案 B：顶部筛选栏 + 内容全宽</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="padding: 0;">
+      <div style="min-height: 400px;">
+        <div style="padding: 1rem 1rem 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+            <input class="mock-input" style="flex: 1;" placeholder="搜索电影、剧集...">
+            <button class="mock-button" style="background: rgba(216,154,87,0.3);">搜索</button>
+          </div>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 0.65rem; background: rgba(216,154,87,0.2); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.8);">全部 <span style="opacity:0.5;">42</span></span>
+            <span style="font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.5);">电影 <span style="opacity:0.5;">18</span></span>
+            <span style="font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.5);">剧集 <span style="opacity:0.5;">14</span></span>
+            <span style="font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.5);">综艺 <span style="opacity:0.5;">6</span></span>
+            <span style="font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.5);">动漫 <span style="opacity:0.5;">4</span></span>
+            <span style="font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.5);">线路A <span style="opacity:0.5;">22</span></span>
+            <span style="font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.3rem 0.7rem; border-radius: 999px; color: rgba(255,255,255,0.5);">线路B <span style="opacity:0.5;">20</span></span>
+          </div>
+        </div>
+        <div style="padding: 0.75rem 1rem 0.5rem; color: rgba(255,255,255,0.5); font-size: 0.8rem;">找到 42 个结果</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; padding: 0 1rem 1rem;">
+          <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+            <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+          </div>
+          <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+            <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+          </div>
+          <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+            <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+          </div>
+          <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.15), rgba(117,169,195,0.1)); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.3);">海报</div>
+            <div style="padding: 0.5rem;"><div style="font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.9);">电影标题</div><div style="font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 0.15rem;">来源名</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>左导航 + 内容</h3>
+      <p>侧边栏筛选，主内容区展示结果网格。更适合有较多筛选条件的场景，筛选和内容区分离清晰。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>顶部筛选栏 + 内容全宽</h3>
+      <p>筛选前置到顶部标签栏，结果网格占满全宽。更紧凑，视觉重点全部在内容上。</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 2rem; color: rgba(255,255,255,0.5); font-size: 0.8rem;">打开浏览器看看这两个布局方案，选择你喜欢的。</p>

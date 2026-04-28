@@ -1,0 +1,129 @@
+<h2>方案 A1 细化 — 区分电影与剧集</h2>
+<p class="subtitle">电影无多集概念，直接展示不同画质/语言版本；剧集展示多集列表</p>
+
+<!-- Movie case -->
+<div class="section">
+  <h3>电影场景</h3>
+  <p class="subtitle">每个源展示可用版本（不同画质/语言），直接播放</p>
+  <div class="mockup">
+    <div class="mockup-body" style="display: grid; gap: 0.75rem;">
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">蓝光线路</span>
+            <span style="font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.12);">3个版本</span>
+          </div>
+          <span style="font-size: 0.65rem; color: rgba(255,255,255,0.3);">电影</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.7rem 1rem;">
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 0.5rem; padding: 0.35rem 0.7rem; font-size: 0.72rem; cursor: default;
+            background: rgba(216,154,87,0.1); border: 1px solid rgba(216,154,87,0.25); color: rgba(240,179,107,0.95);
+            font-weight: 500;">
+            ▶ 4K
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 0.5rem; padding: 0.35rem 0.7rem; font-size: 0.72rem; cursor: default;
+            background: rgba(117,169,195,0.1); border: 1px solid rgba(117,169,195,0.2); color: rgba(180,215,235,0.95);
+            font-weight: 500;">
+            ▶ 1080P
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 0.5rem; padding: 0.35rem 0.7rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.8);
+            font-weight: 500;">
+            ▶ 国语配音
+          </span>
+        </div>
+      </div>
+
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">极速线路</span>
+            <span style="font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.12);">1个版本</span>
+          </div>
+          <span style="font-size: 0.65rem; color: rgba(255,255,255,0.3);">电影</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.7rem 1rem;">
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 0.5rem; padding: 0.35rem 0.7rem; font-size: 0.72rem; cursor: default;
+            background: rgba(117,169,195,0.1); border: 1px solid rgba(117,169,195,0.2); color: rgba(180,215,235,0.95);
+            font-weight: 500;">
+            ▶ 1080P
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Series case -->
+<div class="section">
+  <h3>剧集场景</h3>
+  <p class="subtitle">每个源展示剧集列表，带版本小标签</p>
+  <div class="mockup">
+    <div class="mockup-body" style="display: grid; gap: 0.75rem;">
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">樱花线路</span>
+            <span style="font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.12);">24集</span>
+          </div>
+          <span style="font-size: 0.65rem; color: rgba(255,255,255,0.3);">剧集</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.7rem 1rem;">
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">01</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">02</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">03</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">04</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">05</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">…</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">24</span>
+        </div>
+      </div>
+
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">极速线路</span>
+            <span style="font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.12);">8集</span>
+          </div>
+          <span style="font-size: 0.65rem; color: rgba(255,255,255,0.3);">剧集(含多版本)</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.7rem 1rem;">
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(117,169,195,0.1); border: 1px solid rgba(117,169,195,0.2); color: rgba(180,215,235,0.9);">
+            01 <span style="opacity:0.6;">4K</span>
+          </span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">01 1080P</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">01 国语</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">02</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">03</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">04</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">05</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">06</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">07</span>
+          <span style="border-radius: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: default;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);">08</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 1.5rem; color: rgba(255,255,255,0.6); font-size: 0.85rem;">
+关键区别：电影直接显示版本标签（▶ 4K、▶ 1080P），点击即播放。剧集显示集数列表，如某集有多个版本则在 label 中标注。
+类型标注在卡片右上角（电影 / 剧集），一目了然。
+</p>

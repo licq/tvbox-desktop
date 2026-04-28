@@ -1,10 +1,6 @@
 // src-tauri/src/services/provider/native.rs
-use async_trait::async_trait;
 use reqwest::Client;
-use crate::services::playback_types::{PlaybackTarget, PlaybackTargetKind};
-use crate::services::xb6v::{ScrapedCatalogItem, ScrapedCatalogEpisode};
-use crate::services::provider::traits::CatalogCategory;
-use crate::services::provider::{VideoProvider, ProviderError};
+use crate::services::provider::ProviderError;
 
 /// Base struct for all native scrapers. Each source embeds its own HTTP client.
 pub struct NativeScraper {
@@ -57,7 +53,9 @@ impl NativeScraper {
                     // Extract base path from original URL
                     let base_path = &url[self.base_url.len()..]; // e.g. "/e/search/1index.php"
                     let search_base = &base_path[..base_path.rfind('/').unwrap_or(0)]; // e.g. "/e/search"
-                    format!("{}{}{}", self.base_url, search_base, loc)
+                    // Ensure proper joining with "/"
+                    let loc_prefix = if loc.starts_with('/') { "" } else { "/" };
+                    format!("{}{}{}{}", self.base_url, search_base, loc_prefix, loc)
                 };
                 return self.client.get(&redirect_url)
                     .send()

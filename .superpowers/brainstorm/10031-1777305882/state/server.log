@@ -1,0 +1,10 @@
+{"type":"server-started","port":50219,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:50219","screen_dir":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content","state_dir":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/state"}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content/search-results-layout.html"}
+{"source":"user-event","type":"click","text":"A\n    \n      左导航 + 内容\n      侧边栏筛选，主内容区展示结果网格。更适合有较多筛选条件的场景，筛选和内容区分离清晰。","choice":"a","id":null,"timestamp":1777306203087}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content/episode-source-layout.html"}
+{"source":"user-event","type":"click","text":"A\n    \n      卡片化 Source Group\n      每个源一个独立卡片，有 header（source name + badge）+ episode 区块。视觉分隔清晰，适合源数量不多的场景。","choice":"a","id":null,"timestamp":1777306305852}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content/episode-source-v2.html"}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content/episode-source-v3.html"}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content/search-tab-approach.html"}
+{"type":"screen-added","file":"/Users/dustin/Workspace/tvbox/.superpowers/brainstorm/10031-1777305882/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

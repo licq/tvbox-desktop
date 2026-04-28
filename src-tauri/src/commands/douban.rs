@@ -361,6 +361,34 @@ pub async fn search_douban_subject_by_keyword(
     keyword: String,
     state: State<'_, AppState>,
 ) -> Result<Option<DoubanSubjectMeta>, String> {
+    // Cache check: if we have a non-expired cached result, return it immediately
+    match state.storage.get_douban_search_cache(&keyword) {
+        Ok(Some((cached_json, expired))) => {
+            match serde_json::from_str::<DoubanSubjectMeta>(&cached_json) {
+                Ok(meta) => {
+                    if expired {
+                        // Background refresh
+                        let app = app.clone();
+                        let kw = keyword.clone();
+                        let storage = state.storage.clone();
+                        tokio::spawn(async move {
+                            log::info!("[search_douban] Background refresh for keyword: {}", kw);
+                            refresh_douban_search_cache(&app, &kw, &storage).await;
+                        });
+                    }
+                    return Ok(Some(meta));
+                }
+                Err(e) => {
+                    log::warn!("[search_douban] Cache deserialize failed: {}", e);
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            log::warn!("[search_douban] Cache check failed: {}", e);
+        }
+    }
+
     // Step 1: Try DB hot list first (fast path, no WebView needed)
     {
         let douban_items = state.storage.get_douban_hot().map_err(|e| e.to_string())?;
@@ -378,9 +406,11 @@ pub async fn search_douban_subject_by_keyword(
 
             let score = calculate_similarity(&normalized, &item_normalized);
             if score > 0.8 {
-                // Found in hot list, check cache then scrape
                 if let Ok(Some(cached)) = state.storage.get_douban_subject_meta(item.id) {
                     log::info!("[search_douban_subject_by_keyword] Cache hit for douban_id={}", item.id);
+                    if let Ok(json) = serde_json::to_string(&cached) {
+                        let _ = state.storage.set_douban_search_cache(&keyword, &json);
+                    }
                     return Ok(Some(cached));
                 }
                 log::info!("[search_douban_subject_by_keyword] Found in hot list, scraping douban_id={}", item.id);
@@ -388,6 +418,9 @@ pub async fn search_douban_subject_by_keyword(
                 match meta {
                     Ok(m) => {
                         let _ = state.storage.upsert_douban_subject_meta(&m);
+                        if let Ok(json) = serde_json::to_string(&m) {
+                            let _ = state.storage.set_douban_search_cache(&keyword, &json);
+                        }
                         return Ok(Some(m));
                     }
                     Err(e) => log::warn!("Failed to scrape hot list item {}: {}", item.id, e),
@@ -406,20 +439,23 @@ pub async fn search_douban_subject_by_keyword(
         }
     };
 
-    // Try each found id (check cache first, then scrape)
     for douban_id in found_ids {
         log::info!("[search_douban_subject_by_keyword] Found douban_id={} via WebView search", douban_id);
 
-        // Check cache
         if let Ok(Some(cached)) = state.storage.get_douban_subject_meta(douban_id) {
             log::info!("[search_douban_subject_by_keyword] Cache hit for douban_id={}", douban_id);
+            if let Ok(json) = serde_json::to_string(&cached) {
+                let _ = state.storage.set_douban_search_cache(&keyword, &json);
+            }
             return Ok(Some(cached));
         }
 
-        // Scrape for rich metadata
         match DoubanSubjectScraper::scrape(&app, douban_id).await {
             Ok(m) => {
                 let _ = state.storage.upsert_douban_subject_meta(&m);
+                if let Ok(json) = serde_json::to_string(&m) {
+                    let _ = state.storage.set_douban_search_cache(&keyword, &json);
+                }
                 return Ok(Some(m));
             }
             Err(e) => {
@@ -431,4 +467,38 @@ pub async fn search_douban_subject_by_keyword(
 
     log::info!("[search_douban_subject_by_keyword] No matching Douban subject found for keyword: {}", keyword);
     Ok(None)
+}
+
+/// Helper: refresh douban search cache by re-scraping via WebView
+async fn refresh_douban_search_cache(app: &AppHandle, keyword: &str, storage: &crate::services::Storage) {
+    let found_ids = match DoubanSubjectScraper::search_subject_ids(app, keyword).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            log::warn!("[refresh_douban_search_cache] WebView search failed: {}", e);
+            return;
+        }
+    };
+
+    for douban_id in found_ids {
+        if let Ok(Some(cached)) = storage.get_douban_subject_meta(douban_id) {
+            if let Ok(json) = serde_json::to_string(&cached) {
+                let _ = storage.set_douban_search_cache(keyword, &json);
+            }
+            return;
+        }
+
+        match DoubanSubjectScraper::scrape(app, douban_id).await {
+            Ok(m) => {
+                let _ = storage.upsert_douban_subject_meta(&m);
+                if let Ok(json) = serde_json::to_string(&m) {
+                    let _ = storage.set_douban_search_cache(keyword, &json);
+                }
+                return;
+            }
+            Err(e) => {
+                log::warn!("[refresh_douban_search_cache] Scrape failed for {}: {}", douban_id, e);
+                continue;
+            }
+        }
+    }
 }

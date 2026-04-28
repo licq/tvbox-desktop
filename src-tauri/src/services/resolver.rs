@@ -1,4 +1,5 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
+
 use crate::services::playback_types::{PlaybackProbeResult, PlaybackProbeStatus};
 use regex::Regex;
 
@@ -134,6 +135,10 @@ fn looks_like_xb6v_play_page(input: &str) -> bool {
     input.contains("xb6v.com/e/DownSys/play/")
 }
 
+pub fn looks_like_zxzj_play_page(input: &str) -> bool {
+    input.contains("zxzjys.com/vodplay/") || input.contains("zxzj.com/vodplay/")
+}
+
 fn looks_like_cloud_disk_link(input: &str) -> bool {
     input.contains("pan.baidu.com/")
         || input.contains("pan.quark.cn/")
@@ -146,13 +151,38 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
     let client = build_client()?;
     let body = fetch_text(&client, input).await?;
     if let Some(source_url) = extract_aliplayer_source(&body) {
+        eprintln!("[resolve_xb6v] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
         return Ok(ready_with_candidate(
             source_url.clone(),
             detect_kind(&source_url),
         ));
     }
     if let Some(iframe_url) = extract_iframe_src(input, &body) {
-        return resolve_embedded_share_page(&client, &iframe_url).await;
+        eprintln!("[resolve_xb6v] Found iframe: {}", &iframe_url[..iframe_url.len().min(80)]);
+        // Try to resolve the share page to a direct HLS/MP4 URL
+        match resolve_embedded_share_page(&client, &iframe_url).await {
+            Ok(playback) if !playback.candidates.is_empty() => {
+                eprintln!("[resolve_xb6v] Share page resolved candidate: {:?}", playback.candidates[0].url.len().min(80));
+                return Ok(playback);
+            }
+            other => {
+                // Fallback: treat the iframe URL itself as an embed source.
+                // This handles cases where the share page is reachable but doesn't
+                // expose a `const url` pattern, or the page uses a different format.
+                eprintln!("[resolve_xb6v] Share page resolution failed, falling back to embed. Result: {:?}",
+                    other.as_ref().map(|r| &r.status).unwrap_or(&"error".to_string()));
+                return Ok(ResolvedPlayback {
+                    status: "ready".to_string(),
+                    candidates: vec![PlaybackCandidate {
+                        url: iframe_url,
+                        label: "内嵌播放".to_string(),
+                        kind: "embed".to_string(),
+                        headers: None,
+                    }],
+                    error_message: None,
+                });
+            }
+        }
     }
 
     Ok(ResolvedPlayback {

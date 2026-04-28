@@ -1,0 +1,1068 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - link "登录/注册" [ref=e5] [cursor=pointer]:
+      - /url: https://accounts.douban.com/passport/login?source=movie
+    - link "下载豆瓣客户端" [ref=e7] [cursor=pointer]:
+      - /url: https://www.douban.com/doubanapp/app?channel=top-nav
+    - list [ref=e9]:
+      - listitem [ref=e10]:
+        - link "豆瓣" [ref=e11] [cursor=pointer]:
+          - /url: https://www.douban.com
+      - listitem [ref=e12]:
+        - link "读书" [ref=e13] [cursor=pointer]:
+          - /url: https://book.douban.com
+      - listitem [ref=e14]:
+        - link "电影" [ref=e15] [cursor=pointer]:
+          - /url: https://movie.douban.com
+      - listitem [ref=e16]:
+        - link "音乐" [ref=e17] [cursor=pointer]:
+          - /url: https://music.douban.com
+      - listitem [ref=e18]:
+        - link "播客" [ref=e19] [cursor=pointer]:
+          - /url: https://www.douban.com/podcast/
+      - listitem [ref=e20]:
+        - link "同城" [ref=e21] [cursor=pointer]:
+          - /url: https://www.douban.com/location
+      - listitem [ref=e22]:
+        - link "小组" [ref=e23] [cursor=pointer]:
+          - /url: https://www.douban.com/group
+      - listitem [ref=e24]:
+        - link "阅读" [ref=e25] [cursor=pointer]:
+          - /url: https://read.douban.com/?dcs=top-nav&dcm=douban
+      - listitem [ref=e26]:
+        - link "FM" [ref=e27] [cursor=pointer]:
+          - /url: https://fm.douban.com/?from_=shire_top_nav
+      - listitem [ref=e28]:
+        - link "时间" [ref=e29] [cursor=pointer]:
+          - /url: https://time.douban.com/?dt_time_source=douban-web_top_nav
+      - listitem [ref=e30]:
+        - link "豆品" [ref=e31] [cursor=pointer]:
+          - /url: https://market.douban.com/?utm_campaign=douban_top_nav&utm_source=douban&utm_medium=pc_web
+  - generic [ref=e32]:
+    - generic [ref=e34]:
+      - link "豆瓣电影" [ref=e36] [cursor=pointer]:
+        - /url: https://movie.douban.com
+      - group "搜索：" [ref=e39]:
+        - textbox [ref=e41]:
+          - /placeholder: 搜索电影、电视剧、综艺、影人
+        - button "搜索" [ref=e43] [cursor=pointer]
+    - generic [ref=e44]:
+      - list [ref=e46]:
+        - listitem [ref=e47]:
+          - link "影讯&购票" [ref=e48] [cursor=pointer]:
+            - /url: https://movie.douban.com/cinema/nowplaying/
+        - listitem [ref=e49]:
+          - link "选电影" [ref=e50] [cursor=pointer]:
+            - /url: https://movie.douban.com/explore
+        - listitem [ref=e51]:
+          - link "选剧集" [ref=e52] [cursor=pointer]:
+            - /url: https://movie.douban.com/tv/
+        - listitem [ref=e53]:
+          - link "排行榜" [ref=e54] [cursor=pointer]:
+            - /url: https://movie.douban.com/chart
+        - listitem [ref=e55]:
+          - link "影评" [ref=e56] [cursor=pointer]:
+            - /url: https://movie.douban.com/review/best/
+        - listitem [ref=e57]:
+          - link "2025年度榜单" [ref=e58] [cursor=pointer]:
+            - /url: https://movie.douban.com/annual/2025/?fullscreen=1&dt_from=movie_navigation
+        - listitem [ref=e59]:
+          - link "2025年度报告" [ref=e60] [cursor=pointer]:
+            - /url: https://c9.douban.com/app/standbyme-2025/?autorotate=false&fullscreen=true&hidenav=true&monitor_screenshot=true&df_from=web_navigation
+      - link [ref=e61] [cursor=pointer]:
+        - /url: https://movie.douban.com/annual/2025/?fullscreen=1&source=movie_navigation_logo
+  - generic [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e65]: No.9
+        - link "豆瓣2022评分最高外语电影" [ref=e67] [cursor=pointer]:
+          - /url: https://m.douban.com/subject_collection/ECQU6DFQA
+      - heading "瞬息全宇宙 Everything Everywhere All at Once (2022)" [level=1] [ref=e68]:
+        - text: 瞬息全宇宙 Everything Everywhere All at Once
+        - generic [ref=e69]: (2022)
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - generic [ref=e73]:
+              - generic [ref=e74]:
+                - link "Everything Everywhere All at Once" [ref=e76] [cursor=pointer]:
+                  - /url: https://movie.douban.com/subject/30314848/photos?type=R
+                  - img "Everything Everywhere All at Once" [ref=e77]
+                - generic [ref=e78]:
+                  - generic [ref=e79]:
+                    - text: "导演:"
+                    - generic [ref=e80]:
+                      - link "关家永" [ref=e81] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575926/
+                      - text: /
+                      - link "丹尼尔·施纳特" [ref=e82] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575927/
+                  - generic [ref=e83]:
+                    - text: "编剧:"
+                    - generic [ref=e84]:
+                      - link "关家永" [ref=e85] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575926/
+                      - text: /
+                      - link "丹尼尔·施纳特" [ref=e86] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575927/
+                  - generic [ref=e87]:
+                    - text: "主演:"
+                    - generic [ref=e88]:
+                      - link "杨紫琼" [ref=e89] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27228391/
+                      - text: /
+                      - link "许玮伦" [ref=e90] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27569235/
+                      - text: /
+                      - link "关继威" [ref=e91] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27228292/
+                      - text: /
+                      - link "吴汉章" [ref=e92] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27237565/
+                      - text: /
+                      - link "杰米·李·柯蒂斯" [ref=e93] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27246882/
+                      - text: /
+                      - link "塔丽·梅德尔" [ref=e94] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27482361/
+                      - text: /
+                      - link "珍妮·斯蕾特" [ref=e95] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27436958/
+                      - text: /
+                      - link "岑勇康" [ref=e96] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27250474/
+                      - text: /
+                      - link "比夫·威夫" [ref=e97] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35816116/
+                      - text: /
+                      - link "黎唯" [ref=e98] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35460805/
+                      - text: /
+                      - link "黎明" [ref=e99] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35460804/
+                      - text: /
+                      - link "李静" [ref=e100] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35911871/
+                      - text: /
+                      - link "苏妮特·玛尼" [ref=e101] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27583783/
+                      - text: /
+                      - link "阿隆·拉扎尔" [ref=e102] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27565446/
+                      - text: /
+                      - link "切尔西·戈德史密斯" [ref=e103] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35816117/
+                      - text: /
+                      - link "克雷格·亨宁森" [ref=e104] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27435183/
+                      - text: /
+                      - link "安东尼·莫利纳利" [ref=e105] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27251302/
+                      - text: /
+                      - link "丹·布朗" [ref=e106] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27387249/
+                      - text: /
+                      - link "帕努瓦特·安东尼·纳纳肯帕诺姆" [ref=e107] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27537398/
+                      - text: /
+                      - link "卡拉·玛丽·乔尔简" [ref=e108] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35816118/
+                      - text: /
+                      - link "兰达尔·阿切尔" [ref=e109] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27568677/
+                      - text: /
+                      - link "埃夫卡·科瓦拉西尤斯" [ref=e110] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27542437/
+                      - text: /
+                      - link "奥德丽·瓦西莱夫斯基" [ref=e111] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27501026/
+                      - text: /
+                      - link "柯文炳" [ref=e112] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27585587/
+                      - text: /
+                      - link "蒂莫西·尤里齐" [ref=e113] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575928/
+                      - text: /
+                      - link "丹尼尔·施纳特" [ref=e114] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575927/
+                      - text: /
+                      - link "西协美智子" [ref=e115] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27247742/
+                      - text: /
+                      - link "蒂莫西·斯科特·拉尔斯顿" [ref=e116] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27354519/
+                      - text: /
+                      - link "兰迪·纽曼" [ref=e117] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27242345/
+                      - text: /
+                      - link "纳拉亚纳·卡布拉尔" [ref=e118] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/35904530/
+                      - text: /
+                      - link "戴拉·绍" [ref=e119] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27445704/
+                      - text: /
+                      - link "关家永" [ref=e120] [cursor=pointer]:
+                        - /url: https://www.douban.com/personage/27575926/
+                  - text: "类型: 喜剧 / 奇幻 / 冒险"
+                  - text: "制片国家/地区: 美国"
+                  - text: "语言: 英语 / 汉语普通话 / 粤语"
+                  - text: "上映日期: 2022-03-11(西南偏南电影节) / 2022-03-25(美国)"
+                  - text: "片长: 139分钟"
+                  - text: "又名: 妈的多重宇宙(台) / 奇异女侠玩救宇宙(港) / 天马行空(新加坡) / 瞬息各处所有 / 全部世界同时一切"
+                  - text: "IMDb: tt6710474"
+              - generic [ref=e121]:
+                - generic [ref=e122]:
+                  - generic [ref=e124]: 豆瓣评分
+                  - generic [ref=e125]:
+                    - strong [ref=e126]: "7.6"
+                    - link "641644人评价" [ref=e130] [cursor=pointer]:
+                      - /url: comments
+                  - generic [ref=e131]:
+                    - generic [ref=e132]:
+                      - generic "力荐" [ref=e133]: 5星
+                      - text: 23.6%
+                    - generic [ref=e135]:
+                      - generic "推荐" [ref=e136]: 4星
+                      - text: 39.7%
+                    - generic [ref=e138]:
+                      - generic "还行" [ref=e139]: 3星
+                      - text: 29.0%
+                    - generic [ref=e141]:
+                      - generic "较差" [ref=e142]: 2星
+                      - text: 6.0%
+                    - generic [ref=e144]:
+                      - generic "很差" [ref=e145]: 1星
+                      - text: 1.7%
+                - generic [ref=e147]:
+                  - text: 好于
+                  - link "92% 喜剧片" [ref=e148] [cursor=pointer]:
+                    - /url: /typerank?type_name=喜剧&type=24&interval_id=100:90&action=
+                  - text: 好于
+                  - link "90% 奇幻片" [ref=e149] [cursor=pointer]:
+                    - /url: /typerank?type_name=奇幻&type=16&interval_id=100:90&action=
+            - generic [ref=e150]:
+              - link "想看" [ref=e151] [cursor=pointer]:
+                - /url: https://www.douban.com/reason=collectwish&ck=
+                - generic [ref=e152]: 想看
+              - link "看过" [ref=e153] [cursor=pointer]:
+                - /url: https://www.douban.com/reason=collectcollect&ck=
+                - generic [ref=e154]: 看过
+              - generic [ref=e155]:
+                - text: "评价:"
+                - generic [ref=e156]:
+                  - generic:
+                    - link:
+                      - /url: https://www.douban.com/register?reason=rate
+                      - img [ref=e157] [cursor=pointer]
+                    - link:
+                      - /url: https://www.douban.com/register?reason=rate
+                      - img [ref=e158] [cursor=pointer]
+                    - link:
+                      - /url: https://www.douban.com/register?reason=rate
+                      - img [ref=e159] [cursor=pointer]
+                    - link:
+                      - /url: https://www.douban.com/register?reason=rate
+                      - img [ref=e160] [cursor=pointer]
+                    - link:
+                      - /url: https://www.douban.com/register?reason=rate
+                      - img [ref=e161] [cursor=pointer]
+            - list [ref=e163]:
+              - listitem [ref=e164]:
+                - img [ref=e165]
+                - link "写短评" [ref=e166] [cursor=pointer]:
+                  - /url: https://www.douban.com/register?reason=review
+              - listitem [ref=e167]:
+                - img [ref=e168]
+                - link "写影评" [ref=e169] [cursor=pointer]:
+                  - /url: https://www.douban.com/register?reason=review
+              - listitem [ref=e170]:
+                - link "分享到" [ref=e172] [cursor=pointer]:
+                  - /url: "#"
+            - link "推荐" [ref=e175] [cursor=pointer]:
+              - /url: /accounts/register?reason=recommend
+          - generic [ref=e176]:
+            - heading "瞬息全宇宙的剧情简介 · · · · · ·" [level=2] [ref=e177]
+            - generic [ref=e178]:
+              - generic [ref=e179]:
+                - text: 在美国某个普普通通的亚裔社区，生活着伊芙琳（杨紫琼 饰）一家四口。伊年过半百，和怯懦无能的丈夫威蒙德（关继威 饰）苦心经营小小的洗衣店。她的老爸（吴汉章 饰）行动不便，需要照顾；女儿乔伊（许玮伦 饰）特立独行，叛逆暴躁。生活看不到希望，只有敷衍和苦挨。某天，伊芙琳硬着头皮去税务局报税的时候，威蒙德突然表现出异常言行。他告诉妻子，自己来自另一个宇宙，需要伊芙琳团结各个宇宙中的她，去打败即将到来的邪恶势力。
+                - text: 起初伊芙琳并不相信，然而很快她便和其他宇宙中的自己建立了联系。黑暗袭来，这个平凡无奇的女人不得不成为全宇宙的救世主……
+              - link "©豆瓣" [ref=e181] [cursor=pointer]:
+                - /url: https://movie.douban.com/help/movie#t0-qs
+          - generic [ref=e182]:
+            - heading "瞬息全宇宙的演职员 · · · · · · ( 全部 77 )" [level=2] [ref=e183]:
+              - text: 瞬息全宇宙的演职员 · · · · · ·
+              - generic [ref=e184]:
+                - text: (
+                - link "全部 77" [ref=e185] [cursor=pointer]:
+                  - /url: /subject/30314848/celebrities
+                - text: )
+            - list [ref=e186]:
+              - listitem [ref=e187]:
+                - link "关家永 Daniel Kwan" [ref=e188] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27575926/
+                - generic [ref=e190]:
+                  - link "关家永" [ref=e192] [cursor=pointer]:
+                    - /url: https://www.douban.com/personage/27575926/
+                  - generic "导演" [ref=e193]
+              - listitem [ref=e194]:
+                - link "丹尼尔·施纳特 Daniel Scheinert" [ref=e195] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27575927/
+                - generic [ref=e197]:
+                  - link "丹尼尔·施纳特" [ref=e199] [cursor=pointer]:
+                    - /url: https://www.douban.com/personage/27575927/
+                  - generic "导演" [ref=e200]
+              - listitem [ref=e201]:
+                - link "杨紫琼 Michelle Yeoh" [ref=e202] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27228391/
+                - generic [ref=e204]:
+                  - link "杨紫琼" [ref=e206] [cursor=pointer]:
+                    - /url: https://www.douban.com/personage/27228391/
+                  - generic "饰 Evelyn Wang" [ref=e207]
+              - listitem [ref=e208]:
+                - link "许玮伦 Stephanie Hsu" [ref=e209] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27569235/
+                - generic [ref=e211]:
+                  - link "许玮伦" [ref=e213] [cursor=pointer]:
+                    - /url: https://www.douban.com/personage/27569235/
+                  - generic "饰 Joy Wang / Jobu Tupaki" [ref=e214]
+              - listitem [ref=e215]:
+                - link "关继威 Ke Huy Quan" [ref=e216] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27228292/
+                - generic [ref=e218]:
+                  - link "关继威" [ref=e220] [cursor=pointer]:
+                    - /url: https://www.douban.com/personage/27228292/
+                  - generic "饰 Waymond Wang" [ref=e221]
+              - listitem [ref=e222]:
+                - link "吴汉章 James Hong" [ref=e223] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27237565/
+                - generic [ref=e225]:
+                  - link "吴汉章" [ref=e227] [cursor=pointer]:
+                    - /url: https://www.douban.com/personage/27237565/
+                  - generic "饰 Gong Gong" [ref=e228]
+          - generic [ref=e230]:
+            - heading "瞬息全宇宙的视频和图片 · · · · · · ( 预告片5 | 图片1880 · 添加 )" [level=2] [ref=e231]:
+              - text: 瞬息全宇宙的视频和图片 · · · · · ·
+              - generic [ref=e232]:
+                - text: (
+                - link "预告片5" [ref=e233] [cursor=pointer]:
+                  - /url: https://movie.douban.com/subject/30314848/trailer#trailer
+                - text: "|"
+                - link "图片1880" [ref=e234] [cursor=pointer]:
+                  - /url: https://movie.douban.com/subject/30314848/all_photos
+                - text: ·
+                - link "添加" [ref=e235] [cursor=pointer]:
+                  - /url: https://movie.douban.com/subject/30314848/mupload
+                - text: )
+            - list [ref=e236]:
+              - listitem [ref=e237]:
+                - link "预告片" [ref=e238] [cursor=pointer]:
+                  - /url: https://movie.douban.com/trailer/287244/#content
+                  - paragraph [ref=e239]: 预告片
+              - listitem [ref=e240]:
+                - link "图片":
+                  - /url: https://movie.douban.com/photos/photo/2869764291/
+                  - img "图片" [ref=e241] [cursor=pointer]
+              - listitem [ref=e242]:
+                - link "图片":
+                  - /url: https://movie.douban.com/photos/photo/2870152216/
+                  - img "图片" [ref=e243] [cursor=pointer]
+              - listitem [ref=e244]:
+                - link "图片":
+                  - /url: https://movie.douban.com/photos/photo/2869764317/
+                  - img "图片" [ref=e245] [cursor=pointer]
+              - listitem [ref=e246]:
+                - link "图片":
+                  - /url: https://movie.douban.com/photos/photo/2870152519/
+                  - img "图片" [ref=e247] [cursor=pointer]
+          - generic [ref=e248]:
+            - heading "瞬息全宇宙的获奖情况 · · · · · · ( 全部 )" [level=2] [ref=e250]:
+              - text: 瞬息全宇宙的获奖情况 · · · · · ·
+              - generic [ref=e251]:
+                - text: (
+                - link "全部" [ref=e252] [cursor=pointer]:
+                  - /url: https://movie.douban.com/subject/30314848/awards/
+                - text: )
+            - list [ref=e253]:
+              - listitem [ref=e254]:
+                - link "第95届奥斯卡金像奖" [ref=e255] [cursor=pointer]:
+                  - /url: https://movie.douban.com/awards/Oscar/95/
+              - listitem [ref=e256]: 最佳影片
+              - listitem [ref=e257]:
+                - link "关家永" [ref=e258] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27575926/
+                - text: /
+                - link "王庆" [ref=e259] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/35912047/
+                - text: /
+                - link "丹尼尔·施纳特" [ref=e260] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27575927/
+            - list [ref=e261]:
+              - listitem [ref=e262]:
+                - link "第80届金球奖" [ref=e263] [cursor=pointer]:
+                  - /url: https://movie.douban.com/awards/golden-globes/80/
+              - listitem [ref=e264]: 电影类 最佳音乐/喜剧片(提名)
+              - listitem
+            - list [ref=e265]:
+              - listitem [ref=e266]:
+                - link "第76届英国电影学院奖" [ref=e267] [cursor=pointer]:
+                  - /url: https://movie.douban.com/awards/bafta/76/
+              - listitem [ref=e268]: 电影奖 最佳影片(提名)
+              - listitem [ref=e269]:
+                - link "关家永" [ref=e270] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27575926/
+                - text: /
+                - link "王庆" [ref=e271] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/35912047/
+                - text: /
+                - link "丹尼尔·施纳特" [ref=e272] [cursor=pointer]:
+                  - /url: https://www.douban.com/personage/27575927/
+          - generic [ref=e273]:
+            - heading "喜欢这部电影的人也喜欢 · · · · · ·" [level=2] [ref=e274]
+            - generic [ref=e275]:
+              - generic [ref=e276]:
+                - term [ref=e277]:
+                  - link "宇宙探索编辑部" [ref=e278] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/34941536/?from=subject-page
+                    - img "宇宙探索编辑部" [ref=e279]
+                - definition [ref=e280]:
+                  - link "宇宙探索编辑部" [ref=e281] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/34941536/?from=subject-page
+                  - text: "8.0"
+              - generic [ref=e282]:
+                - term [ref=e283]:
+                  - link "芭比" [ref=e284] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/4058939/?from=subject-page
+                    - img "芭比" [ref=e285]
+                - definition [ref=e286]:
+                  - link "芭比" [ref=e287] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/4058939/?from=subject-page
+                  - text: "8.0"
+              - generic [ref=e288]:
+                - term [ref=e289]:
+                  - link "失控玩家" [ref=e290] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/30337388/?from=subject-page
+                    - img "失控玩家" [ref=e291]
+                - definition [ref=e292]:
+                  - link "失控玩家" [ref=e293] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/30337388/?from=subject-page
+                  - text: "7.5"
+              - generic [ref=e294]:
+                - term [ref=e295]:
+                  - link "沙丘" [ref=e296] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/3001114/?from=subject-page
+                    - img "沙丘" [ref=e297]
+                - definition [ref=e298]:
+                  - link "沙丘" [ref=e299] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/3001114/?from=subject-page
+                  - text: "7.7"
+              - generic [ref=e300]:
+                - term [ref=e301]:
+                  - link "挽救计划" [ref=e302] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/35010610/?from=subject-page
+                    - img "挽救计划" [ref=e303]
+                - definition [ref=e304]:
+                  - link "挽救计划" [ref=e305] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/35010610/?from=subject-page
+                  - text: "8.6"
+              - generic [ref=e306]:
+                - term [ref=e307]:
+                  - link "银河护卫队3" [ref=e308] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/26258779/?from=subject-page
+                    - img "银河护卫队3" [ref=e309]
+                - definition [ref=e310]:
+                  - link "银河护卫队3" [ref=e311] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/26258779/?from=subject-page
+                  - text: "8.3"
+              - generic [ref=e312]:
+                - term [ref=e313]:
+                  - link "阿凡达：水之道" [ref=e314] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/4811774/?from=subject-page
+                    - img "阿凡达：水之道" [ref=e315]
+                - definition [ref=e316]:
+                  - link "阿凡达：水之道" [ref=e317] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/4811774/?from=subject-page
+                  - text: "7.8"
+              - generic [ref=e318]:
+                - term [ref=e319]:
+                  - link "流浪地球2" [ref=e320] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/35267208/?from=subject-page
+                    - img "流浪地球2" [ref=e321]
+                - definition [ref=e322]:
+                  - link "流浪地球2" [ref=e323] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/35267208/?from=subject-page
+                  - text: "8.3"
+              - generic [ref=e324]:
+                - term [ref=e325]:
+                  - link "不要抬头" [ref=e326] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/34884712/?from=subject-page
+                    - img "不要抬头" [ref=e327]
+                - definition [ref=e328]:
+                  - link "不要抬头" [ref=e329] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/34884712/?from=subject-page
+                  - text: "7.6"
+              - generic [ref=e330]:
+                - term [ref=e331]:
+                  - link "哈利·波特与阿兹卡班的囚徒" [ref=e332] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/1291544/?from=subject-page
+                    - img "哈利·波特与阿兹卡班的囚徒" [ref=e333]
+                - definition [ref=e334]:
+                  - link "哈利·波特与阿兹卡班的囚徒" [ref=e335] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/1291544/?from=subject-page
+                  - text: "9.0"
+          - generic [ref=e336]:
+            - generic [ref=e337]:
+              - link "我要写短评" [ref=e338] [cursor=pointer]:
+                - /url: https://www.douban.com/register?reason=review
+              - heading "瞬息全宇宙的短评 · · · · · · ( 全部 246413 条 )" [level=2] [ref=e339]:
+                - text: 瞬息全宇宙的短评 · · · · · ·
+                - generic [ref=e340]:
+                  - text: (
+                  - link "全部 246413 条" [ref=e341] [cursor=pointer]:
+                    - /url: https://movie.douban.com/subject/30314848/comments?status=P
+                  - text: )
+            - generic [ref=e342]:
+              - generic [ref=e343]:
+                - link "热门" [ref=e344] [cursor=pointer]:
+                  - /url: comments
+                - text: /
+                - link "最新" [ref=e345] [cursor=pointer]:
+                  - /url: comments?sort=time
+                - text: /
+                - link "好友" [ref=e346] [cursor=pointer]:
+                  - /url: comments?sort=follows
+              - generic [ref=e348]:
+                - generic [ref=e350]:
+                  - heading "15215 有用 King 看过 推荐 2022-04-15 20:00:39" [level=3] [ref=e351]:
+                    - generic [ref=e352]:
+                      - text: "15215"
+                      - link "有用" [ref=e353] [cursor=pointer]:
+                        - /url: javascript:;
+                    - generic [ref=e354]:
+                      - link "King" [ref=e355] [cursor=pointer]:
+                        - /url: https://www.douban.com/people/Ast3risk/
+                      - text: 看过
+                      - generic "推荐" [ref=e356]
+                      - text: 2022-04-15 20:00:39
+                  - paragraph [ref=e357]: I wish someday i could see a movie where love isn’t the ultimate save😅
+                - generic [ref=e359]:
+                  - heading "13423 有用 严老师 看过 推荐 2022-05-18 19:54:20" [level=3] [ref=e360]:
+                    - generic [ref=e361]:
+                      - text: "13423"
+                      - link "有用" [ref=e362] [cursor=pointer]:
+                        - /url: javascript:;
+                    - generic [ref=e363]:
+                      - link "严老师" [ref=e364] [cursor=pointer]:
+                        - /url: https://www.douban.com/people/77119277/
+                      - text: 看过
+                      - generic "推荐" [ref=e365]
+                      - text: 2022-05-18 19:54:20
+                  - paragraph [ref=e366]: 如果停在石头那儿就好了。
+                - generic [ref=e368]:
+                  - heading "10639 有用 _latsy 看过 推荐 2022-03-26 09:58:58" [level=3] [ref=e369]:
+                    - generic [ref=e370]:
+                      - text: "10639"
+                      - link "有用" [ref=e371] [cursor=pointer]:
+                        - /url: javascript:;
+                    - generic [ref=e372]:
+                      - link "_latsy" [ref=e373] [cursor=pointer]:
+                        - /url: https://www.douban.com/people/101747409/
+                      - text: 看过
+                      - generic "推荐" [ref=e374]
+                      - text: 2022-03-26 09:58:58
+                  - paragraph [ref=e375]:
+                    - text: 一个东亚家庭能想到的最美和解：在税务局打打杀杀，签署离婚协议，在不能再破碎的情况下达到祖孙三代的大和解，理解你很失败我也很失败我们其实都很失败。每年报税，每天轮转的洗衣机，一直都是一个圆，就仿佛黑洞是个黑色的everything bagel，爱不是一味的抓住，爱是接受混乱，学会let go，“我给你自由/是我给你最后的温柔”，这句话不论爱情还是亲情，都应该刻烟吸肺地背诵。看到石头滚下山的时候竟然哭...
+                    - generic [ref=e376]:
+                      - text: (
+                      - link "展开" [ref=e377] [cursor=pointer]:
+                        - /url: javascript:;
+                      - text: )
+                - generic [ref=e379]:
+                  - heading "11951 有用 猫猫头山住民 看过 还行 2022-04-30 10:06:59" [level=3] [ref=e380]:
+                    - generic [ref=e381]:
+                      - text: "11951"
+                      - link "有用" [ref=e382] [cursor=pointer]:
+                        - /url: javascript:;
+                    - generic [ref=e383]:
+                      - link "猫猫头山住民" [ref=e384] [cursor=pointer]:
+                        - /url: https://www.douban.com/people/62716671/
+                      - text: 看过
+                      - generic "还行" [ref=e385]
+                      - text: 2022-04-30 10:06:59
+                  - paragraph [ref=e386]: 这么多个universe里没有一个accountant Evelyn可以让她顺利报税吗
+                - generic [ref=e388]:
+                  - heading "8551 有用 waking王小心 看过 还行 2022-03-27 14:20:43" [level=3] [ref=e389]:
+                    - generic [ref=e390]:
+                      - text: "8551"
+                      - link "有用" [ref=e391] [cursor=pointer]:
+                        - /url: javascript:;
+                    - generic [ref=e392]:
+                      - link "waking王小心" [ref=e393] [cursor=pointer]:
+                        - /url: https://www.douban.com/people/waking/
+                      - text: 看过
+                      - generic "还行" [ref=e394]
+                      - text: 2022-03-27 14:20:43
+                  - paragraph [ref=e395]: 美术太乱了，看得人心累。不能给我们杨紫琼画个干干净净的妆吗？说是反传统，亚裔的刻板印象还是洗衣店。女儿搞个女同就值得大书特书了？在我根本不是个事儿。宇宙的尽头是报税。
+                - text: ">"
+                - link "更多短评 246413条" [ref=e396] [cursor=pointer]:
+                  - /url: comments?sort=new_score&status=P
+          - generic [ref=e397]:
+            - generic [ref=e398]:
+              - link "我要写影评" [ref=e399] [cursor=pointer]:
+                - /url: new_review
+              - heading "瞬息全宇宙的影评 · · · · · · ( 全部 3354 条 )" [level=2] [ref=e400]:
+                - text: 瞬息全宇宙的影评 · · · · · ·
+                - generic [ref=e401]:
+                  - text: (
+                  - link "全部 3354 条" [ref=e402] [cursor=pointer]:
+                    - /url: reviews
+                  - text: )
+            - link "热门" [ref=e405] [cursor=pointer]:
+              - /url: javascript:;;
+            - generic [ref=e406]:
+              - generic [ref=e408]:
+                - generic [ref=e409]:
+                  - link:
+                    - /url: https://www.douban.com/people/68851724/
+                    - img [ref=e410] [cursor=pointer]
+                  - link "滴溜滴溜转" [ref=e411] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/68851724/
+                  - generic "力荐" [ref=e412]
+                  - text: 2022-04-03 07:13:38
+                - generic [ref=e413]:
+                  - heading "所谓，天马行空" [level=2] [ref=e414]:
+                    - link "所谓，天马行空" [ref=e415] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14314828/
+                  - generic [ref=e417] [cursor=pointer]:
+                    - paragraph [ref=e418]: 这篇影评可能有剧透
+                    - text: 2023.3.16加更： 感谢乡亲们的喜报🥹，奥斯卡愿望已实现，已经在放鞭炮了。恭喜杨紫琼，恭喜电影主创们🎊🎊🎊。 Dreams do come true. - 原文 观影建议：这是一部真正适合电影院的电影，所以和麦当劳巨无霸一个道理，屏幕越大越好。 另，反感海外华人的，尤其是心系形... (
+                    - link "展开" [ref=e419]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e420]:
+                    - link "7874" [ref=e421] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "156" [ref=e422] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "487回应" [ref=e423] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14314828/#comments
+              - generic [ref=e425]:
+                - generic [ref=e426]:
+                  - link:
+                    - /url: https://www.douban.com/people/185546628/
+                    - img [ref=e427] [cursor=pointer]
+                  - link "aliccccccccc" [ref=e428] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/185546628/
+                  - generic "力荐" [ref=e429]
+                  - text: 2022-04-25 12:48:26
+                - generic [ref=e430]:
+                  - heading "东亚家庭的女儿，哭了大半部电影" [level=2] [ref=e431]:
+                    - link "东亚家庭的女儿，哭了大半部电影" [ref=e432] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14365004/
+                  - generic [ref=e434] [cursor=pointer]:
+                    - text: 以下有剧透。 影评只涉及原生家庭这一点。 我来自一个有典型东亚问题的、不太快乐的原生家庭：自负却没本事的自卑父亲；被贬低被使唤的软弱母亲；事业有成严厉不近人情的祖父。一直在闹离婚的夫妻关系；父母对小孩子抱怨、攻击家庭成员；小孩子被孝道绑架、而不得不“顺从”并... (
+                    - link "展开" [ref=e435]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e436]:
+                    - link "4635" [ref=e437] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "194" [ref=e438] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "733回应" [ref=e439] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14365004/#comments
+              - generic [ref=e441]:
+                - generic [ref=e442]:
+                  - link:
+                    - /url: https://www.douban.com/people/63688511/
+                    - img [ref=e443] [cursor=pointer]
+                  - link "朝暮雪" [ref=e444] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/63688511/
+                  - generic "推荐" [ref=e445]
+                  - text: 2022-05-20 15:33:27
+                - generic [ref=e446]:
+                  - heading "《瞬息全宇宙》里有哪些彩蛋和致敬？" [level=2] [ref=e447]:
+                    - link "《瞬息全宇宙》里有哪些彩蛋和致敬？" [ref=e448] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14407603/
+                  - generic [ref=e450] [cursor=pointer]:
+                    - paragraph [ref=e451]: 这篇影评可能有剧透
+                    - text: 视频： https://www.bilibili.com/video/BV1H5411R7iv/ 《花样年华》 伊芙琳成为打星的宇宙中，伊芙琳和韦蒙在巷子里那段从色调到灯光、风格完全是复刻《花样年华》。 韦蒙和周慕云都是在巷子里，先是抽烟， 然后说了一些话， 最后头也不回地走了。 值得一提的是，韦蒙扮演者关... (
+                    - link "展开" [ref=e452]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e453]:
+                    - link "3597" [ref=e454] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "116" [ref=e455] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "305回应" [ref=e456] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14407603/#comments
+              - generic [ref=e458]:
+                - generic [ref=e459]:
+                  - link:
+                    - /url: https://www.douban.com/people/67494547/
+                    - img [ref=e460] [cursor=pointer]
+                  - link "宗城" [ref=e461] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/67494547/
+                  - text: 2022-05-20 09:05:25
+                - generic [ref=e462]:
+                  - heading "我为什么对《瞬息全宇宙》感到不满足" [level=2] [ref=e463]:
+                    - link "我为什么对《瞬息全宇宙》感到不满足" [ref=e464] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14407059/
+                  - generic [ref=e466] [cursor=pointer]:
+                    - text: 想明白了自己为什么喜欢《瞬息全宇宙》（《妈的多重宇宙》），又认为它的哲学探索有所欠缺。这部电影想表达的不是“爱拯救一切”，而是一个存在主义和东方禅宗式的问题——你为什么值得活着？我们的人生因为什么而变得有意义？ 《卧虎藏龙》里，李慕白开头说:“我没有得道的喜... (
+                    - link "展开" [ref=e467]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e468]:
+                    - link "2766" [ref=e469] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "58" [ref=e470] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "252回应" [ref=e471] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14407059/#comments
+              - generic [ref=e473]:
+                - generic [ref=e474]:
+                  - link:
+                    - /url: https://www.douban.com/people/4695334/
+                    - img [ref=e475] [cursor=pointer]
+                  - link "AllanLee" [ref=e476] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/4695334/
+                  - generic "力荐" [ref=e477]
+                  - text: 2022-04-02 03:57:04
+                - generic [ref=e478]:
+                  - heading "关于存在与意义" [level=2] [ref=e479]:
+                    - link "关于存在与意义" [ref=e480] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14312920/
+                  - generic [ref=e482] [cursor=pointer]:
+                    - text: 这部电影在极富娱乐性的同时却拥有极其硬核的存在主义内核，它远不是一部简简单单嘻嘻哈哈的搞笑电影，更不是所谓爱拯救一切的普世价值宣传片。 我们在定义一个事物时，通常会先从其本质出发，比如苹果（食物），尺子（度量工具）。而这种本质先行的定义在人身上却不堪用，由此... (
+                    - link "展开" [ref=e483]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e484]:
+                    - link "1660" [ref=e485] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "77" [ref=e486] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "144回应" [ref=e487] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14312920/#comments
+              - generic [ref=e489]:
+                - generic [ref=e490]:
+                  - link:
+                    - /url: https://www.douban.com/people/movieater/
+                    - img [ref=e491] [cursor=pointer]
+                  - link "女神的秋裤" [ref=e492] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/movieater/
+                  - generic "力荐" [ref=e493]
+                  - text: 2022-05-21 18:24:36
+                - generic [ref=e494]:
+                  - heading "有关【瞬息全宇宙】的热门问题" [level=2] [ref=e495]:
+                    - link "有关【瞬息全宇宙】的热门问题" [ref=e496] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14413240/
+                  - generic [ref=e498] [cursor=pointer]:
+                    - text: 首发于公众号影探，转载请注明出处 “如果有无限只猴子和无限台打字机，给它们无限的时间，那么它们将能打出《莎士比亚全集》”。 ——题记 《瞬息全宇宙》北美票房已超《原钻》，成为A24旗下北美票房最高的影片。 口碑方面，也已经杀入IMDb TOP250，目前位列第64位。 《瞬息全... (
+                    - link "展开" [ref=e499]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e500]:
+                    - link "1266" [ref=e501] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "36" [ref=e502] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "71回应" [ref=e503] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14413240/#comments
+              - generic [ref=e505]:
+                - generic [ref=e506]:
+                  - link:
+                    - /url: https://www.douban.com/people/121879545/
+                    - img [ref=e507] [cursor=pointer]
+                  - link "Titan_Pascal" [ref=e508] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/121879545/
+                  - generic "较差" [ref=e509]
+                  - text: 2022-05-19 21:03:46
+                - generic [ref=e510]:
+                  - heading "这样的电影也可以是五星吗？" [level=2] [ref=e511]:
+                    - link "这样的电影也可以是五星吗？" [ref=e512] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14406848/
+                  - generic [ref=e514] [cursor=pointer]:
+                    - paragraph [ref=e515]: 这篇影评可能有剧透
+                    - text: 豆瓣和微信朋友圈里平时一些最苛刻的观众（说的就是你，小李老师！）都给了五星好评，有的甚至说要得奥斯卡要影史留名，看来是难得一见的佳作啊。 看完了……丑话说在前头，这玩意要是奥斯卡那人类真是没救了。 说真的，开头我就觉得恶俗和做作，所有人的动作都感觉像是在故意... (
+                    - link "展开" [ref=e516]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e517]:
+                    - link "1253" [ref=e518] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "432" [ref=e519] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "593回应" [ref=e520] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14406848/#comments
+              - generic [ref=e522]:
+                - generic [ref=e523]:
+                  - link:
+                    - /url: https://www.douban.com/people/syfan/
+                    - img [ref=e524] [cursor=pointer]
+                  - link "前苏联游魂" [ref=e525] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/syfan/
+                  - generic "较差" [ref=e526]
+                  - text: 2022-05-20 18:43:26
+                - generic [ref=e527]:
+                  - heading "被“大胆启用中年女演员做女主角”“母女和解”“女性觉醒”的噱头骗了" [level=2] [ref=e528]:
+                    - link "被“大胆启用中年女演员做女主角”“母女和解”“女性觉醒”的噱头骗了" [ref=e529] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14407838/
+                  - generic [ref=e531] [cursor=pointer]:
+                    - text: 妈的受难宇宙。 果然如果你看不懂一部电影的预告片，就注定看不懂它的正片。 这片子难得在我主页出现了大量五星和二星。喜欢的人：嗑药了爽炸了。讨厌的人看：癫痫了乱炸了。 我，属于后者。看了前二十分钟，我的情绪和杨紫琼同调，又要忙洗衣店取衣服又要忙报税又要忙老爹生日... (
+                    - link "展开" [ref=e532]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e533]:
+                    - link "1047" [ref=e534] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "139" [ref=e535] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "287回应" [ref=e536] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14407838/#comments
+              - generic [ref=e538]:
+                - generic [ref=e539]:
+                  - link:
+                    - /url: https://www.douban.com/people/v1cki/
+                    - img [ref=e540] [cursor=pointer]
+                  - link "陈别扭" [ref=e541] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/v1cki/
+                  - generic "还行" [ref=e542]
+                  - text: 2022-05-26 18:49:21
+                - generic [ref=e543]:
+                  - heading "为什么我不喜欢瞬息全宇宙" [level=2] [ref=e544]:
+                    - link "为什么我不喜欢瞬息全宇宙" [ref=e545] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14420462/
+                  - generic [ref=e547] [cursor=pointer]:
+                    - paragraph [ref=e548]: 这篇影评可能有剧透
+                    - text: 偶然看到了杨紫琼的访谈，她谈到剧本把超级英雄设置为一个正在老去的普通移民女人，一个匆匆走在唐人街上不会引起任何注意的普通移民女人。于是我就去买了票。看电影前两天，好朋友说自己看Everything everywhere all at once看到哭出三吨眼泪，又一次拉高了我的期望值。以至于... (
+                    - link "展开" [ref=e549]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e550]:
+                    - link "664" [ref=e551] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "24" [ref=e552] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "93回应" [ref=e553] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14420462/#comments
+              - generic [ref=e555]:
+                - generic [ref=e556]:
+                  - link:
+                    - /url: https://www.douban.com/people/mbbbbbbbcker/
+                    - img [ref=e557] [cursor=pointer]
+                  - link "马泽尔法克尔" [ref=e558] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/mbbbbbbbcker/
+                  - generic "力荐" [ref=e559]
+                  - text: 2022-04-18 01:47:27
+                - generic [ref=e560]:
+                  - heading "契诃夫说：第一幕摆在桌上的[哔]塞，第二幕中一定会塞进去。" [level=2] [ref=e561]:
+                    - link "契诃夫说：第一幕摆在桌上的[哔]塞，第二幕中一定会塞进去。" [ref=e562] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14343911/
+                  - generic [ref=e564] [cursor=pointer]:
+                    - paragraph [ref=e565]: 这篇影评可能有剧透
+                    - text: 重要剧透：片中杨紫琼丈夫的扮演者并非成龙。 在家看了一集《月光骑士》才出门去电影院。本片开场就是穿过镜子推近女主角，这就预示了女主角一定身手非凡。从镜子里走出来的主角都不简单。 女主角秀莲登场的同时，面前还摆着一摞发票，这让我误以为她的职业是会计。又是一个关... (
+                    - link "展开" [ref=e566]:
+                      - /url: javascript:;
+                    - text: )
+                  - generic [ref=e567]:
+                    - link "304" [ref=e568] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "73" [ref=e569] [cursor=pointer]:
+                      - /url: javascript:;
+                    - link "52回应" [ref=e570] [cursor=pointer]:
+                      - /url: https://movie.douban.com/review/14343911/#comments
+            - paragraph [ref=e571]:
+              - text: ">"
+              - link "更多影评 3354篇" [ref=e572] [cursor=pointer]:
+                - /url: reviews
+          - generic [ref=e573]:
+            - generic [ref=e574]:
+              - link "添加新讨论" [ref=e575] [cursor=pointer]:
+                - /url: https://www.douban.com/register?reason=review
+              - heading "讨论区 · · · · · ·" [level=2] [ref=e576]
+            - table [ref=e577]:
+              - rowgroup [ref=e578]:
+                - row [ref=e579]:
+                  - cell [ref=e580]
+                  - cell [ref=e581]
+                  - cell [ref=e582]
+                  - cell [ref=e583]
+                - row "2026 年才完整看完的我只想说两个字，lj 来自fishenal 2026-04-22 12:57:50" [ref=e584]:
+                  - cell "2026 年才完整看完的我只想说两个字，lj" [ref=e585]:
+                    - link "2026 年才完整看完的我只想说两个字，lj" [ref=e586] [cursor=pointer]:
+                      - /url: https://movie.douban.com/subject/30314848/discussion/637989073/
+                  - cell "来自fishenal" [ref=e587]:
+                    - text: 来自
+                    - link "fishenal" [ref=e588] [cursor=pointer]:
+                      - /url: https://www.douban.com/people/ydh19860110/
+                  - cell [ref=e589]
+                  - cell "2026-04-22 12:57:50" [ref=e590]
+                - row "看到LGBT就感到恶心 来自Hugo 33 回应 2026-04-16 22:55:54" [ref=e591]:
+                  - cell "看到LGBT就感到恶心" [ref=e592]:
+                    - link "看到LGBT就感到恶心" [ref=e593] [cursor=pointer]:
+                      - /url: https://movie.douban.com/subject/30314848/discussion/637531564/
+                  - cell "来自Hugo" [ref=e594]:
+                    - text: 来自
+                    - link "Hugo" [ref=e595] [cursor=pointer]:
+                      - /url: https://www.douban.com/people/punctumfoto/
+                  - cell "33 回应" [ref=e596]
+                  - cell "2026-04-16 22:55:54" [ref=e597]
+                - row "这部电影的关键表达并不是母女情………… 来自掉线掉线 62 回应 2026-03-26 00:03:34" [ref=e598]:
+                  - cell "这部电影的关键表达并不是母女情…………" [ref=e599]:
+                    - link "这部电影的关键表达并不是母女情…………" [ref=e600] [cursor=pointer]:
+                      - /url: https://movie.douban.com/subject/30314848/discussion/637228566/
+                  - cell "来自掉线掉线" [ref=e601]:
+                    - text: 来自
+                    - link "掉线掉线" [ref=e602] [cursor=pointer]:
+                      - /url: https://www.douban.com/people/255526577/
+                  - cell "62 回应" [ref=e603]
+                  - cell "2026-03-26 00:03:34" [ref=e604]
+                - row "难道只有我一个人觉得这部电影垃圾吗？ 来自Brues 98 回应 2026-03-20 23:33:39" [ref=e605]:
+                  - cell "难道只有我一个人觉得这部电影垃圾吗？" [ref=e606]:
+                    - link "难道只有我一个人觉得这部电影垃圾吗？" [ref=e607] [cursor=pointer]:
+                      - /url: https://movie.douban.com/subject/30314848/discussion/637407460/
+                  - cell "来自Brues" [ref=e608]:
+                    - text: 来自
+                    - link "Brues" [ref=e609] [cursor=pointer]:
+                      - /url: https://www.douban.com/people/Aa1518474913/
+                  - cell "98 回应" [ref=e610]
+                  - cell "2026-03-20 23:33:39" [ref=e611]
+                - row "看不爽这片拿奥斯卡的也只能无能狂怒了吧 来自野原小新 45 回应 2026-03-20 23:27:51" [ref=e612]:
+                  - cell "看不爽这片拿奥斯卡的也只能无能狂怒了吧" [ref=e613]:
+                    - link "看不爽这片拿奥斯卡的也只能无能狂怒了吧" [ref=e614] [cursor=pointer]:
+                      - /url: https://movie.douban.com/subject/30314848/discussion/637408837/
+                  - cell "来自野原小新" [ref=e615]:
+                    - text: 来自
+                    - link "野原小新" [ref=e616] [cursor=pointer]:
+                      - /url: https://www.douban.com/people/222049863/
+                  - cell "45 回应" [ref=e617]
+                  - cell "2026-03-20 23:27:51" [ref=e618]
+            - paragraph [ref=e619]:
+              - link "> 去这部影片的讨论区（全部1400条）" [ref=e620] [cursor=pointer]:
+                - /url: /subject/30314848/discussion/
+        - generic [ref=e621]:
+          - iframe [ref=e623]:
+            - iframe [ref=f4e3]:
+              - generic [ref=f5e3] [cursor=pointer]:
+                - generic [ref=f5e4]: 广告
+                - img "春风好物淘宝购，开春五折省个够" [ref=f5e6]
+                - generic [ref=f5e7]:
+                  - generic [ref=f5e8]:
+                    - heading "春风好物淘宝购，开春五折省个够" [level=3] [ref=f5e9]
+                    - paragraph [ref=f5e10]: 淘宝春上新
+                  - button "了解更多" [ref=f5e11]
+          - generic [ref=e625]:
+            - iframe [ref=e626]:
+              - generic [active] [ref=f1e1]:
+                - generic [ref=f1e2]:
+                  - link [ref=f1e3] [cursor=pointer]:
+                    - /url: https://erebor.douban.com/redirect/?action=&ad=268557&ad_type=7&al=3&bid=Bn5EXXDygUo&brand=&chicken=50cab7a1f2bac418dc4cb8ebd82ac7dd&creative=unknown_300x100&crtr=7%3A%E9%BB%8E%E5%94%AF%7C7%3A%E5%A1%94%E4%B8%BD%C2%B7%E6%A2%85%E5%BE%B7%E5%B0%94%7C7%3A%E5%85%B3%E5%AE%B6%E6%B0%B8%7C7%3A%E5%8A%A8%E4%BD%9C%7C7%3A%E5%AE%B6%E5%BA%AD%7C7%3A%E5%85%8B%E9%9B%B7%E6%A0%BC%C2%B7%E4%BA%A8%E5%AE%81%E6%A3%AE%7C7%3A%E5%89%A7%E6%83%85%7C7%3A%E4%B8%B9%E5%B0%BC%E5%B0%94%C2%B7%E6%96%BD%E7%BA%B3%E7%89%B9%7C7%3A%E7%8F%8D%E5%A6%AE%C2%B7%E6%96%AF%E8%95%BE%E7%89%B9%7C7%3A%E9%BB%8E%E6%98%8E%7C7%3A%E8%AE%B8%E7%8E%AE%E4%BC%A6%7C7%3A2022%7C7%3A%E5%B2%91%E5%8B%87%E5%BA%B7%7C7%3A%E4%B8%B9%C2%B7%E5%B8%83%E6%9C%97%7C7%3A%E6%AF%94%E5%A4%AB%C2%B7%E5%A8%81%E5%A4%AB%7C7%3A%E7%BE%8E%E5%9B%BD%7C7%3A%E5%88%87%E5%B0%94%E8%A5%BF%C2%B7%E6%88%88%E5%BE%B7%E5%8F%B2%E5%AF%86%E6%96%AF%7C7%3A%E5%AE%89%E4%B8%9C%E5%B0%BC%C2%B7%E8%8E%AB%E5%88%A9%E7%BA%B3%E5%88%A9%7C7%3A%E9%98%BF%E9%9A%86%C2%B7%E6%8B%89%E6%89%8E%E5%B0%94%7C7%3A%E5%85%B3%E7%BB%A7%E5%A8%81%7C7%3A%E5%86%92%E9%99%A9%7C7%3A%E5%A5%87%E5%B9%BB%7C7%3A%E7%A7%91%E5%B9%BB%7C7%3A%E6%9D%8E%E9%9D%99%7C7%3A%E7%94%B5%E5%BD%B1%7C7%3A%E5%90%B4%E6%B1%89%E7%AB%A0%7C7%3A%E6%9D%B0%E7%B1%B3%C2%B7%E6%9D%8E%C2%B7%E6%9F%AF%E8%92%82%E6%96%AF%7C7%3A%E5%96%9C%E5%89%A7%7C7%3A%E8%8B%8F%E5%A6%AE%E7%89%B9%C2%B7%E7%8E%9B%E5%B0%BC%7C7%3A%E6%9D%A8%E7%B4%AB%E7%90%BC%7C3%3A%2Fsubject%2F30314848%2F&device=0&disable_creative=false&disable_third=false&high_value=false&hn=nob71&imp_type=2&is_cache=false&is_cmp=true&is_core=false&is_ht=false&is_short=false&item_type=COMPLEMENT&mark=&model=&net=&os=51&osv=10_15_7&p=0&posid=&priority=2&region=834995f0ef560b64&sig=d8837e8082a2a0f676fae77dd87d193abfca207b68ea8d6294dcaef7e2e00172&sigt=hmac&t_mode=&target=aHR0cHM6Ly9zaGlqaS5kb3ViYW4uY29tL2RldGFpbC8xODA5MzMv&ts=__TIMESTAMP__&ts_ms=__TIMESTAMP_MS__&uid=&unit=dale_movie_subject_inner_middle&vendor=Apple
+                  - generic [ref=f1e4]:
+                    - paragraph [ref=f1e5]:
+                      - link "豆瓣豆品 | “无限的她”主题T恤" [ref=f1e6] [cursor=pointer]:
+                        - /url: https://erebor.douban.com/redirect/?action=&ad=268557&ad_type=7&al=3&bid=Bn5EXXDygUo&brand=&chicken=50cab7a1f2bac418dc4cb8ebd82ac7dd&creative=unknown_300x100&crtr=7%3A%E9%BB%8E%E5%94%AF%7C7%3A%E5%A1%94%E4%B8%BD%C2%B7%E6%A2%85%E5%BE%B7%E5%B0%94%7C7%3A%E5%85%B3%E5%AE%B6%E6%B0%B8%7C7%3A%E5%8A%A8%E4%BD%9C%7C7%3A%E5%AE%B6%E5%BA%AD%7C7%3A%E5%85%8B%E9%9B%B7%E6%A0%BC%C2%B7%E4%BA%A8%E5%AE%81%E6%A3%AE%7C7%3A%E5%89%A7%E6%83%85%7C7%3A%E4%B8%B9%E5%B0%BC%E5%B0%94%C2%B7%E6%96%BD%E7%BA%B3%E7%89%B9%7C7%3A%E7%8F%8D%E5%A6%AE%C2%B7%E6%96%AF%E8%95%BE%E7%89%B9%7C7%3A%E9%BB%8E%E6%98%8E%7C7%3A%E8%AE%B8%E7%8E%AE%E4%BC%A6%7C7%3A2022%7C7%3A%E5%B2%91%E5%8B%87%E5%BA%B7%7C7%3A%E4%B8%B9%C2%B7%E5%B8%83%E6%9C%97%7C7%3A%E6%AF%94%E5%A4%AB%C2%B7%E5%A8%81%E5%A4%AB%7C7%3A%E7%BE%8E%E5%9B%BD%7C7%3A%E5%88%87%E5%B0%94%E8%A5%BF%C2%B7%E6%88%88%E5%BE%B7%E5%8F%B2%E5%AF%86%E6%96%AF%7C7%3A%E5%AE%89%E4%B8%9C%E5%B0%BC%C2%B7%E8%8E%AB%E5%88%A9%E7%BA%B3%E5%88%A9%7C7%3A%E9%98%BF%E9%9A%86%C2%B7%E6%8B%89%E6%89%8E%E5%B0%94%7C7%3A%E5%85%B3%E7%BB%A7%E5%A8%81%7C7%3A%E5%86%92%E9%99%A9%7C7%3A%E5%A5%87%E5%B9%BB%7C7%3A%E7%A7%91%E5%B9%BB%7C7%3A%E6%9D%8E%E9%9D%99%7C7%3A%E7%94%B5%E5%BD%B1%7C7%3A%E5%90%B4%E6%B1%89%E7%AB%A0%7C7%3A%E6%9D%B0%E7%B1%B3%C2%B7%E6%9D%8E%C2%B7%E6%9F%AF%E8%92%82%E6%96%AF%7C7%3A%E5%96%9C%E5%89%A7%7C7%3A%E8%8B%8F%E5%A6%AE%E7%89%B9%C2%B7%E7%8E%9B%E5%B0%BC%7C7%3A%E6%9D%A8%E7%B4%AB%E7%90%BC%7C3%3A%2Fsubject%2F30314848%2F&device=0&disable_creative=false&disable_third=false&high_value=false&hn=nob71&imp_type=2&is_cache=false&is_cmp=true&is_core=false&is_ht=false&is_short=false&item_type=COMPLEMENT&mark=&model=&net=&os=51&osv=10_15_7&p=0&posid=&priority=2&region=834995f0ef560b64&sig=d8837e8082a2a0f676fae77dd87d193abfca207b68ea8d6294dcaef7e2e00172&sigt=hmac&t_mode=&target=aHR0cHM6Ly9zaGlqaS5kb3ViYW4uY29tL2RldGFpbC8xODA5MzMv&ts=__TIMESTAMP__&ts_ms=__TIMESTAMP_MS__&uid=&unit=dale_movie_subject_inner_middle&vendor=Apple
+                    - paragraph [ref=f1e7]: 豆瓣豆品
+                - img
+            - generic [ref=e627]: 广告
+          - generic [ref=e628]:
+            - heading "以下片单推荐 · · · · · · ( 全部 )" [level=2] [ref=e629]:
+              - text: 以下片单推荐 · · · · · ·
+              - generic [ref=e630]:
+                - text: (
+                - link "全部" [ref=e631] [cursor=pointer]:
+                  - /url: https://movie.douban.com/subject/30314848/doulists
+                - text: )
+            - list [ref=e632]:
+              - listitem [ref=e633]:
+                - link "奥斯卡最佳影片" [ref=e634] [cursor=pointer]:
+                  - /url: https://www.douban.com/doulist/17057/
+                - text: (Boward)
+              - listitem [ref=e635]:
+                - link "IMDb科幻电影Top200" [ref=e636] [cursor=pointer]:
+                  - /url: https://www.douban.com/doulist/240612/
+                - text: (等一个人)
+              - listitem [ref=e637]:
+                - link "豆瓣电影【口碑榜】2023-09-11 更新" [ref=e638] [cursor=pointer]:
+                  - /url: https://www.douban.com/doulist/30299/
+                - text: (影志)
+              - listitem [ref=e639]:
+                - link "评价人数超过十万的电影" [ref=e640] [cursor=pointer]:
+                  - /url: https://www.douban.com/doulist/13712178/
+                - text: (依然饭特稀)
+              - listitem [ref=e641]:
+                - link "陪我孤独终老的电影清单【灵魂篇】" [ref=e642] [cursor=pointer]:
+                  - /url: https://www.douban.com/doulist/17769642/
+                - text: (默)
+          - generic [ref=e643]:
+            - heading "谁在看这部电影 · · · · · ·" [level=2] [ref=e644]
+            - list [ref=e645]:
+              - listitem [ref=e646]:
+                - link "噜噜噜噜" [ref=e647] [cursor=pointer]:
+                  - /url: https://www.douban.com/people/293880850/
+                  - img "噜噜噜噜" [ref=e648]
+                - generic [ref=e649]:
+                  - link "噜噜噜噜" [ref=e650] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/293880850/
+                  - generic [ref=e651]: 2分钟前 看过
+              - listitem [ref=e652]:
+                - link "豆友293722368" [ref=e653] [cursor=pointer]:
+                  - /url: https://www.douban.com/people/293722368/
+                  - img "豆友293722368" [ref=e654]
+                - generic [ref=e655]:
+                  - link "豆友293722368" [ref=e656] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/293722368/
+                  - generic [ref=e657]:
+                    - text: 4分钟前 看过
+                    - generic "推荐" [ref=e658]
+              - listitem [ref=e659]:
+                - link "Hillary Sun" [ref=e660] [cursor=pointer]:
+                  - /url: https://www.douban.com/people/96493957/
+                  - img "Hillary Sun" [ref=e661]
+                - generic [ref=e662]:
+                  - link "Hillary Sun" [ref=e663] [cursor=pointer]:
+                    - /url: https://www.douban.com/people/96493957/
+                  - generic [ref=e664]: 16分钟前 想看
+            - generic [ref=e665]:
+              - link "773011人看过" [ref=e666] [cursor=pointer]:
+                - /url: https://movie.douban.com/subject/30314848/comments?status=P
+              - text: /
+              - link "243966人想看" [ref=e667] [cursor=pointer]:
+                - /url: https://movie.douban.com/subject/30314848/comments?status=F
+          - paragraph [ref=e668]:
+            - text: "订阅瞬息全宇宙的评论:"
+            - 'link "feed: rss 2.0" [ref=e670] [cursor=pointer]':
+              - /url: https://movie.douban.com/feed/subject/30314848/reviews
+        - list [ref=e675]:
+          - listitem [ref=e676] [cursor=pointer]:
+            - generic [ref=e677]:
+              - img "全新Deep电脑版-AI智能问答-永久使用" [ref=e679]
+              - img "全新Deep电脑版-AI智能问答-永久使用" [ref=e681]
+              - generic:
+                - generic:
+                  - generic: 全新Deep电脑版-AI智能问答-永久使用
+                  - generic: Deep电脑版丨首页入口丨体验满血版AI大模型
+                  - generic:
+                    - generic: Deep电脑版 · 效卓
+                - generic: 广告
+    - generic [ref=e682]:
+      - generic [ref=e683]: © 2005－2026 douban.com, all rights reserved 北京豆网科技有限公司
+      - generic [ref=e684]:
+        - link "关于豆瓣" [ref=e685] [cursor=pointer]:
+          - /url: https://www.douban.com/about
+        - text: ·
+        - link "在豆瓣工作" [ref=e686] [cursor=pointer]:
+          - /url: https://www.douban.com/jobs
+        - text: ·
+        - link "联系我们" [ref=e687] [cursor=pointer]:
+          - /url: https://www.douban.com/about?topic=contactus
+        - text: ·
+        - link "法律声明" [ref=e688] [cursor=pointer]:
+          - /url: https://www.douban.com/about/legal
+        - text: ·
+        - link "帮助中心" [ref=e689] [cursor=pointer]:
+          - /url: https://help.douban.com/?app=movie
+        - text: ·
+        - link "移动应用" [ref=e690] [cursor=pointer]:
+          - /url: https://www.douban.com/doubanapp/

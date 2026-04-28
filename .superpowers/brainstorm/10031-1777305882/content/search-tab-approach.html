@@ -1,0 +1,102 @@
+<h2>搜索作为独立 Tab 的方案</h2>
+
+<div class="section">
+  <h3>导航结构变化</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="padding: 1.25rem;">
+      <div style="margin-bottom: 0.75rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; color: rgba(255,255,255,0.3);">现有很多 — 每个 tab 都有搜索框</div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(216,154,87,0.15); color: rgba(240,179,107,0.9);">直播</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">电影</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">剧集</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">综艺</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">动漫</span>
+      </div>
+      <div style="opacity: 0.6;">━━ 每个 tab 都有搜索框 ━━</div>
+      <div style="margin: 1.5rem 0; text-align: center; color: rgba(255,255,255,0.3);">↓</div>
+
+      <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; color: rgba(255,255,255,0.3); margin-bottom: 0.75rem;">新方案 — 搜索作为独立 tab，其他 tab 保持干净</div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">直播</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">电影</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">剧集</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">综艺</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);">动漫</span>
+        <span style="border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.8rem; background: rgba(216,154,87,0.2); color: rgba(240,179,107,0.95); border: 1px solid rgba(216,154,87,0.3);">
+          🔍 搜索
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>搜索结果 tab 布局</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="padding: 0;">
+      <div style="padding: 1.25rem 1.25rem 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <input class="mock-input" style="flex: 1; padding: 0.6rem 1rem; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);" placeholder="搜索电影、剧集、综艺...">
+          <button class="mock-button" style="background: linear-gradient(135deg, rgba(240,179,107,0.3), rgba(247,215,178,0.2)); border: 1px solid rgba(240,179,107,0.2);">搜索</button>
+        </div>
+        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.75rem;">
+          <span style="font-size: 0.65rem; background: rgba(216,154,87,0.15); padding: 0.25rem 0.65rem; border-radius: 999px; color: rgba(240,179,107,0.9);">全部 <span style="opacity:0.5;">42</span></span>
+          <span style="font-size: 0.65rem; background: rgba(255,255,255,0.04); padding: 0.25rem 0.65rem; border-radius: 999px; color: rgba(255,255,255,0.5);">电影 <span style="opacity:0.5;">18</span></span>
+          <span style="font-size: 0.65rem; background: rgba(255,255,255,0.04); padding: 0.25rem 0.65rem; border-radius: 999px; color: rgba(255,255,255,0.5);">剧集 <span style="opacity:0.5;">14</span></span>
+          <span style="font-size: 0.65rem; background: rgba(255,255,255,0.04); padding: 0.25rem 0.65rem; border-radius: 999px; color: rgba(255,255,255,0.5);">综艺 <span style="opacity:0.5;">6</span></span>
+          <span style="font-size: 0.65rem; background: rgba(255,255,255,0.04); padding: 0.25rem 0.65rem; border-radius: 999px; color: rgba(255,255,255,0.5);">动漫 <span style="opacity:0.5;">4</span></span>
+        </div>
+      </div>
+      <div style="padding: 0 1.25rem 0.5rem; color: rgba(255,255,255,0.4); font-size: 0.75rem;">找到 42 个结果</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; padding: 0 1.25rem 1.25rem;">
+        <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+          <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.12), rgba(117,169,195,0.08)); display: flex; align-items: center; justify-content: center; font-size: 0.55rem; color: rgba(255,255,255,0.25);">海报</div>
+          <div style="padding: 0.5rem;">
+            <div style="font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.85);">某个电影</div>
+            <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+              <span style="font-size: 0.6rem; color: rgba(216,154,87,0.6);">★ 8.5</span>
+              <span style="font-size: 0.6rem; color: rgba(255,255,255,0.35);">源A</span>
+            </div>
+          </div>
+        </div>
+        <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+          <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.12), rgba(117,169,195,0.08)); display: flex; align-items: center; justify-content: center; font-size: 0.55rem; color: rgba(255,255,255,0.25);">海报</div>
+          <div style="padding: 0.5rem;">
+            <div style="font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.85);">某个剧集</div>
+            <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+              <span style="font-size: 0.6rem; color: rgba(255,255,255,0.35);">源B</span>
+            </div>
+          </div>
+        </div>
+        <div style="aspect-ratio: 2/3; background: rgba(255,255,255,0.06); border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden;">
+          <div style="flex: 1; background: linear-gradient(135deg, rgba(216,154,87,0.12), rgba(117,169,195,0.08)); display: flex; align-items: center; justify-content: center; font-size: 0.55rem; color: rgba(255,255,255,0.25);">海报</div>
+          <div style="padding: 0.5rem;">
+            <div style="font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.85);">某个综艺</div>
+            <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+              <span style="font-size: 0.6rem; color: rgba(255,255,255,0.35);">源C</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="tab" onclick="toggleSelect(this)" style="border-color: rgba(216,154,87,0.3);">
+    <div class="letter" style="background: rgba(216,154,87,0.2); color: rgba(240,179,107,0.95);">✓</div>
+    <div class="content">
+      <h3>搜索 Tab 方案（推荐）</h3>
+      <p>导航栏新增"搜索"tab，其他 tab 保持干净。搜索结果在当前 tab 内显示，不使用独立路由。</p>
+      <p style="margin-top: 0.3rem; font-size: 0.75rem; color: rgba(255,255,255,0.5);">优点：导航统一，无页面跳转，搜索与浏览体验一致</p>
+    </div>
+  </div>
+  <div class="option" data-choice="page" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>独立搜索结果页（原方案）</h3>
+      <p>保留独立路由 /search?q=xxx，Home 页搜索框跳转到此页。</p>
+      <p style="margin-top: 0.3rem; font-size: 0.75rem; color: rgba(255,255,255,0.5);">优点：不影响现有 tab 结构</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,100 @@
+<h2>播放源列表 — 方案 A 细化（含多版本支持）</h2>
+<p class="subtitle">考虑同一个源可能有不同画质/语言的情况</p>
+
+<div class="section">
+  <h3>A1：扁平化 CTA 按钮</h3>
+  <p class="subtitle">每个剧集显示为小按钮，适合源数量多的场景</p>
+  <div class="mockup">
+    <div class="mockup-body" style="display: grid; gap: 0.75rem;">
+      <!-- Source card 1 -->
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">蓝光线路</span>
+            <span style="font-size: 0.6rem; padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.15);">12个</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.75rem 1rem;">
+          <span style="border-radius: 0.5rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.3rem 0.65rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">第01集</span>
+          <span style="border-radius: 0.5rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.3rem 0.65rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">第02集</span>
+          <span style="border-radius: 0.5rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.3rem 0.65rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">第03集</span>
+          <span style="border-radius: 0.5rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.3rem 0.65rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">第04集</span>
+        </div>
+      </div>
+
+      <!-- Source card 2 - with variants -->
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">超清线路</span>
+            <span style="font-size: 0.6rem; padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.15);">24个</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.75rem 1rem;">
+          <!-- Multi-variant: 3 versions of episode 1 -->
+          <span style="border-radius: 0.5rem; background: rgba(117,169,195,0.12); border: 1px solid rgba(117,169,195,0.2); padding: 0.3rem 0.65rem; font-size: 0.72rem; color: rgba(200,230,245,0.9); cursor: default;">
+            第01集 <span style="opacity: 0.5;">4K</span>
+          </span>
+          <span style="border-radius: 0.5rem; background: rgba(117,169,195,0.12); border: 1px solid rgba(117,169,195,0.2); padding: 0.3rem 0.65rem; font-size: 0.72rem; color: rgba(200,230,245,0.9); cursor: default;">
+            第01集 <span style="opacity: 0.5;">1080P</span>
+          </span>
+          <span style="border-radius: 0.5rem; background: rgba(117,169,195,0.12); border: 1px solid rgba(117,169,195,0.2); padding: 0.3rem 0.65rem; font-size: 0.72rem; color: rgba(200,230,245,0.9); cursor: default;">
+            第01集 <span style="opacity: 0.5;">国语</span>
+          </span>
+          <span style="border-radius: 0.5rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.3rem 0.65rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">第02集</span>
+          <span style="border-radius: 0.5rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.3rem 0.65rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">第03集</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>A2：分组式（同一集多个版本合并显示）</h3>
+  <p class="subtitle">同一集的不同版本分组在一起，hierarchy 更清晰</p>
+  <div class="mockup">
+    <div class="mockup-body" style="display: grid; gap: 0.75rem;">
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">超清线路</span>
+            <span style="font-size: 0.6rem; padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(216,154,87,0.8); background: rgba(216,154,87,0.15);">7组 / 24个</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 1rem;">
+          <!-- Episode group with variants -->
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 0.75rem; font-weight: 500; color: rgba(255,255,255,0.6); min-width: 3.5rem;">第01集</span>
+            <span style="border-radius: 0.4rem; background: rgba(117,169,195,0.12); border: 1px solid rgba(117,169,195,0.2); padding: 0.2rem 0.55rem; font-size: 0.7rem; color: rgba(200,230,245,0.9); cursor: default;">4K</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.2rem 0.55rem; font-size: 0.7rem; color: rgba(255,255,255,0.8); cursor: default;">1080P</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.2rem 0.55rem; font-size: 0.7rem; color: rgba(255,255,255,0.8); cursor: default;">国语</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 0.75rem; font-weight: 500; color: rgba(255,255,255,0.6); min-width: 3.5rem;">第02集</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.2rem 0.55rem; font-size: 0.7rem; color: rgba(255,255,255,0.8); cursor: default;">1080P</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); padding: 0.2rem 0.55rem; font-size: 0.7rem; color: rgba(255,255,255,0.8); cursor: default;">国语</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="a1" onclick="toggleSelect(this)">
+    <div class="letter">A1</div>
+    <div class="content">
+      <h3>扁平化 CTA 按钮</h3>
+      <p>简单直接，每个剧集版本都是独立的 CTA 按钮。不同的分辨率/语言通过 label 文字区分（用不同颜色高亮）。实现简单。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="a2" onclick="toggleSelect(this)">
+    <div class="letter">A2</div>
+    <div class="content">
+      <h3>分组式</h3>
+      <p>同集多版本合并为一行，左侧显示集数，右侧是不同版本的按钮。层次更清晰，但需要额外逻辑来分组。</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 2rem; color: rgba(255,255,255,0.5); font-size: 0.8rem;">这两个方案都基于方案 A 的卡片式设计。选择你更喜欢的那个。</p>

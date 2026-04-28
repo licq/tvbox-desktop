@@ -1,12 +1,11 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 use crate::services::playback_types::{PlaybackTarget, PlaybackTargetKind};
 use crate::services::xb6v::{ScrapedCatalogItem, ScrapedCatalogEpisode};
 use crate::services::provider::traits::CatalogCategory;
 use crate::services::provider::{VideoProvider, ProviderError};
 use crate::services::provider::native::NativeScraper;
 
-/// jianpian native scraper for https://www.jpj.com/
+/// jianpian native scraper for https://jianpian23.com/
 /// Uses guard://csp_JPJGuard/... URLs for playback that need resolution.
 pub struct JianpianScraper {
     base: NativeScraper,
@@ -15,7 +14,7 @@ pub struct JianpianScraper {
 impl JianpianScraper {
     pub fn new() -> Self {
         Self {
-            base: NativeScraper::new("jianpian", "🐭荐片┃P2P", "https://www.jpj.com"),
+            base: NativeScraper::new("jianpian", "🐭荐片┃P2P", "https://jianpian23.com"),
         }
     }
 

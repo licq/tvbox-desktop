@@ -5,7 +5,7 @@ use crate::services::playback_types::{
 };
 use crate::services::resolver::{
     build_client, classify_playback_target, is_known_cdn_url, probe_candidate_for_runtime,
-    PlaybackResolver,
+    looks_like_zxzj_play_page, PlaybackResolver,
 };
 use crate::services::storage::{
     playback_cache::{
@@ -126,10 +126,21 @@ pub async fn resolve_and_probe_targets(
                 resolved.extend(expand_resolved_playback(storage, client, &target, playback).await?);
             }
             PlaybackTargetKind::Embedded | PlaybackTargetKind::ExternalRequired => {
-                resolved.push(RuntimeResolvedCandidate {
-                    target,
-                    probe: PlaybackProbeResult::failed("target kind is not desktop playable", None),
-                });
+                // Known play pages (like zxzj) can be rendered in an iframe -
+                // mark them as playable so they show up as embed candidates
+                if matches!(target.target_kind, PlaybackTargetKind::Embedded)
+                    && looks_like_zxzj_play_page(&target.target_url)
+                {
+                    resolved.push(RuntimeResolvedCandidate {
+                        target,
+                        probe: PlaybackProbeResult::playable(),
+                    });
+                } else {
+                    resolved.push(RuntimeResolvedCandidate {
+                        target,
+                        probe: PlaybackProbeResult::failed("target kind is not desktop playable", None),
+                    });
+                }
             }
         }
     }
@@ -237,24 +248,48 @@ pub fn filter_presentable_targets(
 
 pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> ResolvedPlayback {
     let failure_message = summarize_runtime_failures(&candidates);
-    let visible = filter_presentable_targets(candidates);
-    if visible.is_empty() {
+
+    // First try: well-probed desktop-playable candidates
+    let visible = filter_presentable_targets(candidates.clone());
+    if !visible.is_empty() {
         return ResolvedPlayback {
-            status: resolved_failure_status(&failure_message).to_string(),
-            candidates: vec![],
-            error_message: Some(
-                failure_message.unwrap_or_else(|| "当前集未找到通过探测的可播线路".to_string()),
-            ),
+            status: "ready".to_string(),
+            candidates: visible
+                .into_iter()
+                .map(to_playback_candidate)
+                .collect(),
+            error_message: None,
         };
     }
 
+    // Second try: embed candidates (iframe-based players like zxzj, xb6v share pages)
+    // These can render in an iframe even though they're not desktop-playable as video.
+    let embed_candidates: Vec<_> = candidates
+        .into_iter()
+        .filter(|c| {
+            matches!(c.target.target_kind, PlaybackTargetKind::Embedded)
+                && matches!(c.probe.status, PlaybackProbeStatus::Playable)
+        })
+        .collect();
+
+    if !embed_candidates.is_empty() {
+        return ResolvedPlayback {
+            status: "ready".to_string(),
+            candidates: embed_candidates
+                .into_iter()
+                .map(to_playback_candidate)
+                .collect(),
+            error_message: None,
+        };
+    }
+
+    // No playable candidates of any kind
     ResolvedPlayback {
-        status: "ready".to_string(),
-        candidates: visible
-            .into_iter()
-            .map(to_playback_candidate)
-            .collect(),
-        error_message: None,
+        status: resolved_failure_status(&failure_message).to_string(),
+        candidates: vec![],
+        error_message: Some(
+            failure_message.unwrap_or_else(|| "当前集未找到通过探测的可播线路".to_string()),
+        ),
     }
 }
 
@@ -276,11 +311,12 @@ async fn expand_resolved_playback(
 
     for (index, candidate) in resolved.candidates.into_iter().enumerate() {
         let candidate_url = candidate.url;
+        let candidate_kind = parse_candidate_kind(&candidate.kind, &candidate_url);
         let target = PlaybackTarget {
             episode_id: parent.episode_id,
             source_key: parent.source_key.clone(),
             target_url: candidate_url.clone(),
-            target_kind: parse_candidate_kind(&candidate.kind, &candidate_url),
+            target_kind: candidate_kind,
             resolver_key: parent.resolver_key.clone(),
             headers: candidate.headers,
             sort_hint: parent.sort_hint.saturating_add(index as i32),
@@ -292,7 +328,12 @@ async fn expand_resolved_playback(
         } else if is_known_cdn_url(&target.target_url) {
             // Known CDNs work in browser (CORS headers present) but Rust's native-tls
             // probe may falsely fail due to CDN TLS fingerprint detection. Skip probe
-            // and trust the URL since hls.js handles it correctly in the WebView.
+            // and trust the URL since hls.js works correctly in the WebView.
+            PlaybackProbeResult::playable()
+        } else if matches!(target.target_kind, PlaybackTargetKind::Embedded) {
+            // Resolver explicitly chose to return an embed candidate (e.g., xb6v share
+            // page fallback when direct URL extraction failed). These can render in an
+            // iframe and don't need traditional media probing.
             PlaybackProbeResult::playable()
         } else {
             PlaybackProbeResult::failed("target kind is not desktop playable", None)
@@ -1303,17 +1344,22 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires live upstream access"]
-    async fn reflects_live_xb6v_runtime_request_failure() {
+    async fn resolves_live_xb6v_play_page_to_hls() {
         let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
         let play_url =
             "https://www.xb6v.com/e/DownSys/play/?classid=8&id=28379&pathid1=0&bf=0";
 
-        let error = resolve_playback_for_input(&storage, play_url, None)
+        let resolved = resolve_playback_for_input(&storage, play_url, None)
             .await
-            .expect_err("xb6v runtime should currently fail at request time");
+            .expect("xb6v runtime should resolve play page");
 
-        println!("xb6v runtime error={error}");
-        assert!(error.contains("error sending request"));
+        println!("xb6v resolved={resolved:#?}");
+        assert_eq!(resolved.status, "ready", "xb6v should resolve to a ready HLS stream, got: {resolved:#?}");
+        assert!(!resolved.candidates.is_empty(), "xb6v should have at least one candidate");
+        assert!(
+            resolved.candidates.iter().any(|c| c.url.contains(".m3u8")),
+            "xb6v candidate should be an HLS stream"
+        );
     }
 
     fn unique_test_dir() -> PathBuf {

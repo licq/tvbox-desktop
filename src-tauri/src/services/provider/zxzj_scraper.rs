@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 use crate::services::playback_types::{PlaybackTarget, PlaybackTargetKind};
 use crate::services::xb6v::{ScrapedCatalogItem, ScrapedCatalogEpisode};
 use crate::services::provider::traits::CatalogCategory;
@@ -223,7 +222,6 @@ mod tests {
     const TEST_KEYWORD: &str = "功夫";
 
     #[tokio::test]
-    #[ignore]
     async fn test_search_then_detail_then_play() {
         let scraper = ZxzjScraper::new();
         test_scraper(&scraper, "zxzj", TEST_KEYWORD).await

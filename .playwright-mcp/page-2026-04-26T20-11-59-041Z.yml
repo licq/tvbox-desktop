@@ -1,0 +1,23 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]: TVBox Desktop
+      - generic [ref=e8]: 饭太硬媒体中枢
+    - generic [ref=e9]:
+      - link "订阅" [ref=e10] [cursor=pointer]:
+        - /url: /subscriptions
+      - link "设置" [ref=e11] [cursor=pointer]:
+        - /url: /settings
+  - navigation "媒体分类" [ref=e12]:
+    - button "Live 直播" [ref=e13] [cursor=pointer]
+    - button "Movie 电影" [ref=e14] [cursor=pointer]
+    - button "Series 剧集" [ref=e15] [cursor=pointer]
+    - button "Shows 综艺" [ref=e16] [cursor=pointer]
+    - button "Anime 动漫" [ref=e17] [cursor=pointer]
+  - main [ref=e18]:
+    - generic [ref=e19]:
+      - generic [ref=e21]:
+        - generic [ref=e22]: Search
+        - textbox "搜索频道、卫视、央视频道..." [ref=e23]
+        - button "搜索" [ref=e24] [cursor=pointer]
+      - generic [ref=e26]: 暂无直播频道，先去订阅页检查源状态。

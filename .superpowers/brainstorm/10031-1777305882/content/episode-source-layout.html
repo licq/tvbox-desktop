@@ -1,0 +1,133 @@
+<h2>播放源列表 — 布局方案</h2>
+<p class="subtitle">VodDetail 下半部分：改进 EpisodeGroupPanel 的视觉效果</p>
+
+<div class="section">
+  <h3>现状</h3>
+  <div class="mockup" style="opacity: 0.6;">
+    <div class="mockup-body" style="display: grid; gap: 1rem;">
+      <div style="border-radius: 1.25rem; background: rgba(255,255,255,0.04); padding: 1rem 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+          <span style="font-size: 0.9rem; font-weight: 600; color: rgba(255,255,255,0.7);">线路名称</span>
+          <span style="font-size: 0.6rem; background: rgba(255,255,255,0.06); padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(255,255,255,0.5);">8个播放源</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="border-radius: 1.1rem; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); padding: 0.6rem 1rem; font-size: 0.8rem;">第01集</span>
+          <span style="border-radius: 1.1rem; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); padding: 0.6rem 1rem; font-size: 0.8rem;">第02集</span>
+          <span style="border-radius: 1.1rem; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); padding: 0.6rem 1rem; font-size: 0.8rem;">第03集</span>
+        </div>
+      </div>
+      <div style="border-radius: 1.25rem; background: rgba(255,255,255,0.04); padding: 1rem 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+          <span style="font-size: 0.9rem; font-weight: 600; color: rgba(255,255,255,0.7);">另一线路</span>
+          <span style="font-size: 0.6rem; background: rgba(255,255,255,0.06); padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(255,255,255,0.5);">24个播放源</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="border-radius: 1.1rem; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); padding: 0.6rem 1rem; font-size: 0.8rem;">第01集</span>
+          <span style="border-radius: 1.1rem; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); padding: 0.6rem 1rem; font-size: 0.8rem;">第02集</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size: 0.75rem; color: rgba(255,255,255,0.3); margin-top: 0.3rem;">当前：扁平的 panel + chip 列表</p>
+</div>
+
+<div class="section">
+  <h3>方案 A：卡片化 Source Group</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="display: grid; gap: 0.75rem;">
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">🍿 蓝光线路</span>
+            <span style="font-size: 0.6rem; background: rgba(216,154,87,0.15); padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(216,154,87,0.8);">24集</span>
+          </div>
+          <span style="font-size: 0.65rem; color: rgba(255,255,255,0.3);">点击播放</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.75rem 1rem;">
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">01</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">02</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">03</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">…</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">24</span>
+        </div>
+      </div>
+      <div style="border-radius: 1rem; background: linear-gradient(135deg, rgba(18,24,34,0.94), rgba(10,14,21,0.9)); border: 1px solid rgba(255,255,255,0.08); overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.85);">📺 超清线路</span>
+            <span style="font-size: 0.6rem; background: rgba(216,154,87,0.15); padding: 0.2rem 0.6rem; border-radius: 999px; color: rgba(216,154,87,0.8);">8集</span>
+          </div>
+          <span style="font-size: 0.65rem; color: rgba(255,255,255,0.3);">点击播放</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.75rem 1rem;">
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">01</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">02</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">03</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">04</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">05</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">06</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">07</span>
+          <span style="border-radius: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.35rem 0.7rem; font-size: 0.75rem; color: rgba(255,255,255,0.8); cursor: default;">08</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>方案 B：紧凑折叠式</h3>
+  <div class="mockup">
+    <div class="mockup-body" style="display: grid; gap: 0.5rem;">
+      <details style="border-radius: 0.75rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); overflow: hidden;">
+        <summary style="padding: 0.7rem 1rem; cursor: default; display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 0.85rem; font-weight: 500; color: rgba(255,255,255,0.8);">蓝光线路 <span style="font-size: 0.65rem; color: rgba(255,255,255,0.4);">(24集)</span></span>
+          <span style="font-size: 0.65rem; color: rgba(216,154,87,0.6);">展开</span>
+        </summary>
+        <div style="border-top: 1px solid rgba(255,255,255,0.06); padding: 0.6rem 1rem;">
+          <div style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">01</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">02</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">…</span>
+          </div>
+        </div>
+      </details>
+      <details style="border-radius: 0.75rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); overflow: hidden;">
+        <summary style="padding: 0.7rem 1rem; cursor: default; display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 0.85rem; font-weight: 500; color: rgba(255,255,255,0.8);">超清线路 <span style="font-size: 0.65rem; color: rgba(255,255,255,0.4);">(8集)</span></span>
+          <span style="font-size: 0.65rem; color: rgba(216,154,87,0.6);">展开</span>
+        </summary>
+        <div style="border-top: 1px solid rgba(255,255,255,0.06); padding: 0.6rem 1rem;">
+          <div style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">01</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">02</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">03</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">04</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">05</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">06</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">07</span>
+            <span style="border-radius: 0.4rem; background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; font-size: 0.7rem;">08</span>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>卡片化 Source Group</h3>
+      <p>每个源一个独立卡片，有 header（source name + badge）+ episode 区块。视觉分隔清晰，适合源数量不多的场景。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>紧凑折叠式</h3>
+      <p>用 details/summary 折叠每个源，默认收起。节省空间，适合源数量很多的场景。但用户需要二次点击才能看到剧集。</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 2rem; color: rgba(255,255,255,0.5); font-size: 0.8rem;">打开浏览器查看，选择适合的布局方案。</p>
