@@ -48,11 +48,11 @@ fn main() {
             let provider_registry = tokio::sync::RwLock::new(registry);
             let storage_for_prune = storage.clone();
             app.manage(tvbox_lib::AppState { storage, provider_registry });
-            // Prune expired search caches on startup
-            tokio::spawn(async move {
-                tokio::task::spawn_blocking(move || {
-                    storage_for_prune.prune_expired_search_caches().ok();
-                }).await.ok();
+            // Prune expired search caches on startup (synchronous, runs on a background thread)
+            std::thread::spawn(move || {
+                if let Err(e) = storage_for_prune.prune_expired_search_caches() {
+                    log::warn!("[startup] Failed to prune expired search caches: {}", e);
+                }
             });
             log::info!("TVBox 应用启动成功");
             Ok(())
