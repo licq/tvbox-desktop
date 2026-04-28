@@ -198,44 +198,50 @@ const providerDetailError = ref<string | null>(null)
 const providerDetailCache = ref(new Map<string, ProviderDetailResult>())
 const preloadingKeys = ref(new Set<string>())
 
-function getCacheKey(item: DedupSearchItem): string {
-  return item.title
+function getCacheKey(title: string, source: string): string {
+  return `${title}-${source}`
 }
 
 async function preloadFirstSource(item: DedupSearchItem) {
-  const key = getCacheKey(item)
-  if (providerDetailCache.value.has(key) || preloadingKeys.value.has(key)) return
-
   const first = item.sources[0]
   if (!first) return
+  await preloadSource(item, first.source)
+}
+
+async function preloadSource(item: DedupSearchItem, sourceKey: string) {
+  const key = getCacheKey(item.title, sourceKey)
+  if (providerDetailCache.value.has(key) || preloadingKeys.value.has(key)) return
+
+  const source = item.sources.find(s => s.source === sourceKey)
+  if (!source) return
 
   preloadingKeys.value.add(key)
   try {
     const detail = await invoke<ProviderDetailResult>('provider_detail', {
-      source: first.source,
-      ids: first.detail_url,
+      source: source.source,
+      ids: source.detail_url,
     })
     providerDetailCache.value.set(key, detail)
   } catch (e) {
-    console.error('[VodDetail] preload failed for', item.title, e)
+    console.error('[VodDetail] preload failed for', item.title, sourceKey, e)
   } finally {
     preloadingKeys.value.delete(key)
   }
 }
 
-async function handleCardEpisodePlay(episode: CatalogEpisode, item: DedupSearchItem) {
-  const firstSource = item.sources[0]
-  if (!firstSource) return
+async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string, item: DedupSearchItem) {
+  const source = item.sources.find(s => s.source === sourceKey)
+  if (!source) return
 
   try {
     const targets = await invoke<PlaybackTarget[]>('provider_play', {
-      source: firstSource.source,
+      source: source.source,
       flag: 'auto',
       playUrl: episode.play_url,
     })
     if (targets.length > 0) {
       const target = targets[0]
-      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${firstSource.source}`)
+      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source.source}`)
     } else {
       searchError.value = '播放地址获取失败'
     }
@@ -246,10 +252,10 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, item: DedupSearchI
 }
 
 async function handleCardSourcePlay(source: string, ids: string, item: DedupSearchItem) {
-  const key = getCacheKey(item)
+  const key = getCacheKey(item.title, source)
   const cached = providerDetailCache.value.get(key)
   if (cached && cached.episodes.length > 0) {
-    await handleCardEpisodePlay(cached.episodes[0], item)
+    await handleCardEpisodePlay(cached.episodes[0], source, item)
     return
   }
 
@@ -261,6 +267,24 @@ async function handleCardSourcePlay(source: string, ids: string, item: DedupSear
     title: item.title,
     poster: item.poster,
   })
+}
+
+function getSourceDetailsForItem(item: DedupSearchItem): Record<string, ProviderDetailResult> {
+  const result: Record<string, ProviderDetailResult> = {}
+  for (const src of item.sources) {
+    const key = getCacheKey(item.title, src.source)
+    const detail = providerDetailCache.value.get(key)
+    if (detail) {
+      result[src.source] = detail
+    }
+  }
+  return result
+}
+
+function getLoadingSourcesForItem(item: DedupSearchItem): string[] {
+  return item.sources
+    .filter(src => preloadingKeys.value.has(getCacheKey(item.title, src.source)))
+    .map(src => src.source)
 }
 
 async function loadDetail() {
@@ -504,11 +528,11 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
             :poster="item.poster"
             :item-type="(item.item_type === 'generic' ? 'movie' : item.item_type) as CatalogItemType"
             :sources="item.sources"
-            :episodes="providerDetailCache.get(getCacheKey(item))?.episodes"
-            :loading-episodes="preloadingKeys.has(getCacheKey(item))"
-            @play-episode="(ep) => handleCardEpisodePlay(ep, item)"
+            :source-details="getSourceDetailsForItem(item)"
+            :loading-sources="getLoadingSourcesForItem(item)"
+            @play-episode="(ep, sourceKey) => handleCardEpisodePlay(ep, sourceKey, item)"
             @play-source="(source, detailUrl) => handleCardSourcePlay(source, detailUrl, item)"
-            @load-episodes="preloadFirstSource(item)"
+            @select-source="(sourceKey) => preloadSource(item, sourceKey)"
           />
         </section>
 

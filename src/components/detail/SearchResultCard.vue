@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { CatalogEpisode, CatalogItemType } from '@/types'
 import EpisodeGrid from './EpisodeGrid.vue'
 import MovieActionPanel from './MovieActionPanel.vue'
@@ -10,22 +10,56 @@ interface Source {
   detail_url: string
 }
 
+interface ProviderDetailResult {
+  title: string | null
+  poster: string | null
+  summary: string | null
+  episodes: CatalogEpisode[]
+}
+
 const props = defineProps<{
   title: string
   poster?: string
   itemType: CatalogItemType
   sources: Source[]
-  episodes?: CatalogEpisode[]
-  loadingEpisodes?: boolean
+  sourceDetails?: Record<string, ProviderDetailResult>
+  loadingSources?: string[]
 }>()
 
 const emit = defineEmits<{
-  'play-episode': [episode: CatalogEpisode]
+  'play-episode': [episode: CatalogEpisode, sourceKey: string]
   'play-source': [source: string, detail_url: string]
-  'load-episodes': []
+  'select-source': [sourceKey: string]
 }>()
 
 const isMovie = computed(() => props.itemType === 'movie')
+
+const selectedSourceKey = ref(props.sources[0]?.source ?? '')
+
+watch(
+  () => props.sources.map(s => s.source).join(','),
+  () => {
+    if (props.sources.length > 0 && !props.sources.some(s => s.source === selectedSourceKey.value)) {
+      selectedSourceKey.value = props.sources[0].source
+    }
+  },
+)
+
+const currentDetail = computed(() => {
+  if (!selectedSourceKey.value) return undefined
+  return props.sourceDetails?.[selectedSourceKey.value]
+})
+
+const currentEpisodes = computed(() => currentDetail.value?.episodes ?? [])
+
+const isLoadingCurrent = computed(() => {
+  return props.loadingSources?.includes(selectedSourceKey.value) ?? false
+})
+
+function onSelectSource(sourceKey: string) {
+  selectedSourceKey.value = sourceKey
+  emit('select-source', sourceKey)
+}
 
 const typeLabel = computed(() => {
   switch (props.itemType) {
@@ -58,27 +92,41 @@ const typeLabel = computed(() => {
         @play="(s, d) => emit('play-source', s, d)"
       />
       <template v-else>
-        <EpisodeGrid
-          v-if="episodes && episodes.length > 0"
-          :episodes="episodes"
-          @play="(ep) => emit('play-episode', ep)"
-        />
-        <button
-          v-else-if="loadingEpisodes"
-          type="button"
-          class="loading-placeholder"
-          disabled
-        >
-          加载中...
-        </button>
-        <button
-          v-else
-          type="button"
-          class="load-episodes-btn"
-          @click="emit('load-episodes')"
-        >
-          点击加载集数
-        </button>
+        <div class="source-action-area">
+          <div class="source-selector-row">
+            <button
+              v-for="src in sources"
+              :key="src.source"
+              type="button"
+              :class="['source-btn', { active: selectedSourceKey === src.source }]"
+              @click="onSelectSource(src.source)"
+            >
+              {{ src.source_name }}
+            </button>
+          </div>
+
+          <EpisodeGrid
+            v-if="currentEpisodes.length > 0"
+            :episodes="currentEpisodes"
+            @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
+          />
+          <button
+            v-else-if="isLoadingCurrent"
+            type="button"
+            class="loading-placeholder"
+            disabled
+          >
+            加载中...
+          </button>
+          <button
+            v-else
+            type="button"
+            class="load-episodes-btn"
+            @click="emit('select-source', selectedSourceKey)"
+          >
+            点击加载集数
+          </button>
+        </div>
       </template>
     </div>
   </div>
@@ -157,6 +205,34 @@ const typeLabel = computed(() => {
   gap: 0.3rem;
   flex-wrap: wrap;
 }
+.source-action-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+.source-selector-row {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.source-btn {
+  border-radius: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+.source-btn.active,
+.source-btn:hover {
+  background: rgba(160, 120, 200, 0.12);
+  border-color: rgba(160, 120, 200, 0.2);
+  color: rgba(220, 200, 245, 0.85);
+}
 .load-episodes-btn,
 .loading-placeholder {
   border-radius: 0.45rem;
@@ -186,6 +262,12 @@ const typeLabel = computed(() => {
     width: auto;
   }
   .card-right {
+    justify-content: flex-start;
+  }
+  .source-action-area {
+    align-items: flex-start;
+  }
+  .source-selector-row {
     justify-content: flex-start;
   }
 }
