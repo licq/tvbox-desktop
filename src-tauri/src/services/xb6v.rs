@@ -1,8 +1,8 @@
 use crate::services::playback_runtime::build_runtime_target;
 use crate::services::PlaybackTarget;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScrapedCatalogEpisode {
     pub source_name: String,
     pub episode_label: String,
@@ -10,7 +10,7 @@ pub struct ScrapedCatalogEpisode {
     pub order_index: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScrapedCatalogItem {
     pub source_item_key: String,
     pub title: String,

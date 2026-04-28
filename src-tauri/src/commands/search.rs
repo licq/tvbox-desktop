@@ -1,6 +1,7 @@
 use tauri::State;
 use crate::AppState;
 use crate::services::xb6v::ScrapedCatalogEpisode;
+use crate::services::xb6v::ScrapedCatalogItem;
 use crate::services::playback_types::PlaybackTarget;
 use serde::Serialize;
 
@@ -18,14 +19,82 @@ pub async fn search_all_sources(
 ) -> Result<Vec<SourceSearchResult>, String> {
     log::info!("[search_all_sources] Command called with keyword: {}", keyword);
     let registry = state.provider_registry.read().await;
-    log::info!("[search_all_sources] Registry acquired, providers count: {}", registry.count());
-    let results = registry.search_all(&keyword).await;
+    let pairs = registry.all_provider_pairs();
+    let storage = state.storage.clone();
+    log::info!("[search_all_sources] Registry acquired, providers count: {}", pairs.len());
+
+    let mut handles = Vec::new();
+    for (source_key, provider) in pairs {
+        let storage = storage.clone();
+        let kw = keyword.clone();
+        let sk = source_key.clone();
+
+        handles.push(tokio::spawn(async move {
+            // Check cache first
+            match storage.get_source_search_cache(&sk, &kw) {
+                Ok(Some((cached_json, expired))) => {
+                    // Deserialize cached results
+                    match serde_json::from_str::<Vec<ScrapedCatalogItem>>(&cached_json) {
+                        Ok(items) => {
+                            if expired && !items.is_empty() {
+                                // Background refresh: spawn fire-and-forget task
+                                let storage = storage.clone();
+                                let provider = provider.clone();
+                                let kw = kw.clone();
+                                let sk = sk.clone();
+                                tokio::spawn(async move {
+                                    log::info!("[search_all_sources] Background refresh for {}/{}", sk, kw);
+                                    match provider.search(&kw).await {
+                                        Ok(new_items) if !new_items.is_empty() => {
+                                            if let Ok(json) = serde_json::to_string(&new_items) {
+                                                let _ = storage.set_source_search_cache(&sk, &kw, &json);
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                });
+                            }
+                            let name = provider.source_name().to_string();
+                            return Some(SourceSearchResult { source_key: sk, source_name: name, items });
+                        }
+                        Err(e) => {
+                            log::warn!("[search_all_sources] Cache deserialize failed for {}: {}", sk, e);
+                            // Fall through to real fetch
+                        }
+                    }
+                }
+                Ok(None) => {} // No cache, fall through to real fetch
+                Err(e) => {
+                    log::warn!("[search_all_sources] Cache check failed for {}: {}", sk, e);
+                }
+            }
+
+            // No valid cache: fetch from provider in real time
+            match provider.search(&kw).await {
+                Ok(items) => {
+                    let name = provider.source_name().to_string();
+                    if !items.is_empty() {
+                        // Cache result if non-empty
+                        if let Ok(json) = serde_json::to_string(&items) {
+                            let _ = storage.set_source_search_cache(&sk, &kw, &json);
+                        }
+                    }
+                    Some(SourceSearchResult { source_key: sk, source_name: name, items })
+                }
+                Err(_) => None,
+            }
+        }));
+    }
+
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Some(result) = handle.await.unwrap_or(None) {
+            results.push(result);
+        }
+    }
+
     log::info!("[search_all_sources] Returning {} results", results.len());
-    Ok(results.into_iter().map(|r| SourceSearchResult {
-        source_key: r.source_key,
-        source_name: r.source_name,
-        items: r.items,
-    }).collect())
+    Ok(results)
 }
 
 #[derive(Debug, Clone, Serialize)]
