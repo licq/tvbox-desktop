@@ -29,8 +29,8 @@ impl PlaybackResolver {
             return Ok(external_required("当前资源需要交给外部网盘工具处理", input));
         }
 
-        if looks_like_xb6v_play_page(input) {
-            return resolve_xb6v_play_page(input).await;
+        if looks_like_xb6v_play_page(input) || looks_like_ypanso_play_page(input) {
+            return resolve_play_page(input).await;
         }
 
         if classify_playback_target(input) == "direct" {
@@ -62,7 +62,7 @@ pub fn classify_playback_target(input: &str) -> &'static str {
         return "external";
     }
 
-    if looks_like_xb6v_play_page(input) {
+    if looks_like_xb6v_play_page(input) || looks_like_ypanso_play_page(input) {
         return "resolvable";
     }
 
@@ -136,6 +136,10 @@ fn looks_like_xb6v_play_page(input: &str) -> bool {
     input.contains("xb6v.com/e/DownSys/play/")
 }
 
+fn looks_like_ypanso_play_page(input: &str) -> bool {
+    input.contains("ypanso.com/vod/play/id/")
+}
+
 pub fn looks_like_zxzj_play_page(input: &str) -> bool {
     input.contains("zxzjys.com/vodplay/") || input.contains("zxzj.com/vodplay/")
 }
@@ -148,13 +152,13 @@ fn looks_like_cloud_disk_link(input: &str) -> bool {
         || input.contains("alipan.com/")
 }
 
-async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String> {
+async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
     let body = fetch_text(&client, input).await?;
 
     // Try 1: Aliplayer "source" JSON field
     if let Some(source_url) = extract_aliplayer_source(&body) {
-        eprintln!("[resolve_xb6v] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
+        eprintln!("[resolve_play] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
         return Ok(ready_with_candidate(
             source_url.clone(),
             detect_kind(&source_url),
@@ -163,27 +167,27 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
 
     // Try 2: maccms player_aaaa / player_bbbb video JSON with url field
     if let Some(video_url) = extract_maccms_player_url(&body) {
-        eprintln!("[resolve_xb6v] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
+        eprintln!("[resolve_play] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
         let kind = detect_kind(&video_url);
         return Ok(ready_with_candidate(video_url, kind));
     }
 
     // Try 3: Direct <video> or <source> elements
     if let Some(video_url) = extract_html_video_src(input, &body) {
-        eprintln!("[resolve_xb6v] Found video element src: {}", &video_url[..video_url.len().min(80)]);
+        eprintln!("[resolve_play] Found video element src: {}", &video_url[..video_url.len().min(80)]);
         return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url)));
     }
 
     // Try 4: iframe-based player (share page)
     if let Some(iframe_url) = extract_iframe_src(input, &body) {
-        eprintln!("[resolve_xb6v] Found iframe: {}", &iframe_url[..iframe_url.len().min(80)]);
+        eprintln!("[resolve_play] Found iframe: {}", &iframe_url[..iframe_url.len().min(80)]);
         match resolve_embedded_share_page(&client, &iframe_url).await {
             Ok(playback) if !playback.candidates.is_empty() => {
-                eprintln!("[resolve_xb6v] Share page resolved candidate: {:?}", playback.candidates[0].url.len().min(80));
+                eprintln!("[resolve_play] Share page resolved candidate: {:?}", playback.candidates[0].url.len().min(80));
                 return Ok(playback);
             }
             other => {
-                eprintln!("[resolve_xb6v] Share page resolution failed, falling back to embed. Result: {:?}",
+                eprintln!("[resolve_play] Share page resolution failed, falling back to embed. Result: {:?}",
                     other.as_ref().map(|r| &r.status).unwrap_or(&"error".to_string()));
                 return Ok(ResolvedPlayback {
                     status: "ready".to_string(),
@@ -684,7 +688,8 @@ fn apply_request_headers(
 mod tests {
     use super::{
         classify_playback_target, detect_kind, looks_like_cloud_disk_link,
-        looks_like_xb6v_play_page, map_target_kind_to_probe_gate, PlaybackResolver,
+        looks_like_xb6v_play_page, looks_like_ypanso_play_page, map_target_kind_to_probe_gate,
+        PlaybackResolver,
     };
 
     #[tokio::test]
@@ -716,6 +721,18 @@ mod tests {
             "https://www.xb6v.com/e/DownSys/play/?classid=8&id=11308&pathid1=0"
         ));
         assert!(!looks_like_xb6v_play_page("https://example.com/video.mp4"));
+    }
+
+    #[test]
+    fn ypanso_play_pages_are_resolvable() {
+        assert!(looks_like_ypanso_play_page(
+            "https://www.ypanso.com/vod/play/id/12345/sid/1/nid/1.html"
+        ));
+        assert!(!looks_like_ypanso_play_page("https://example.com/video.mp4"));
+        assert_eq!(
+            classify_playback_target("https://www.ypanso.com/vod/play/id/12345/sid/1/nid/1.html"),
+            "resolvable"
+        );
     }
 
     #[test]

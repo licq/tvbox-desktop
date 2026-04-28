@@ -197,8 +197,11 @@ impl Default for YpansoScraper {
 /// Ypanso uses maccms (Apple CMS) which embeds a `player_aaaa` JSON object
 /// with the real video source URL in a `url` field.
 fn extract_ypanso_player_url(body: &str) -> Option<String> {
-    // (?s) enables dotall mode so `.` matches newlines – the player_aaaa JSON may span multiple lines
-    let player_regex = Regex::new(r"(?s)player_aaaa=\s*(\{.*?\})</script>").ok()?;
+    // (?s) enables dotall mode so `.` matches newlines – the player_aaaa JSON may span multiple lines.
+    // Use the same relaxed pattern as resolver::extract_maccms_player_url to handle:
+    // - spaces around the equals sign (player_aaaa = {...})
+    // - other player variable names like player_bbbb used by some maccms themes
+    let player_regex = Regex::new(r"(?s)player_[a-z]{4}\s*=\s*(\{.*?\})</script>").ok()?;
     player_regex.captures(body).and_then(|captures| {
         let json_str = captures.get(1).map(|m| m.as_str())?;
         let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
@@ -257,7 +260,7 @@ mod tests {
 
     #[test]
     fn returns_none_when_player_aaaa_missing() {
-        let html = r#"<script>var player_bbbb={"url":"https://cdn.example.com/video.m3u8"}</script>"#;
+        let html = r#"<script>var other_player={"url":"https://cdn.example.com/video.m3u8"}</script>"#;
         assert!(extract_ypanso_player_url(html).is_none());
     }
 
@@ -265,5 +268,25 @@ mod tests {
     fn returns_none_when_url_field_missing() {
         let html = r#"<script>var player_aaaa={"name":"高清线路","encrypt":0}</script>"#;
         assert!(extract_ypanso_player_url(html).is_none());
+    }
+
+    #[test]
+    fn extracts_player_url_with_spaces_around_equals() {
+        // Some maccms themes format the assignment with spaces
+        let html = r#"<script>var player_aaaa = {"url":"https://cdn.example.com/video.m3u8","name":"高清"}</script>"#;
+        assert_eq!(
+            extract_ypanso_player_url(html).as_deref(),
+            Some("https://cdn.example.com/video.m3u8")
+        );
+    }
+
+    #[test]
+    fn extracts_player_url_from_alternate_player_variable() {
+        // Some maccms themes use player_bbbb instead of player_aaaa
+        let html = r#"<script>var player_bbbb={"url":"https://cdn.example.com/video.mp4","name":"标清"}</script>"#;
+        assert_eq!(
+            extract_ypanso_player_url(html).as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
     }
 }
