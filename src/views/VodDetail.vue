@@ -144,15 +144,31 @@ const searchResults = ref<GroupedSearchResults[]>([])
 const loadingSearch = ref(false)
 const searchError = ref<string | null>(null)
 
+// Prefer more specific types over generic/movie when sources disagree on the same title.
+function itemTypePriority(t: SearchResult['item_type']): number {
+  switch (t) {
+    case 'series': return 4
+    case 'variety': return 3
+    case 'anime': return 2
+    case 'movie': return 1
+    case 'generic': return 0
+    default: return 0
+  }
+}
+
 const dedupSearchItems = computed<DedupSearchItem[]>(() => {
   const map = new Map<string, DedupSearchItem>()
   for (const group of searchResults.value) {
     for (const r of group.results) {
-      const key = `${r.title ?? ''}-${r.item_type}`
+      const key = r.title ?? ''
       let item = map.get(key)
       if (!item) {
         item = { title: r.title ?? '', poster: r.poster, item_type: r.item_type, sources: [] }
         map.set(key, item)
+      }
+      // If this source claims a more specific type, upgrade the deduped item.
+      if (itemTypePriority(r.item_type) > itemTypePriority(item.item_type)) {
+        item.item_type = r.item_type
       }
       if (!item.sources.some(s => s.source === r.source)) {
         item.sources.push({ source: r.source, source_name: group.source_name, detail_url: r.detail_url })
@@ -183,7 +199,7 @@ const providerDetailCache = ref(new Map<string, ProviderDetailResult>())
 const preloadingKeys = ref(new Set<string>())
 
 function getCacheKey(item: DedupSearchItem): string {
-  return `${item.title}-${item.item_type}`
+  return item.title
 }
 
 async function preloadFirstSource(item: DedupSearchItem) {
