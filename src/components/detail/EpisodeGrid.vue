@@ -28,6 +28,7 @@ const hasMore = computed(() => props.episodes.length > props.visibleCount)
     <button
       v-for="ep in visibleEpisodes"
       :key="ep.id"
+      type="button"
       class="episode-chip"
       @click="emit('play', ep)"
     >
@@ -35,14 +36,16 @@ const hasMore = computed(() => props.episodes.length > props.visibleCount)
     </button>
     <button
       v-if="hasMore && !expanded"
-      class="episode-chip-more"
+      type="button"
+      class="episode-chip episode-chip-more"
       @click="expanded = true"
     >
       ⋯
     </button>
     <button
       v-if="expanded && hasMore"
-      class="episode-chip-collapse"
+      type="button"
+      class="episode-chip episode-chip-collapse"
       @click="expanded = false"
     >
       收起

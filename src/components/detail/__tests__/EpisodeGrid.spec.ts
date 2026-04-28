@@ -27,7 +27,7 @@ describe('EpisodeGrid', () => {
     const wrapper = mount(EpisodeGrid, {
       props: { episodes, visibleCount: 12 },
     })
-    expect(wrapper.findAll('.episode-chip')).toHaveLength(12)
+    expect(wrapper.findAll('.episode-chip:not(.episode-chip-more):not(.episode-chip-collapse)')).toHaveLength(12)
     expect(wrapper.find('.episode-chip-more').exists()).toBe(true)
   })
 
@@ -37,7 +37,7 @@ describe('EpisodeGrid', () => {
       props: { episodes, visibleCount: 12 },
     })
     await wrapper.find('.episode-chip-more').trigger('click')
-    expect(wrapper.findAll('.episode-chip')).toHaveLength(20)
+    expect(wrapper.findAll('.episode-chip:not(.episode-chip-more):not(.episode-chip-collapse)')).toHaveLength(20)
     expect(wrapper.find('.episode-chip-collapse').exists()).toBe(true)
   })
 
@@ -48,7 +48,7 @@ describe('EpisodeGrid', () => {
     })
     await wrapper.find('.episode-chip-more').trigger('click')
     await wrapper.find('.episode-chip-collapse').trigger('click')
-    expect(wrapper.findAll('.episode-chip')).toHaveLength(12)
+    expect(wrapper.findAll('.episode-chip:not(.episode-chip-more):not(.episode-chip-collapse)')).toHaveLength(12)
     expect(wrapper.find('.episode-chip-more').exists()).toBe(true)
   })
 
