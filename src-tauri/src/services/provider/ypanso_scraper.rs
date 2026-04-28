@@ -4,6 +4,7 @@ use crate::services::xb6v::{ScrapedCatalogItem, ScrapedCatalogEpisode};
 use crate::services::provider::traits::CatalogCategory;
 use crate::services::provider::{VideoProvider, ProviderError};
 use crate::services::provider::native::NativeScraper;
+use regex::Regex;
 
 pub struct YpansoScraper {
     base: NativeScraper,
@@ -36,10 +37,14 @@ impl YpansoScraper {
     }
 
     pub async fn play(&self, _flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
+        // Fetch the play page and extract the real video source from the player_aaaa JSON
+        let body = self.base.fetch_text(play_url).await?;
+        let video_url = extract_ypanso_player_url(&body)
+            .unwrap_or_else(|| play_url.to_string());
         Ok(vec![PlaybackTarget {
             episode_id: None,
             source_key: "YpanSo".to_string(),
-            target_url: play_url.to_string(),
+            target_url: video_url,
             target_kind: PlaybackTargetKind::Direct,
             resolver_key: None,
             headers: None,
@@ -188,6 +193,19 @@ impl Default for YpansoScraper {
     fn default() -> Self { Self::new() }
 }
 
+/// Extract the actual video URL from a ypanso play page.
+/// Ypanso uses maccms (Apple CMS) which embeds a `player_aaaa` JSON object
+/// with the real video source URL in a `url` field.
+fn extract_ypanso_player_url(body: &str) -> Option<String> {
+    // (?s) enables dotall mode so `.` matches newlines – the player_aaaa JSON may span multiple lines
+    let player_regex = Regex::new(r"(?s)player_aaaa=\s*(\{.*?\})</script>").ok()?;
+    player_regex.captures(body).and_then(|captures| {
+        let json_str = captures.get(1).map(|m| m.as_str())?;
+        let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
+        parsed.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+    })
+}
+
 #[async_trait]
 impl VideoProvider for YpansoScraper {
     fn source_key(&self) -> &str { &self.base.site_key }
@@ -212,5 +230,40 @@ mod tests {
         let scraper = YpansoScraper::new();
         test_scraper(&scraper, "YpanSo", TEST_KEYWORD).await
             .expect("YpanSo test failed");
+    }
+
+    #[test]
+    fn extracts_player_url_from_multiline_json() {
+        // player_aaaa JSON spanning multiple lines (common in formatted maccms pages)
+        let html = r#"<script>var player_aaaa={
+            "url": "https://cdn.example.com/video.m3u8",
+            "name": "高清线路",
+            "encrypt": 0
+        }</script>"#;
+        assert_eq!(
+            extract_ypanso_player_url(html).as_deref(),
+            Some("https://cdn.example.com/video.m3u8")
+        );
+    }
+
+    #[test]
+    fn extracts_player_url_from_single_line_json() {
+        let html = r#"<script>var player_aaaa={"url":"https://cdn.example.com/video.mp4","name":"标清"}</script>"#;
+        assert_eq!(
+            extract_ypanso_player_url(html).as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+    }
+
+    #[test]
+    fn returns_none_when_player_aaaa_missing() {
+        let html = r#"<script>var player_bbbb={"url":"https://cdn.example.com/video.m3u8"}</script>"#;
+        assert!(extract_ypanso_player_url(html).is_none());
+    }
+
+    #[test]
+    fn returns_none_when_url_field_missing() {
+        let html = r#"<script>var player_aaaa={"name":"高清线路","encrypt":0}</script>"#;
+        assert!(extract_ypanso_player_url(html).is_none());
     }
 }

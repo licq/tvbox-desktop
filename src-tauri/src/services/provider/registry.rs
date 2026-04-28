@@ -5,49 +5,6 @@ use crate::services::tvbox::TvboxConfigRecords;
 use crate::services::xb6v::ScrapedCatalogItem;
 use super::{VideoProvider, Xb6vScraper, AueteScraper, ZxzjScraper, JianpianScraper, WencaiScraper, LibvioScraper, YgpScraper, KkssScraper, UussScraper, YcyzScraper, LiteAppleScraper, NuomiScraper, BaibaiScraper, ChangzhangScraper, YicaiScraper, BiteScraper, DdrkScraper, MengmiScraper, XiongdiScraper, ReboScraper, HuanshiScraper, Dm84Scraper, YsjScraper, Anime1Scraper, YpansoScraper, XzsoScraper, MisoScraper, KuasouScraper, AlisoScraper, YisoScraper, BiliScraper, BiliychScraper, FanScraper, CcScraper};
 
-/// Pairs a scraper constructor with its key for easy testing
-type ScraperEntry = (&'static str, fn() -> Box<dyn VideoProvider>);
-
-/// List of all scraper entries with key and constructor
-fn all_scraper_entries() -> Vec<ScraperEntry> {
-    vec![
-        ("xb6v", || Box::new(Xb6vScraper::new()) as Box<dyn VideoProvider>),
-        ("auete", || Box::new(AueteScraper::new()) as Box<dyn VideoProvider>),
-        ("zxzj", || Box::new(ZxzjScraper::new()) as Box<dyn VideoProvider>),
-        ("jianpian", || Box::new(JianpianScraper::new()) as Box<dyn VideoProvider>),
-        ("wencai", || Box::new(WencaiScraper::new()) as Box<dyn VideoProvider>),
-        ("libvio", || Box::new(LibvioScraper::new()) as Box<dyn VideoProvider>),
-        ("YGP", || Box::new(YgpScraper::new()) as Box<dyn VideoProvider>),
-        ("抠搜", || Box::new(KkssScraper::new()) as Box<dyn VideoProvider>),
-        ("UC", || Box::new(UussScraper::new()) as Box<dyn VideoProvider>),
-        ("原创", || Box::new(YcyzScraper::new()) as Box<dyn VideoProvider>),
-        ("苹果", || Box::new(LiteAppleScraper::new()) as Box<dyn VideoProvider>),
-        ("糯米", || Box::new(NuomiScraper::new()) as Box<dyn VideoProvider>),
-        ("白白", || Box::new(BaibaiScraper::new()) as Box<dyn VideoProvider>),
-        ("厂长", || Box::new(ChangzhangScraper::new()) as Box<dyn VideoProvider>),
-        ("溢彩", || Box::new(YicaiScraper::new()) as Box<dyn VideoProvider>),
-        ("比特", || Box::new(BiteScraper::new()) as Box<dyn VideoProvider>),
-        ("低端", || Box::new(DdrkScraper::new()) as Box<dyn VideoProvider>),
-        ("萌米", || Box::new(MengmiScraper::new()) as Box<dyn VideoProvider>),
-        ("兄弟", || Box::new(XiongdiScraper::new()) as Box<dyn VideoProvider>),
-        ("热播", || Box::new(ReboScraper::new()) as Box<dyn VideoProvider>),
-        ("欢视", || Box::new(HuanshiScraper::new()) as Box<dyn VideoProvider>),
-        ("Dm84", || Box::new(Dm84Scraper::new()) as Box<dyn VideoProvider>),
-        ("Ysj", || Box::new(YsjScraper::new()) as Box<dyn VideoProvider>),
-        ("Anime1", || Box::new(Anime1Scraper::new()) as Box<dyn VideoProvider>),
-        ("YpanSo", || Box::new(YpansoScraper::new()) as Box<dyn VideoProvider>),
-        ("xzso", || Box::new(XzsoScraper::new()) as Box<dyn VideoProvider>),
-        ("米搜", || Box::new(MisoScraper::new()) as Box<dyn VideoProvider>),
-        ("夸搜", || Box::new(KuasouScraper::new()) as Box<dyn VideoProvider>),
-        ("Aliso", || Box::new(AlisoScraper::new()) as Box<dyn VideoProvider>),
-        ("易搜", || Box::new(YisoScraper::new()) as Box<dyn VideoProvider>),
-        ("Bili", || Box::new(BiliScraper::new()) as Box<dyn VideoProvider>),
-        ("Biliych", || Box::new(BiliychScraper::new()) as Box<dyn VideoProvider>),
-        ("fan", || Box::new(FanScraper::new()) as Box<dyn VideoProvider>),
-        ("cc", || Box::new(CcScraper::new()) as Box<dyn VideoProvider>),
-    ]
-}
-
 pub struct SearchResult {
     pub source_key: String,
     pub source_name: String,
@@ -124,10 +81,10 @@ impl ProviderRegistry {
     pub fn register_all_native_sources(&mut self) {
         // xb6v
         self.providers.insert("xb6v".to_string(), Arc::new(Box::new(Xb6vScraper::new())));
-        // auete
-        self.providers.insert("auete".to_string(), Arc::new(Box::new(AueteScraper::new())));
         // zxzj
         self.providers.insert("zxzj".to_string(), Arc::new(Box::new(ZxzjScraper::new())));
+        // auete
+        self.providers.insert("auete".to_string(), Arc::new(Box::new(AueteScraper::new())));
         // jianpian
         self.providers.insert("jianpian".to_string(), Arc::new(Box::new(JianpianScraper::new())));
         // wencai
@@ -193,16 +150,18 @@ impl ProviderRegistry {
     }
 
     /// Register only the scrapers that have been verified to work.
-    /// Verified working (2026-04-27): xb6v, zxzj, ypanso.
-    /// Out of 34 scrapers tested, only these 3 sites are reachable and return valid video data.
-    /// All other sites are either dead (DNS failure), wrong domain, or require JS/CAPTCHA.
+    /// Verified working (2026-04-28): xb6v, zxzj, YpanSo, auete.
+    /// Out of 34 scrapers tested, 4 sites are verified working.
+    /// All other sites are either dead (DNS failure), domain taken over, wrong domain, or require JS/CAPTCHA.
     pub fn register_working_sources(&mut self) {
         // xb6v - 新6V, verified working (search -> detail -> play)
         self.providers.insert("xb6v".to_string(), Arc::new(Box::new(Xb6vScraper::new())));
-        // zxzj - 在线, verified working (search -> detail -> play)
+        // zxzj - 在线之家, verified working (search -> detail -> play) at www.zxzjys.com
         self.providers.insert("zxzj".to_string(), Arc::new(Box::new(ZxzjScraper::new())));
         // YpanSo - 盘她, verified working (search -> detail -> play)
         self.providers.insert("YpanSo".to_string(), Arc::new(Box::new(YpansoScraper::new())));
+        // auete - 奥特, verified working (home -> detail -> play)
+        self.providers.insert("auete".to_string(), Arc::new(Box::new(AueteScraper::new())));
     }
 }
 
@@ -210,6 +169,49 @@ impl ProviderRegistry {
 mod native_scraper_tests {
     use super::*;
     use std::time::Duration;
+
+    /// Pairs a scraper constructor with its key for easy testing
+    type ScraperEntry = (&'static str, fn() -> Box<dyn VideoProvider>);
+
+    /// List of all scraper entries with key and constructor
+    fn all_scraper_entries() -> Vec<ScraperEntry> {
+        vec![
+            ("xb6v", || Box::new(Xb6vScraper::new()) as Box<dyn VideoProvider>),
+            ("auete", || Box::new(AueteScraper::new()) as Box<dyn VideoProvider>),
+            ("zxzj", || Box::new(ZxzjScraper::new()) as Box<dyn VideoProvider>),
+            ("jianpian", || Box::new(JianpianScraper::new()) as Box<dyn VideoProvider>),
+            ("wencai", || Box::new(WencaiScraper::new()) as Box<dyn VideoProvider>),
+            ("libvio", || Box::new(LibvioScraper::new()) as Box<dyn VideoProvider>),
+            ("YGP", || Box::new(YgpScraper::new()) as Box<dyn VideoProvider>),
+            ("抠搜", || Box::new(KkssScraper::new()) as Box<dyn VideoProvider>),
+            ("UC", || Box::new(UussScraper::new()) as Box<dyn VideoProvider>),
+            ("原创", || Box::new(YcyzScraper::new()) as Box<dyn VideoProvider>),
+            ("苹果", || Box::new(LiteAppleScraper::new()) as Box<dyn VideoProvider>),
+            ("糯米", || Box::new(NuomiScraper::new()) as Box<dyn VideoProvider>),
+            ("白白", || Box::new(BaibaiScraper::new()) as Box<dyn VideoProvider>),
+            ("厂长", || Box::new(ChangzhangScraper::new()) as Box<dyn VideoProvider>),
+            ("溢彩", || Box::new(YicaiScraper::new()) as Box<dyn VideoProvider>),
+            ("比特", || Box::new(BiteScraper::new()) as Box<dyn VideoProvider>),
+            ("低端", || Box::new(DdrkScraper::new()) as Box<dyn VideoProvider>),
+            ("萌米", || Box::new(MengmiScraper::new()) as Box<dyn VideoProvider>),
+            ("兄弟", || Box::new(XiongdiScraper::new()) as Box<dyn VideoProvider>),
+            ("热播", || Box::new(ReboScraper::new()) as Box<dyn VideoProvider>),
+            ("欢视", || Box::new(HuanshiScraper::new()) as Box<dyn VideoProvider>),
+            ("Dm84", || Box::new(Dm84Scraper::new()) as Box<dyn VideoProvider>),
+            ("Ysj", || Box::new(YsjScraper::new()) as Box<dyn VideoProvider>),
+            ("Anime1", || Box::new(Anime1Scraper::new()) as Box<dyn VideoProvider>),
+            ("YpanSo", || Box::new(YpansoScraper::new()) as Box<dyn VideoProvider>),
+            ("xzso", || Box::new(XzsoScraper::new()) as Box<dyn VideoProvider>),
+            ("米搜", || Box::new(MisoScraper::new()) as Box<dyn VideoProvider>),
+            ("夸搜", || Box::new(KuasouScraper::new()) as Box<dyn VideoProvider>),
+            ("Aliso", || Box::new(AlisoScraper::new()) as Box<dyn VideoProvider>),
+            ("易搜", || Box::new(YisoScraper::new()) as Box<dyn VideoProvider>),
+            ("Bili", || Box::new(BiliScraper::new()) as Box<dyn VideoProvider>),
+            ("Biliych", || Box::new(BiliychScraper::new()) as Box<dyn VideoProvider>),
+            ("fan", || Box::new(FanScraper::new()) as Box<dyn VideoProvider>),
+            ("cc", || Box::new(CcScraper::new()) as Box<dyn VideoProvider>),
+        ]
+    }
 
     /// Integration test: verifies all native scrapers are registered and search infrastructure works.
     #[tokio::test]
@@ -251,7 +253,7 @@ mod native_scraper_tests {
         let mut registry = ProviderRegistry::new();
         registry.register_all_native_sources();
 
-        // Test a few known keys
+// Test a few known keys
         let keys = vec!["xb6v", "auete", "zxzj", "jianpian", "wencai", "libvio"];
         for key in keys {
             let provider = registry.get(key);
@@ -275,10 +277,10 @@ mod native_scraper_tests {
 
         let provider_count = registry.count();
         println!("Registered {} working scraper providers", provider_count);
-        assert_eq!(provider_count, 3, "should have exactly 3 working scrapers (xb6v, zxzj, YpanSo)");
+        assert_eq!(provider_count, 4, "should have exactly 4 working scrapers (xb6v, zxzj, YpanSo, auete)");
 
         // Verify all working scrapers are registered
-        let working_keys = vec!["xb6v", "zxzj", "YpanSo"];
+        let working_keys = vec!["xb6v", "zxzj", "YpanSo", "auete"];
         for key in working_keys {
             let provider = registry.get(key);
             assert!(provider.is_some(), "provider {} should be registered", key);

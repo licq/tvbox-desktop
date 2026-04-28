@@ -26,6 +26,7 @@ struct DoubanJsonItem {
     title: String,
     cover: String,
     rate: Option<f64>,
+    #[allow(dead_code)]
     episodes_info: Option<String>,
 }
 

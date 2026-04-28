@@ -109,3 +109,4 @@ pub use fan_scraper::FanScraper;
 pub use cc_scraper::CcScraper;
 
 pub mod scraper_tests;
+pub mod diagnostic_check;
