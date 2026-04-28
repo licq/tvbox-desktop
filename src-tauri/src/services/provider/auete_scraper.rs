@@ -30,9 +30,13 @@ impl AueteScraper {
         Ok(self.parse_listing_page(&body))
     }
 
-    /// Search is blocked by CAPTCHA on this site. Return home() as fallback.
+    /// Search is blocked by CAPTCHA on this site. Return empty results instead
+    /// of falling back to home(), because caching home content as search results
+    /// would return the same homepage items for every keyword (e.g., "重案解密"
+    /// appearing for all searches). Home content should only be shown in the
+    /// home feed, not mixed into search results.
     pub async fn search(&self, _keyword: &str) -> Result<Vec<ScrapedCatalogItem>, ProviderError> {
-        self.home().await
+        Ok(vec![])
     }
 
     /// Detail page contains episode list.

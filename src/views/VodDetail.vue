@@ -480,7 +480,7 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
         <div v-else-if="searchError" class="home-empty-state text-red-500">
           {{ searchError }}
         </div>
-        <div v-else-if="!loadingSearch" class="home-empty-state">
+        <div v-else-if="!loadingSearch && dedupSearchItems.length === 0" class="home-empty-state">
           暂未找到可用的播放源
         </div>
       </div>

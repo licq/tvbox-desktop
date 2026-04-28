@@ -11,7 +11,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    globals: true
+    globals: true,
+    exclude: ['**/node_modules/**', '**/.opencode/**', '**/.worktrees/**', 'dist/**']
   },
   clearScreen: false,
   server: {
