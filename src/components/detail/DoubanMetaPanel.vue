@@ -255,4 +255,50 @@ const isEnriching = computed(() => {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
 }
+
+@media (max-width: 1023px) {
+  .douban-meta-panel {
+    grid-template-columns: 160px 1fr;
+  }
+  .douban-meta-summary {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-left: 0;
+    padding-top: 1rem;
+  }
+  .poster-img,
+  .poster-fallback {
+    width: 160px;
+    height: 230px;
+  }
+}
+
+@media (max-width: 639px) {
+  .douban-meta-panel {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  .douban-meta-poster {
+    position: static;
+    width: 140px;
+    margin: 0 auto;
+  }
+  .poster-img,
+  .poster-fallback {
+    width: 140px;
+    height: 200px;
+  }
+  .douban-meta-title {
+    font-size: 1.4rem;
+    text-align: center;
+  }
+  .douban-meta-rating {
+    justify-content: center;
+  }
+  .douban-meta-summary {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 1rem;
+  }
+}
 </style>
