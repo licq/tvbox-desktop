@@ -1,7 +1,26 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { invoke } from '@tauri-apps/api/core'
 
 const router = useRouter()
+
+async function clearSourceSearchCache() {
+  try {
+    const count = await invoke<number>('clear_source_search_cache')
+    alert(`已清除 ${count} 条源搜索缓存`)
+  } catch (e) {
+    alert('清除失败: ' + e)
+  }
+}
+
+async function clearDoubanSearchCache() {
+  try {
+    const count = await invoke<number>('clear_douban_search_cache')
+    alert(`已清除 ${count} 条豆瓣搜索缓存`)
+  } catch (e) {
+    alert('清除失败: ' + e)
+  }
+}
 </script>
 
 <template>
@@ -48,6 +67,31 @@ const router = useRouter()
               <option>浅色</option>
               <option>自动</option>
             </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cache Management -->
+      <div class="surface-panel">
+        <h2 class="text-lg font-bold mb-4">缓存管理</h2>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <span>源搜索缓存</span>
+            <button
+              class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 transition"
+              @click="clearSourceSearchCache"
+            >
+              清除
+            </button>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>豆瓣搜索缓存</span>
+            <button
+              class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 transition"
+              @click="clearDoubanSearchCache"
+            >
+              清除
+            </button>
           </div>
         </div>
       </div>

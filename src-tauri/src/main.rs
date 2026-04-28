@@ -39,6 +39,8 @@ fn main() {
             tvbox_lib::commands::search::search_all_sources,
             tvbox_lib::commands::search::provider_detail,
             tvbox_lib::commands::search::provider_play,
+            tvbox_lib::commands::cache::clear_source_search_cache,
+            tvbox_lib::commands::cache::clear_douban_search_cache,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");

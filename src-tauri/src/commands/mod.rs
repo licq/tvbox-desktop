@@ -4,3 +4,4 @@ pub mod vod;
 pub mod player;
 pub mod douban;
 pub mod search;
+pub mod cache;

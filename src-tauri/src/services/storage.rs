@@ -459,6 +459,18 @@ impl Storage {
         Ok(())
     }
 
+    pub fn clear_source_search_cache(&self) -> SqliteResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute("DELETE FROM source_search_cache", [])?;
+        Ok(affected)
+    }
+
+    pub fn clear_douban_search_cache(&self) -> SqliteResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute("DELETE FROM douban_search_cache", [])?;
+        Ok(affected)
+    }
+
     pub fn update_subscription_refresh_state(
         &self,
         id: i64,
