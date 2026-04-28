@@ -50,6 +50,16 @@ const isFromDouban = computed(() => route.query.douban === '1')
 const isSearch = computed(() => route.query.search === '1')
 
 // Clean common Chinese suffixes from search result titles (e.g. "生命树[全集]" → "生命树")
+function typeLabel(itemType: string): string {
+  switch (itemType) {
+    case 'movie': return '电影'
+    case 'series': return '剧集'
+    case 'variety': return '综艺'
+    case 'anime': return '动漫'
+    default: return '剧集'
+  }
+}
+
 function cleanTitle(title: string): string {
   return title
     .replace(/\[全集\]/g, '')
@@ -422,24 +432,30 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
           <div
             v-for="item in dedupSearchItems"
             :key="item.title"
-            class="dedup-search-card"
+            class="source-group-card"
           >
-            <div class="dedup-search-card-header">
-              <img v-if="item.poster" :src="item.poster" class="dedup-poster" />
-              <div class="dedup-search-card-info">
-                <h3 class="text-lg font-semibold text-white">{{ item.title }}</h3>
-                <p class="text-sm text-white/40">{{ item.sources.length }} 个播放源</p>
+            <div class="source-group-header">
+              <div class="source-group-header-left">
+                <img v-if="item.poster" :src="item.poster" class="dedup-poster" />
+                <div class="dedup-search-info">
+                  <span class="source-group-name">{{ item.title }}</span>
+                  <span class="source-group-count-badge">{{ item.sources.length }} 个播放源</span>
+                </div>
               </div>
+              <span class="source-group-type-tag">{{ typeLabel(item.item_type) }}</span>
             </div>
-            <div class="version-button-row">
-              <button
-                v-for="src in item.sources"
-                :key="src.detail_url"
-                class="version-button"
-                @click="handleSourceClick(item, src)"
-              >
-                ▶ {{ src.source_name }}
-              </button>
+            <div class="source-group-body">
+              <div class="play-button-row">
+                <button
+                  v-for="src in item.sources"
+                  :key="src.detail_url"
+                  class="play-button"
+                  @click="handleSourceClick(item, src)"
+                >
+                  <span class="play-icon">▶</span>
+                  <span class="play-label">{{ src.source_name }}</span>
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -508,40 +524,74 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
 </template>
 
 <style scoped>
-.dedup-search-card {
+.dedup-poster {
+  width: 3rem;
+  height: 4.5rem;
+  object-fit: cover;
+  border-radius: 0.4rem;
+  flex-shrink: 0;
+}
+.dedup-search-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.source-group-card {
   border-radius: 1rem;
   background: linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(10, 14, 21, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 1rem;
+  overflow: hidden;
+  transition: transform 200ms ease, border-color 200ms ease;
 }
-.dedup-search-card-header {
+.source-group-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.source-group-header {
   display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.dedup-poster {
-  width: 3.5rem;
-  height: 5rem;
-  object-fit: cover;
-  border-radius: 0.5rem;
+.source-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
-.dedup-search-card-info {
-  flex: 1;
-  min-width: 0;
+.source-group-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
 }
-.version-button-row {
+.source-group-count-badge {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 0.15rem 0.4rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 0.25rem;
+}
+.source-group-type-tag {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.3);
+}
+.source-group-body {
+  padding: 0.75rem 1rem;
+}
+.play-button-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
-.version-button {
+.play-button {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.35rem;
   border-radius: 0.5rem;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.72rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.78rem;
   font-weight: 500;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
@@ -549,9 +599,16 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
   cursor: pointer;
   transition: all 180ms ease;
 }
-.version-button:hover {
+.play-button:hover {
   background: rgba(117, 169, 195, 0.12);
   border-color: rgba(117, 169, 195, 0.25);
+  color: rgba(200, 230, 245, 0.95);
+}
+.play-icon {
+  color: rgba(117, 169, 195, 0.7);
+  font-size: 0.65rem;
+}
+.play-button:hover .play-icon {
   color: rgba(200, 230, 245, 0.95);
 }
 </style>
