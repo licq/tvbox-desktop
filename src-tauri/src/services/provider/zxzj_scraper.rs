@@ -13,7 +13,7 @@ pub struct ZxzjScraper {
 impl ZxzjScraper {
     pub fn new() -> Self {
         Self {
-            base: NativeScraper::new("zxzj", "🍊在线┃秒播", "https://www.zxzjys.com"),
+            base: NativeScraper::new("zxzj", "在线┃秒播", "https://www.zxzjys.com"),
         }
     }
 
@@ -65,10 +65,12 @@ impl ZxzjScraper {
             if line.contains("/voddetail/") {
                 if let Some(title) = self.extract_title_from_line(line) {
                     if let Some(id) = self.extract_id_from_voddetail_line(line) {
+                        let pic_text = extract_pic_text_from_line(line);
+                        let item_type = infer_type_from_pic_text(&pic_text);
                         items.push(ScrapedCatalogItem {
                             source_item_key: id,
                             title,
-                            item_type: "movie".to_string(),
+                            item_type,
                             poster: None,
                             summary: None,
                             detail_json: None,
@@ -176,6 +178,29 @@ impl ZxzjScraper {
 
 }
 
+/// Extract the `pic-text` badge from a search-result line.
+fn extract_pic_text_from_line(line: &str) -> String {
+    if let Some(start) = line.find("pic-text text-right\"") {
+        let after = &line[start + 20..];
+        if let Some(gt) = after.find('>') {
+            let after_gt = &after[gt + 1..];
+            if let Some(lt) = after_gt.find('<') {
+                return after_gt[..lt].trim().to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+/// Infer item type from the pic-text badge shown on search-result thumbnails.
+/// Patterns like "更新第22集", "全37集", "已完结" are series signals.
+fn infer_type_from_pic_text(pic_text: &str) -> String {
+    if pic_text.contains("集") || pic_text.contains("完结") {
+        return "series".to_string();
+    }
+    "movie".to_string()
+}
+
 
 
 impl Default for ZxzjScraper {
@@ -219,7 +244,7 @@ mod tests {
     use super::*;
     use crate::services::provider::scraper_tests::test_scraper;
 
-    const TEST_KEYWORD: &str = "功夫";
+    const TEST_KEYWORD: &str = "危险关系";
 
     #[tokio::test]
     async fn test_search_then_detail_then_play() {

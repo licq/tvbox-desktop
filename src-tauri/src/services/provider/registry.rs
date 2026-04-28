@@ -352,4 +352,68 @@ mod native_scraper_tests {
 
         // No assertions - this is diagnostic only
     }
+
+    /// Integration test: search for "危险关系" across all registered providers and
+    /// report how many misclassify it as "movie" instead of "series".
+    #[tokio::test]
+    async fn diagnostic_type_classification_for_wei_xian_guan_xi() {
+        let keyword = "危险关系";
+        let mut registry = ProviderRegistry::new();
+        registry.register_working_sources();
+        let providers = registry.all_provider_pairs();
+        let timeout = Duration::from_secs(15);
+
+        let mut movie_count = 0usize;
+        let mut series_count = 0usize;
+        let mut other_count = 0usize;
+        let mut details: Vec<(String, String, String)> = Vec::new();
+
+        for (key, provider) in providers {
+            let search_fut = provider.search(keyword);
+            match tokio::time::timeout(timeout, search_fut).await {
+                Ok(Ok(items)) => {
+                    let relevant: Vec<_> = items.iter()
+                        .filter(|i| i.title.contains(keyword))
+                        .collect();
+                    if relevant.is_empty() {
+                        eprintln!("[TYPE-CHECK] {}: no relevant results", key);
+                        continue;
+                    }
+                    for item in relevant {
+                        let t = &item.item_type;
+                        if t == "movie" {
+                            movie_count += 1;
+                        } else if t == "series" {
+                            series_count += 1;
+                        } else {
+                            other_count += 1;
+                        }
+                        details.push((
+                            key.clone(),
+                            item.title.clone(),
+                            t.clone(),
+                        ));
+                    }
+                }
+                Ok(Err(e)) => {
+                    eprintln!("[TYPE-CHECK] {}: search error: {}", key, e);
+                }
+                Err(_) => {
+                    eprintln!("[TYPE-CHECK] {}: timed out", key);
+                }
+            }
+        }
+
+        eprintln!("\n========== 危险关系 类型分类报告 ==========");
+        eprintln!("识别为 movie: {}", movie_count);
+        eprintln!("识别为 series: {}", series_count);
+        eprintln!("识别为 other:  {}", other_count);
+        eprintln!("-------------------------------------------");
+        for (source, title, item_type) in &details {
+            eprintln!("  {} | {} | {}", source, item_type, title);
+        }
+        eprintln!("===========================================\n");
+
+        // Diagnostic only — no assertions because network-dependent tests are flaky.
+    }
 }

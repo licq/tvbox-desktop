@@ -184,11 +184,22 @@ impl SearchService {
                 let title = thumb.attr("title").map(String::from);
                 let poster = thumb.attr("data-original").map(String::from);
 
+                // 从 URL 推断类型
+                let item_type = if href.contains("dianshiju") {
+                    "series".to_string()
+                } else if href.contains("ZongYi") {
+                    "variety".to_string()
+                } else if href.contains("donghuapian") {
+                    "anime".to_string()
+                } else {
+                    "movie".to_string()
+                };
+
                 results.push(DoubanHotItem {
                     source: "xb6v".to_string(),
                     source_name: "小白影视".to_string(),
                     detail_url,
-                    item_type: "generic".to_string(),
+                    item_type,
                     title,
                     poster,
                 });

@@ -128,10 +128,11 @@ impl Xb6vScraper {
         for (key, href_line_idx) in item_keys {
             let title = self.find_title_at_or_after(&lines, href_line_idx);
             let poster = self.extract_poster_from_item(&lines, href_line_idx);
+            let item_type = infer_type_from_xb6v_key(&key);
             items.push(ScrapedCatalogItem {
                 source_item_key: key.clone(),
                 title,
-                item_type: "movie".to_string(),
+                item_type,
                 poster,
                 summary: None,
                 detail_json: None,
@@ -341,6 +342,19 @@ impl Xb6vScraper {
             }
         }
         String::new()
+    }
+}
+
+/// Infer item type from xb6v URL key (e.g. "donghuapian/24219" → "anime").
+fn infer_type_from_xb6v_key(key: &str) -> String {
+    if key.contains("dianshiju") {
+        "series".to_string()
+    } else if key.contains("ZongYi") {
+        "variety".to_string()
+    } else if key.contains("donghuapian") {
+        "anime".to_string()
+    } else {
+        "movie".to_string()
     }
 }
 

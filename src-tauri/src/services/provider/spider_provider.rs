@@ -222,7 +222,8 @@ impl SpiderProvider {
             let vod_id = obj.get("vod_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let poster = obj.get("pic").and_then(|v| v.as_str()).map(|s| s.to_string());
             let summary = obj.get("desc").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let type_name = obj.get("type").and_then(|v| v.as_str()).unwrap_or("movie").to_string();
+            let raw_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("movie");
+            let item_type = crate::services::provider::normalize_item_type(raw_type);
 
             if title.is_empty() && vod_id.is_empty() {
                 continue;
@@ -237,7 +238,7 @@ impl SpiderProvider {
             items.push(ScrapedCatalogItem {
                 source_item_key,
                 title,
-                item_type: type_name,
+                item_type,
                 poster,
                 summary,
                 detail_json: None,
@@ -289,7 +290,8 @@ impl SpiderProvider {
         let vod_id = obj.get("vod_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
         let poster = obj.get("pic").and_then(|v| v.as_str()).map(|s| s.to_string());
         let summary = obj.get("desc").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let type_name = obj.get("type").and_then(|v| v.as_str()).unwrap_or("movie").to_string();
+        let raw_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("movie");
+        let item_type = crate::services::provider::normalize_item_type(raw_type);
 
         if title.is_empty() && vod_id.is_empty() {
             return Ok(None);
@@ -333,7 +335,7 @@ impl SpiderProvider {
         Ok(Some(ScrapedCatalogItem {
             source_item_key,
             title,
-            item_type: type_name,
+            item_type,
             poster,
             summary,
             detail_json: Some(serde_json::json!({

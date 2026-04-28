@@ -6,6 +6,17 @@ use crate::services::provider::{VideoProvider, ProviderError};
 use crate::services::provider::native::NativeScraper;
 use regex::Regex;
 
+/// Infer item type from the pic-text badge shown on search-result thumbnails.
+/// Patterns like "更新第22集", "全37集" are strong series signals.
+fn infer_type_from_pic_text(pic_text: &str) -> String {
+    if pic_text.contains("集") {
+        return "series".to_string();
+    }
+    // Default to movie when no strong series signal is present.
+    // ("HD", "HD中字", "完结", "已完结" appear on both movies and series.)
+    "movie".to_string()
+}
+
 pub struct YpansoScraper {
     base: NativeScraper,
 }
@@ -109,10 +120,17 @@ impl YpansoScraper {
                         if let Some(title_end) = title_remaining.find('"') {
                             let title = &title_remaining[..title_end];
                             if !title.is_empty() && title.len() < 200 {
+                                // Extract pic-text from the <li> block that contains this item.
+                                // Look backwards from current position for the nearest <li start,
+                                // then forwards for pic-text within that block.
+                                let pic_text = Self::extract_pic_text_around(
+                                    section_content, abs_pos
+                                );
+                                let item_type = infer_type_from_pic_text(&pic_text);
                                 items.push(ScrapedCatalogItem {
                                     source_item_key: id,
                                     title: title.to_string(),
-                                    item_type: "movie".to_string(),
+                                    item_type,
                                     poster: None,
                                     summary: None,
                                     detail_json: None,
@@ -170,6 +188,24 @@ impl YpansoScraper {
             detail_json: None,
             episodes,
         })
+    }
+
+    /// Extract the pic-text label from the <li> block that contains `pos`.
+    /// Searches backwards to the nearest `<li` start, then forwards for
+    /// `<span class="pic-text text-right">TEXT</span>`.
+    fn extract_pic_text_around(section_content: &str, pos: usize) -> String {
+        let block_start = section_content[..pos].rfind("<li").unwrap_or(0);
+        let block = &section_content[block_start..];
+        if let Some(start) = block.find("pic-text text-right\"") {
+            let after = &block[start + 20..];
+            if let Some(gt) = after.find('>') {
+                let after_gt = &after[gt + 1..];
+                if let Some(lt) = after_gt.find('<') {
+                    return after_gt[..lt].trim().to_string();
+                }
+            }
+        }
+        String::new()
     }
 
     fn extract_episode_label_from_detail(&self, text: &str) -> Option<String> {

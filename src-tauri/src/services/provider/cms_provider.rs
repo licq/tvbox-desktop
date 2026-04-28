@@ -47,12 +47,13 @@ impl CmsProvider {
             }
             let poster = item.get("vod_pic").and_then(|v| v.as_str()).map(|s| s.to_string());
             let summary = item.get("vod_content").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let type_name = item.get("type_name").and_then(|v| v.as_str()).unwrap_or("movie");
+            let raw_type = item.get("type_name").and_then(|v| v.as_str()).unwrap_or("movie");
+            let item_type = crate::services::provider::normalize_item_type(raw_type);
 
             items.push(ScrapedCatalogItem {
                 source_item_key: format!("{}:{}", self.site_key, vod_id),
                 title: vod_name.to_string(),
-                item_type: type_name.to_string(),
+                item_type,
                 poster,
                 summary,
                 detail_json: Some(serde_json::json!({
@@ -143,10 +144,13 @@ impl VideoProvider for CmsProvider {
             }
         }
 
+        let raw_type = first.get("type_name").and_then(|v| v.as_str()).unwrap_or("movie");
+        let item_type = crate::services::provider::normalize_item_type(raw_type);
+
         Ok(Some(ScrapedCatalogItem {
             source_item_key: format!("{}:{}", self.site_key, vod_id),
             title: vod_name.to_string(),
-            item_type: first.get("type_name").and_then(|v| v.as_str()).unwrap_or("movie").to_string(),
+            item_type,
             poster: first.get("vod_pic").and_then(|v| v.as_str()).map(|s| s.to_string()),
             summary: if summary_parts.is_empty() { None } else { Some(summary_parts.join("\n")) },
             detail_json: Some(serde_json::json!({
