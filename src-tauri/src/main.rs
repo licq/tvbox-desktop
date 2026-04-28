@@ -46,7 +46,14 @@ fn main() {
             let mut registry = tvbox_lib::services::provider::ProviderRegistry::new();
             registry.register_working_sources();
             let provider_registry = tokio::sync::RwLock::new(registry);
+            let storage_for_prune = storage.clone();
             app.manage(tvbox_lib::AppState { storage, provider_registry });
+            // Prune expired search caches on startup
+            tokio::spawn(async move {
+                tokio::task::spawn_blocking(move || {
+                    storage_for_prune.prune_expired_search_caches().ok();
+                }).await.ok();
+            });
             log::info!("TVBox 应用启动成功");
             Ok(())
         })
