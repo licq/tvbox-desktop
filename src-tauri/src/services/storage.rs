@@ -353,6 +353,109 @@ impl Storage {
             [],
         )?;
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_search_cache (
+                source_key TEXT NOT NULL,
+                keyword TEXT NOT NULL,
+                results_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                PRIMARY KEY (source_key, keyword)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS douban_search_cache (
+                keyword TEXT NOT NULL PRIMARY KEY,
+                results_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_source_search_cache(&self, source_key: &str, keyword: &str) -> SqliteResult<Option<(String, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT results_json, expires_at FROM source_search_cache WHERE source_key = ?1 AND keyword = ?2"
+        )?;
+        let mut rows = stmt.query(rusqlite::params![source_key, keyword])?;
+        match rows.next()? {
+            Some(row) => {
+                let results_json: String = row.get(0)?;
+                let expires_at: i64 = row.get(1)?;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                let expired = now > expires_at;
+                Ok(Some((results_json, expired)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_source_search_cache(&self, source_key: &str, keyword: &str, results_json: &str) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let expires_at = now + 7 * 86400;
+        conn.execute(
+            "INSERT OR REPLACE INTO source_search_cache (source_key, keyword, results_json, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![source_key, keyword, results_json, now, expires_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_douban_search_cache(&self, keyword: &str) -> SqliteResult<Option<(String, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT results_json, expires_at FROM douban_search_cache WHERE keyword = ?1"
+        )?;
+        let mut rows = stmt.query(rusqlite::params![keyword])?;
+        match rows.next()? {
+            Some(row) => {
+                let results_json: String = row.get(0)?;
+                let expires_at: i64 = row.get(1)?;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                let expired = now > expires_at;
+                Ok(Some((results_json, expired)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_douban_search_cache(&self, keyword: &str, results_json: &str) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let expires_at = now + 30 * 86400;
+        conn.execute(
+            "INSERT OR REPLACE INTO douban_search_cache (keyword, results_json, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![keyword, results_json, now, expires_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn prune_expired_search_caches(&self) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        conn.execute("DELETE FROM source_search_cache WHERE expires_at < ?1", rusqlite::params![now])?;
+        conn.execute("DELETE FROM douban_search_cache WHERE expires_at < ?1", rusqlite::params![now])?;
         Ok(())
     }
 
