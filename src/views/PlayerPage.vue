@@ -455,17 +455,35 @@ async function initHlsPlayer(url: string) {
 
     if (Hls.isSupported()) {
       // Custom loader to bypass CORS for CDN URLs
+      // Custom loader for ad filtering and CORS bypass
       const CustomLoader = class extends Hls.DefaultConfig.loader {
         load(context: any, config: any, callbacks: any) {
           const url = context.url
-          // Intercept ALL requests to problematic CDNs (not just .m3u8)
-          // Segments (.ts) also need to be proxied through Rust
-          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng') || url.includes('fengbao9')) {
-            // Fetch via Tauri command to bypass CORS
+          // All .m3u8 requests go through Rust proxy for ad filtering + CORS bypass
+          if (url.includes('.m3u8')) {
             invoke<string>('fetch_hls_manifest', { url })
               .then((data) => {
-                // Segments are returned as base64, decode to ArrayBuffer
-                // Manifests are returned as plain text
+                const stats = {
+                  aborted: false, loaded: data.length, retry: 0,
+                  total: data.length, chunkCount: 0, bwEstimate: 0,
+                  loading: { start: 0, first: 0, end: 0 },
+                  parsing: { start: 0, end: 0 },
+                  buffering: { start: 0, end: 0 },
+                }
+                callbacks.onSuccess({ data, url, code: 200 }, stats, context, null)
+              })
+              .catch((err) => {
+                callbacks.onError(
+                  { code: 0, text: String(err) }, context, null,
+                  { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } }
+                )
+              })
+            return
+          }
+          // .ts segments from known problematic CDNs still need Rust proxy for CORS
+          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng') || url.includes('fengbao9') || url.includes('lzcdn')) {
+            invoke<string>('fetch_hls_manifest', { url })
+              .then((data) => {
                 const isSegment = !url.includes('.m3u8')
                 const finalData: string | ArrayBuffer = isSegment
                   ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
