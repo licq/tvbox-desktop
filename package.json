@@ -21,7 +21,7 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-vue": "^5.0.4",
-    "@vue/test-utils": "^2.4.6",
+    "@vue/test-utils": "^2.4.9",
     "autoprefixer": "^10.4.0",
     "jsdom": "^24.1.0",
     "postcss": "^8.4.0",
