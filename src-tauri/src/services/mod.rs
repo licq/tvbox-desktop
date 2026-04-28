@@ -1,3 +1,4 @@
+pub mod ad_blocker;
 pub mod douban;
 pub mod parser;
 pub mod playback_runtime;
@@ -12,6 +13,7 @@ pub mod xb6v;
 pub use playback_types::{
     rank_targets, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
 };
+pub use ad_blocker::HlsAdBlocker;
 pub use douban::DoubanCrawler;
 pub use parser::Parser;
 pub use resolver::{
