@@ -1,5 +1,6 @@
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 
+use crate::services::ad_blocker::HlsAdBlocker;
 use crate::services::playback_types::{PlaybackProbeResult, PlaybackProbeStatus};
 use regex::Regex;
 
@@ -150,6 +151,8 @@ fn looks_like_cloud_disk_link(input: &str) -> bool {
 async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
     let body = fetch_text(&client, input).await?;
+
+    // Try 1: Aliplayer "source" JSON field
     if let Some(source_url) = extract_aliplayer_source(&body) {
         eprintln!("[resolve_xb6v] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
         return Ok(ready_with_candidate(
@@ -157,18 +160,29 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
             detect_kind(&source_url),
         ));
     }
+
+    // Try 2: maccms player_aaaa / player_bbbb video JSON with url field
+    if let Some(video_url) = extract_maccms_player_url(&body) {
+        eprintln!("[resolve_xb6v] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
+        let kind = detect_kind(&video_url);
+        return Ok(ready_with_candidate(video_url, kind));
+    }
+
+    // Try 3: Direct <video> or <source> elements
+    if let Some(video_url) = extract_html_video_src(input, &body) {
+        eprintln!("[resolve_xb6v] Found video element src: {}", &video_url[..video_url.len().min(80)]);
+        return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url)));
+    }
+
+    // Try 4: iframe-based player (share page)
     if let Some(iframe_url) = extract_iframe_src(input, &body) {
         eprintln!("[resolve_xb6v] Found iframe: {}", &iframe_url[..iframe_url.len().min(80)]);
-        // Try to resolve the share page to a direct HLS/MP4 URL
         match resolve_embedded_share_page(&client, &iframe_url).await {
             Ok(playback) if !playback.candidates.is_empty() => {
                 eprintln!("[resolve_xb6v] Share page resolved candidate: {:?}", playback.candidates[0].url.len().min(80));
                 return Ok(playback);
             }
             other => {
-                // Fallback: treat the iframe URL itself as an embed source.
-                // This handles cases where the share page is reachable but doesn't
-                // expose a `const url` pattern, or the page uses a different format.
                 eprintln!("[resolve_xb6v] Share page resolution failed, falling back to embed. Result: {:?}",
                     other.as_ref().map(|r| &r.status).unwrap_or(&"error".to_string()));
                 return Ok(ResolvedPlayback {
@@ -190,6 +204,37 @@ async fn resolve_xb6v_play_page(input: &str) -> Result<ResolvedPlayback, String>
         candidates: vec![],
         error_message: Some("未能从播放页提取实际视频地址".to_string()),
     })
+}
+
+/// Extract video URL from maccms player_xxxx JSON objects (e.g. player_aaaa, player_bbbb).
+/// These contain `url` and `name` fields with the actual video source.
+fn extract_maccms_player_url(body: &str) -> Option<String> {
+    // (?s) for multi-line JSON, matches player_aaaa, player_bbbb, etc.
+    let player_regex = Regex::new(r"(?s)player_[a-z]{4}\s*=\s*(\{.*?\})</script>").ok()?;
+    player_regex.captures(body).and_then(|captures| {
+        let json_str = captures.get(1).map(|m| m.as_str())?;
+        let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
+        parsed.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+    })
+}
+
+/// Extract video source URL from <video> or <source> HTML elements.
+fn extract_html_video_src(page_url: &str, body: &str) -> Option<String> {
+    // Try <source src="..."> inside a <video> element
+    let source_regex = Regex::new(r#"<source[^>]+src="([^"]+)""#).ok()?;
+    if let Some(url) = source_regex.captures(body)
+        .and_then(|c| c.get(1))
+        .map(|m| absolutize_url(page_url, m.as_str()))
+    {
+        if url.contains(".m3u8") || url.contains(".mp4") || url.contains(".flv") {
+            return Some(url);
+        }
+    }
+    // Try <video src="...">
+    let video_regex = Regex::new(r#"<video[^>]+src="([^"]+)""#).ok()?;
+    video_regex.captures(body)
+        .and_then(|c| c.get(1))
+        .map(|m| absolutize_url(page_url, m.as_str()))
 }
 
 fn extract_aliplayer_source(body: &str) -> Option<String> {
@@ -612,11 +657,14 @@ pub(crate) async fn fetch_hls_manifest_internal(
         let normalized = normalize_master_playlist(&body, url, &variant_body, &variant_url);
 
         // Rewrite relative URLs in the normalized master to absolute
-        return Ok(rewrite_relative_urls(&normalized, url));
+        let rewritten = rewrite_relative_urls(&normalized, url);
+        // Filter ad segments from the playlist
+        return Ok(HlsAdBlocker::filter_playlist(&rewritten));
     }
 
-    // It's not a master playlist, just rewrite relative URLs to absolute
-    Ok(rewrite_relative_urls(&body, url))
+    // It's not a media playlist, rewrite relative URLs to absolute then filter ads
+    let rewritten = rewrite_relative_urls(&body, url);
+    Ok(HlsAdBlocker::filter_playlist(&rewritten))
 }
 
 fn apply_request_headers(
