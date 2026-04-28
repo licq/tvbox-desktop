@@ -209,9 +209,5 @@ const remainingCount = computed(() => {
 }
 .expand-chevron {
   opacity: 0.6;
-  transition: transform 200ms ease;
-}
-.expand-chevron.expanded {
-  transform: rotate(180deg);
 }
 </style>
