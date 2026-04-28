@@ -5,16 +5,83 @@
 pub struct HlsAdBlocker;
 
 /// Known ad CDN domain fragments and URL path patterns.
+///
+/// These patterns are matched against the full URL (lowercased) to identify
+/// ad segments in HLS playlists. Organized by category for maintainability.
 const AD_PATTERNS: &[&str] = &[
-    // URL path patterns
-    "/ad/",
-    "ad-",
-    ".ad.",
-    "adservice",
-    "-ads-",
-    "adtrack",
+    // === Global video ad networks ===
     "doubleclick",
     "googlesyndication",
+    "googletagservices",
+    "googletagmanager",
+    "googleadservices",
+    "google-analytics",
+    "googlevideo.com/ad",       // YouTube ad segments
+    "pubads.g.doubleclick",
+    "serverside.doubleclick",
+    "adservice.google",
+    "adsrvr.org",
+    "adnxs.com",
+    "rubiconproject",
+    "openx.net",
+    "criteo.com",
+    "spotxchange",
+    "adsafeprotected",
+    "casalemedia",
+    "adcolony",
+    "vungle.com",
+
+    // === Chinese ad networks (广告联盟) ===
+    "allyes.com",               // 好耶广告联盟
+    "adsunion.com",             // 广告联盟
+    "adsense.",                 // Google Adsense (also used by Chinese sites)
+    "gdt.qq.com",               // 腾讯广点通
+
+    // === Chinese streaming platform ad domains ===
+    "atm.youku.com",            // 优酷 PCDN/广告
+    "cupid.iqiyi.com",          // 爱奇艺广告
+    "afp.qiyi.com",             // 爱奇艺广告
+    "msg.71.am",                // 爱奇艺消息推送
+    "stat.youku.com",           // 优酷统计/广告
+    "ad.api.3g.youku.com",      // 优酷移动广告
+    "ad.mobile.youku.com",      // 优酷移动广告
+    "ad.youku.com",             // 优酷广告
+    "ad.v.qq.com",              // 腾讯视频广告
+    "cm.l.qq.com",              // 腾讯广告
+    "livep.l.qq.com",           // 腾讯直播广告
+    "x.da.hunantv.com",         // 芒果TV广告
+    "y.da.hunantv.com",         // 芒果TV广告
+    "video.da.mgtv.com",        // 芒果TV广告
+    "a.cctv.com",               // CCTV广告
+    "ad.cctv.com",              // CCTV广告
+    "dcads.sina.com.cn",        // 新浪广告
+    "pro.letv.com",             // 乐视广告
+    "adextensioncontrol.tudou.com", // 土豆广告
+    "adcontrol.tudou.com",      // 土豆广告
+    "analytics.ku6.com",        // 酷6广告
+    "acs.56.com",               // 56我乐广告
+    "adguanggao.eee114.com",    // 广告
+    "cctv.adsunion.com",        // CCTV广告联盟
+    "pole.6rooms.com",          // 6间房广告
+    "advstat.xunlei.com",       // 迅雷看看广告
+    "biz5.sandai.net",          // 迅雷广告
+
+    // === Ad protocol / URL path patterns ===
+    "/gampad/",                 // Google Ad Manager HLS ad insertion
+    "/vast?",                   // VAST ad protocol
+    "/vmap?",                   // VMAP ad protocol
+    "/adserve/",                // Ad serving path
+    "/adserver/",               // Ad server path
+    ".ads.",                    // Generic ad subdomain (e.g. ads.cdn.com)
+
+    // === URL path patterns ===
+    "/ad/",                     // Common ad path
+    "ad-",                      // Ad prefix in filenames (ad-1001.ts)
+    "adservice",                // Ad service
+    "-ads-",                    // Ads in path
+    "adtrack",                  // Ad tracking
+    "/gg/",                     // 广告 (Chinese "guanggao" abbreviation)
+    "/tc/",                     // 推广 (Chinese "tuiguang" abbreviation)
 ];
 
 impl HlsAdBlocker {
