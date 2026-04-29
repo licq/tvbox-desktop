@@ -58,6 +58,8 @@ const currentUnifiedEpisode = ref<UnifiedEpisode | null>(null)
 const currentUnifiedSourceIndex = ref(0)
 const playbackSession = ref<EpisodePlaybackSession | null>(null)
 const currentEpisodeSourceAttempts = computed(() => playbackSession.value?.sourceAttempts ?? [])
+let sessionFailoverPromise: Promise<void> | null = null
+let lastSessionFailureKey: string | null = null
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
 const mode = computed(() => String(route.params.mode ?? 'live'))
@@ -112,6 +114,7 @@ const currentNormalizedIndex = computed(() => {
 
 async function loadSourceDetail() {
   playbackSession.value = null
+  resetSessionFailoverState()
   if (!sourceDetailUrl.value || !sourceName.value) {
     errorMsg.value = '缺少播放地址参数'
     return
@@ -221,6 +224,7 @@ onMounted(async () => {
     await loadSourceDetail()
   } else if (mode.value === 'live') {
     playbackSession.value = null
+    resetSessionFailoverState()
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(channel => channel.id === itemId.value)
     if (channel && channel.sources.length > 0) {
@@ -483,8 +487,26 @@ async function getHlsConstructor() {
   return hlsConstructorPromise
 }
 
+function resetSessionFailoverState() {
+  sessionFailoverPromise = null
+  lastSessionFailureKey = null
+}
+
 async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
+  const session = playbackSession.value
+  const attempt = session?.sourceAttempts[session.activeSourceIndex]
+  if (session && attempt && index < attempt.candidates.length) {
+    session.activeCandidateIndex = index
+    session.status = 'playing'
+    attempt.status = 'playing'
+    currentSourceIndex.value = index
+    failedSourceIndexes.value = attempt.failedCandidateIndexes
+    lastSessionFailureKey = null
+    await playSource(attempt.candidates[index])
+    return
+  }
+
   currentSourceIndex.value = index
   await playSource(sources.value[index])
 }
@@ -519,6 +541,23 @@ function syncActiveSessionAttempt(session: EpisodePlaybackSession) {
   if (unifiedSourceIndex !== undefined && unifiedSourceIndex >= 0) {
     currentUnifiedSourceIndex.value = unifiedSourceIndex
   }
+}
+
+function activeSessionFailureKey(session: EpisodePlaybackSession) {
+  const attempt = session.sourceAttempts[session.activeSourceIndex]
+  const candidate = attempt?.candidates[session.activeCandidateIndex]
+  if (!attempt || !candidate) return null
+  return [
+    session.activeSourceIndex,
+    session.activeCandidateIndex,
+    attempt.source.sourceKey,
+    candidate.url,
+  ].join('|')
+}
+
+function activeSessionCandidateUrl(session: EpisodePlaybackSession) {
+  const attempt = session.sourceAttempts[session.activeSourceIndex]
+  return attempt?.candidates[session.activeCandidateIndex]?.url ?? null
 }
 
 async function resolveActiveAttempt(session: EpisodePlaybackSession) {
@@ -571,16 +610,34 @@ async function resolveActiveAttempt(session: EpisodePlaybackSession) {
   }
 }
 
-async function playNextFromSession(reason?: string) {
-  const session = playbackSession.value
-  if (!session) return
+async function runSessionFailover(
+  session: EpisodePlaybackSession,
+  reason?: string,
+  expectedCandidateUrl?: string | null
+) {
+  if (
+    expectedCandidateUrl &&
+    activeSessionCandidateUrl(session) &&
+    activeSessionCandidateUrl(session) !== expectedCandidateUrl
+  ) {
+    return
+  }
+
+  const failureKey = reason ? activeSessionFailureKey(session) : null
+  if (failureKey && failureKey === lastSessionFailureKey) {
+    return
+  }
 
   if (reason) {
     markCurrentCandidateFailed(session, reason)
+    if (failureKey) {
+      lastSessionFailureKey = failureKey
+    }
   }
 
   const nextCandidate = nextCandidateToPlay(session)
   if (nextCandidate) {
+    if (playbackSession.value !== session) return
     syncActiveSessionAttempt(session)
     await playSource(nextCandidate)
     return
@@ -594,12 +651,14 @@ async function playNextFromSession(reason?: string) {
     }
 
     const resolved = await resolveActiveAttempt(session)
+    if (playbackSession.value !== session) return
     if (!resolved) {
       continue
     }
 
     const candidate = nextCandidateToPlay(session)
     if (candidate) {
+      if (playbackSession.value !== session) return
       syncActiveSessionAttempt(session)
       await playSource(candidate)
       return
@@ -609,8 +668,52 @@ async function playNextFromSession(reason?: string) {
   }
 }
 
+async function playNextFromSession(reason?: string, expectedCandidateUrl?: string | null) {
+  const session = playbackSession.value
+  if (!session) return
+
+  const failureKey = reason ? activeSessionFailureKey(session) : null
+  if (failureKey && failureKey === lastSessionFailureKey) {
+    return
+  }
+
+  if (
+    expectedCandidateUrl &&
+    activeSessionCandidateUrl(session) &&
+    activeSessionCandidateUrl(session) !== expectedCandidateUrl
+  ) {
+    return
+  }
+
+  if (sessionFailoverPromise) {
+    await sessionFailoverPromise
+    if (playbackSession.value !== session) return
+    if (failureKey && failureKey === lastSessionFailureKey) {
+      return
+    }
+    if (
+      expectedCandidateUrl &&
+      activeSessionCandidateUrl(session) &&
+      activeSessionCandidateUrl(session) !== expectedCandidateUrl
+    ) {
+      return
+    }
+  }
+
+  const promise = runSessionFailover(session, reason, expectedCandidateUrl)
+  sessionFailoverPromise = promise
+  try {
+    await promise
+  } finally {
+    if (sessionFailoverPromise === promise) {
+      sessionFailoverPromise = null
+    }
+  }
+}
+
 async function initVodPlayback(url: string, id?: number) {
   playbackSession.value = null
+  resetSessionFailoverState()
   const decodedUrl = decodeURIComponent(url)
   const resolved = await playbackStore.resolve(decodedUrl, id)
   sources.value = resolved.candidates.map(candidate => ({
@@ -645,6 +748,7 @@ async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 
 
   const session = createEpisodePlaybackSession(unifiedEpisode)
   playbackSession.value = session
+  resetSessionFailoverState()
 
   const preferredSource = unifiedEpisode.sources[sourceIndex]
   const attempt = startNextSourceAttempt(session, {
@@ -753,7 +857,7 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
         if (playbackSession.value) {
-          void playNextFromSession(data.error?.message || 'HLS 播放失败')
+          void playNextFromSession(data.error?.message || 'HLS 播放失败', url)
           return
         }
 
@@ -793,6 +897,7 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
 
 async function attemptPlayback(_manual: boolean) {
   if (!videoRef.value) return
+  const attemptedUrl = currentSource.value?.url ?? null
 
   try {
     await videoRef.value.play()
@@ -808,7 +913,7 @@ async function attemptPlayback(_manual: boolean) {
       return
     }
     if (playbackSession.value && shouldFailoverAfterPlaybackError(error)) {
-      await playNextFromSession(message)
+      await playNextFromSession(message, attemptedUrl)
     }
   }
 }
@@ -841,7 +946,8 @@ function handleVideoError() {
   const mediaError = videoRef.value?.error
   const message = describeMediaErrorCode(mediaError?.code)
   if (playbackSession.value) {
-    void playNextFromSession(message)
+    const failedUrl = videoRef.value?.currentSrc || videoRef.value?.src || currentSource.value?.url
+    void playNextFromSession(message, failedUrl)
     return
   }
 
