@@ -182,22 +182,18 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
             :episodes="currentEpisodes"
             @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
           />
-          <button
+          <div
             v-else-if="isLoadingCurrent"
-            type="button"
             class="loading-placeholder"
-            disabled
           >
-            加载中...
-          </button>
-          <button
+            加载中…
+          </div>
+          <div
             v-else
-            type="button"
             class="load-episodes-btn"
-            @click="emit('select-source', selectedSourceKey)"
           >
-            点击加载集数
-          </button>
+            暂无播放链接
+          </div>
         </div>
       </template>
     </div>

@@ -43,14 +43,6 @@ describe('SearchResultCard', () => {
     expect(wrapper.find('.movie-action-panel').exists()).toBe(false)
   })
 
-  it('shows load button for series when no detail for selected source', () => {
-    const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'series' },
-    })
-    expect(wrapper.find('.load-episodes-btn').exists()).toBe(true)
-    expect(wrapper.find('.episode-grid').exists()).toBe(false)
-  })
-
   it('shows loading placeholder when selected source is loading', () => {
     const wrapper = mount(SearchResultCard, {
       props: {
@@ -149,15 +141,6 @@ describe('SearchResultCard', () => {
     expect(wrapper.emitted('select-source')![0]).toEqual(['s2'])
   })
 
-  it('emits select-source when load button is clicked', async () => {
-    const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'series' },
-    })
-    await wrapper.find('.load-episodes-btn').trigger('click')
-    expect(wrapper.emitted('select-source')).toHaveLength(1)
-    expect(wrapper.emitted('select-source')![0]).toEqual(['s1'])
-  })
-
   it('displays correct type label', () => {
     const wrapper = mount(SearchResultCard, {
       props: { ...baseProps, itemType: 'variety' },
@@ -180,7 +163,7 @@ describe('SearchResultCard', () => {
     const buttons = wrapper.findAll('.source-btn')
     await buttons[1].trigger('click')
 
-    // s2 has empty episodes, so should show load button
+    // s2 has empty episodes, so should show empty state
     expect(wrapper.find('.episode-grid').exists()).toBe(false)
     expect(wrapper.find('.load-episodes-btn').exists()).toBe(true)
   })
