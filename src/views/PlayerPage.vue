@@ -8,7 +8,7 @@ import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
 import { useDetailStore } from '@/stores/detail'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
-import type { CatalogEpisode, CatalogEpisodeGroup } from '@/types'
+import type { CatalogEpisode, CatalogEpisodeGroup, PlaybackTarget } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
 import type Hls from 'hls.js'
@@ -58,7 +58,19 @@ const episodeId = computed(() => {
   const numeric = typeof value === 'string' ? Number(value) : NaN
   return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined
 })
+const providerDetailUrl = computed(() => route.query.detailUrl as string | undefined)
+const episodeLabelFromQuery = computed(() => route.query.episodeLabel as string | undefined)
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
+const currentEpisodeIdForDrawer = computed(() => {
+  if (episodeId.value) return episodeId.value
+  if (episodeLabelFromQuery.value && activeGroup.value) {
+    const ep = activeGroup.value.episodes.find(
+      e => e.episode_label === episodeLabelFromQuery.value
+    )
+    if (ep) return ep.id
+  }
+  return undefined
+})
 
 async function loadSourceDetail() {
   if (!sourceDetailUrl.value || !sourceName.value) {
@@ -101,6 +113,27 @@ async function loadSourceDetail() {
     }
   } catch (e) {
     errorMsg.value = `加载播放地址失败: ${e}`
+  }
+}
+
+async function loadProviderEpisodes() {
+  if (!providerDetailUrl.value || !sourceName.value) return
+  try {
+    const detail = await invoke<{ title: string | null; poster: string | null; summary: string | null; episodes: Array<{ episode_label: string; play_url: string; order_index: number }> }>('provider_detail', {
+      source: sourceName.value,
+      ids: providerDetailUrl.value,
+    })
+    activeGroup.value = {
+      source_name: sourceName.value,
+      episodes: detail.episodes.map((ep, index) => ({
+        id: index + 1,
+        episode_label: ep.episode_label,
+        play_url: ep.play_url,
+        order_index: ep.order_index,
+      })),
+    }
+  } catch (e) {
+    console.error('[PlayerPage] loadProviderEpisodes failed:', e)
   }
 }
 const playerStatusText = computed(() => {
@@ -160,30 +193,20 @@ onMounted(async () => {
       errorMsg.value = '当前频道没有可用线路'
     }
   } else if (mode.value === 'vod' && episodeUrl.value) {
-    const url = decodeURIComponent(episodeUrl.value)
-    const resolved = await playbackStore.resolve(url, episodeId.value)
-    sources.value = resolved.candidates.map(candidate => ({
-      url: candidate.url,
-      label: candidate.label,
-      kind: candidate.kind
-    }))
-    currentSourceIndex.value = 0
+    await initVodPlayback(episodeUrl.value, episodeId.value)
 
     if (itemId.value) {
-      await detailStore.fetchDetail(itemId.value)
-      const group = detailStore.episodeGroups.find(g =>
-        g.episodes.some(e => e.id === episodeId.value)
-      )
-      activeGroup.value = group ?? null
-    }
-
-    if (resolved.status === 'ready' && sources.value.length > 0) {
-      await playSource(sources.value[0])
-    } else if (resolved.status === 'external_required' && sources.value.length > 0) {
-      errorMsg.value = resolved.errorMessage ?? '当前资源需要外部处理'
-      await playSource(sources.value[0])
-    } else {
-      errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+      try {
+        await detailStore.fetchDetail(itemId.value)
+        const group = detailStore.episodeGroups.find(g =>
+          g.episodes.some(e => e.id === episodeId.value)
+        )
+        activeGroup.value = group ?? null
+      } catch {
+        activeGroup.value = null
+      }
+    } else if (providerDetailUrl.value && sourceName.value) {
+      await loadProviderEpisodes()
     }
   } else {
     errorMsg.value = '缺少播放地址'
@@ -410,10 +433,54 @@ async function switchToSource(index: number) {
   await playSource(sources.value[index])
 }
 
-function switchToEpisode(episode: CatalogEpisode) {
+async function initVodPlayback(url: string, id?: number) {
+  const decodedUrl = decodeURIComponent(url)
+  const resolved = await playbackStore.resolve(decodedUrl, id)
+  sources.value = resolved.candidates.map(candidate => ({
+    url: candidate.url,
+    label: candidate.label,
+    kind: candidate.kind
+  }))
+  currentSourceIndex.value = 0
+  failedSourceIndexes.value = []
+
+  if (resolved.status === 'ready' && sources.value.length > 0) {
+    await playSource(sources.value[0])
+  } else if (resolved.status === 'external_required' && sources.value.length > 0) {
+    errorMsg.value = resolved.errorMessage ?? '当前资源需要外部处理'
+    await playSource(sources.value[0])
+  } else {
+    errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+  }
+}
+
+async function switchToEpisode(episode: CatalogEpisode) {
+  // Update URL for back navigation / refresh
   router.replace(
     `/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`
   )
+
+  if (itemId.value > 0) {
+    // Catalog flow: play_url is directly resolvable
+    await initVodPlayback(episode.play_url, episode.id)
+  } else if (sourceName.value) {
+    // Provider flow: need provider_play first to get target_url
+    try {
+      const targets = await invoke<PlaybackTarget[]>('provider_play', {
+        source: sourceName.value,
+        flag: 'auto',
+        playUrl: episode.play_url,
+      })
+      if (targets.length > 0) {
+        await initVodPlayback(targets[0].target_url, episode.id)
+      } else {
+        errorMsg.value = '播放地址获取失败'
+      }
+    } catch (e) {
+      console.error('[PlayerPage] provider_play failed:', e)
+      errorMsg.value = String(e)
+    }
+  }
 }
 
 function markCurrentSourceFailed() {
@@ -693,7 +760,7 @@ function handleVideoError() {
           :status="playerStatusText"
           :error-message="errorMsg || playbackStore.errorMessage"
           :episodes="activeGroup?.episodes"
-          :current-episode-id="episodeId"
+          :current-episode-id="currentEpisodeIdForDrawer"
           @select="switchToSource"
           @select-episode="switchToEpisode"
         />

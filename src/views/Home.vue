@@ -22,17 +22,17 @@ const libraryStore = useLibraryStore()
 
 const tabs = computed(() => {
   const fixedTabs: { key: HomeTabKey; label: string; eyebrow?: string }[] = [
-    { key: 'live', label: '直播', eyebrow: 'Live' },
     { key: 'movie', label: '电影', eyebrow: 'Movie' },
     { key: 'series', label: '剧集', eyebrow: 'Series' },
     { key: 'variety', label: '综艺', eyebrow: 'Shows' },
     { key: 'anime', label: '动漫', eyebrow: 'Anime' },
     { key: 'search', label: '搜索', eyebrow: 'Search' },
+    { key: 'live', label: '直播', eyebrow: 'Live' },
   ]
   return fixedTabs
 })
 
-const activeTab = ref<HomeTabKey>('live')
+const activeTab = ref<HomeTabKey>('movie')
 const searchKeyword = ref('')
 const expandedChannels = ref<Set<string>>(new Set())
 const providerSearchResults = ref<{ source_name: string; results: ProviderCatalogItem[] }[]>([])
@@ -74,7 +74,7 @@ function normalizeTab(tab: string | string[] | undefined): HomeTabKey {
     return tab as HomeTabKey
   }
 
-  return 'live'
+  return 'movie'
 }
 
 function formatTypeLabel(type: CatalogItemType | HomeTabKey) {
@@ -133,13 +133,23 @@ watch(
     }
 
     activeTab.value = nextTab
+
+    if (nextTab === 'search') {
+      const keywordFromQuery = typeof route.query.keyword === 'string' ? route.query.keyword : undefined
+      if (keywordFromQuery) {
+        searchKeyword.value = keywordFromQuery
+        await searchAllProviders(keywordFromQuery)
+      } else {
+        searchKeyword.value = ''
+        providerSearchResults.value = []
+        searchFilter.value = 'all'
+      }
+      return
+    }
+
     searchKeyword.value = ''
     providerSearchResults.value = []
     searchFilter.value = 'all'
-
-    if (nextTab === 'search') {
-      return
-    }
 
     if (nextTab === 'live') {
       // existing live logic remains
@@ -160,10 +170,12 @@ async function handleVodSearch(keyword: string) {
     searchKeyword.value = keyword
     providerSearchResults.value = []
     await searchAllProviders(keyword)
+    await router.replace({ query: { ...route.query, keyword } })
     return
   }
   searchKeyword.value = ''
   providerSearchResults.value = []
+  await router.replace({ query: { ...route.query, keyword: undefined } })
 }
 
 async function searchAllProviders(keyword: string) {
@@ -220,7 +232,7 @@ function toggleChannelExpansion(category: string) {
       <header class="home-topbar">
         <div>
           <div class="eyebrow">TVBox Desktop</div>
-          <div class="home-topbar-title">饭太硬媒体中枢</div>
+          <div class="home-topbar-title">媒体中枢</div>
         </div>
 
         <div class="home-topbar-actions">
@@ -269,6 +281,7 @@ function toggleChannelExpansion(category: string) {
           <div v-if="activeTab === 'search'" class="home-secondary-search">
             <SearchBar
               placeholder="搜索电影、剧集、综艺..."
+              :keyword="searchKeyword"
               @search="handleVodSearch"
             />
           </div>

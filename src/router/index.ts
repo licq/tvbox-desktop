@@ -6,7 +6,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/library/live'
+      redirect: '/library/movie'
     },
     {
       path: '/library/:type',

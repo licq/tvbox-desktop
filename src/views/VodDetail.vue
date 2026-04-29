@@ -182,6 +182,7 @@ const dedupSearchItems = computed<DedupSearchItem[]>(() => {
 interface ProviderEpisodeGroup {
   source_name: string
   source_key: string
+  detail_url: string
   episodes: CatalogEpisode[]
 }
 
@@ -241,7 +242,7 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
     })
     if (targets.length > 0) {
       const target = targets[0]
-      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source.source}`)
+      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source.source}&detailUrl=${encodeURIComponent(source.detail_url)}&episodeLabel=${encodeURIComponent(episode.episode_label)}`)
     } else {
       searchError.value = '播放地址获取失败'
     }
@@ -456,6 +457,7 @@ async function handleSearchResultPlay(result: SearchResult) {
     providerEpisodes.value = [{
       source_name: result.source_name,
       source_key: source,
+      detail_url: ids,
       episodes: detailResult.episodes,
     }]
   } catch (e) {
@@ -468,7 +470,9 @@ async function handleSearchResultPlay(result: SearchResult) {
 
 async function handleProviderEpisodePlay(episode: CatalogEpisode) {
   if (!providerEpisodes.value?.length) return
-  const source = providerEpisodes.value[0].source_key
+  const group = providerEpisodes.value[0]
+  const source = group.source_key
+  const detailUrl = group.detail_url
 
   try {
     const targets = await invoke<PlaybackTarget[]>('provider_play', {
@@ -480,7 +484,7 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
       const target = targets[0]
       // Navigate to vod player which uses playbackStore.resolve() to handle
       // various play page formats (xb6v, zxzj, etc.)
-      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source}`)
+      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source}&detailUrl=${encodeURIComponent(detailUrl)}&episodeLabel=${encodeURIComponent(episode.episode_label)}`)
     } else {
       providerDetailError.value = '播放地址获取失败'
     }

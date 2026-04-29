@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   placeholder?: string
+  keyword?: string
 }>()
 
 const emit = defineEmits<{
   search: [keyword: string]
 }>()
 
-const keyword = ref('')
+const keyword = ref(props.keyword ?? '')
+
+watch(() => props.keyword, (val) => {
+  keyword.value = val ?? ''
+})
 
 function handleSearch() {
   emit('search', keyword.value.trim())
