@@ -175,16 +175,21 @@ const dedupSearchItems = computed<DedupSearchItem[]>(() => {
       }
     }
   }
+  // Infer series from preloaded provider details: if any source has >1 episodes,
+  // upgrade the item type from movie/generic to series.
+  for (const item of map.values()) {
+    if (item.item_type !== 'movie' && item.item_type !== 'generic') continue
+    for (const src of item.sources) {
+      const cacheKey = getCacheKey(item.title, src.source)
+      const detail = providerDetailCache.value.get(cacheKey)
+      if (detail && detail.episodes.length > 1) {
+        item.item_type = 'series'
+        break
+      }
+    }
+  }
   return Array.from(map.values())
 })
-
-// Provider detail state for selected search result
-interface ProviderEpisodeGroup {
-  source_name: string
-  source_key: string
-  detail_url: string
-  episodes: CatalogEpisode[]
-}
 
 interface ProviderDetailResult {
   title: string | null
@@ -192,10 +197,6 @@ interface ProviderDetailResult {
   summary: string | null
   episodes: CatalogEpisode[]
 }
-const providerEpisodes = ref<ProviderEpisodeGroup[] | null>(null)
-const providerItemType = ref<CatalogItemType>('movie')
-const loadingProviderDetail = ref(false)
-const providerDetailError = ref<string | null>(null)
 const providerDetailCache = ref(new Map<string, ProviderDetailResult>())
 const preloadingKeys = ref(new Set<string>())
 
@@ -250,24 +251,6 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
     console.error('[VodDetail] provider_play failed:', e)
     searchError.value = '播放地址获取失败'
   }
-}
-
-async function handleCardSourcePlay(source: string, ids: string, item: DedupSearchItem) {
-  const key = getCacheKey(item.title, source)
-  const cached = providerDetailCache.value.get(key)
-  if (cached && cached.episodes.length > 0) {
-    await handleCardEpisodePlay(cached.episodes[0], source, item)
-    return
-  }
-
-  handleSearchResultPlay({
-    source,
-    source_name: item.sources.find(s => s.source === source)?.source_name || '',
-    detail_url: ids,
-    item_type: item.item_type,
-    title: item.title,
-    poster: item.poster,
-  })
 }
 
 function getSourceDetailsForItem(item: DedupSearchItem): Record<string, ProviderDetailResult> {
@@ -360,8 +343,6 @@ async function loadDetail() {
 async function searchSources(title: string) {
   loadingSearch.value = true
   searchError.value = null
-  providerEpisodes.value = null
-  providerDetailError.value = null
   providerDetailCache.value.clear()
   preloadingKeys.value.clear()
   try {
@@ -411,88 +392,6 @@ function handlePlay(episode: CatalogEpisode) {
   router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
 }
 
-async function handleSearchResultPlay(result: SearchResult) {
-  // detail_url is the source_item_key from the scraped item
-  const source = result.source
-  const ids = result.detail_url
-
-  if (!source || !ids) {
-    searchError.value = '播放信息不完整'
-    return
-  }
-
-  // Fetch episodes from provider detail
-  loadingProviderDetail.value = true
-  providerDetailError.value = null
-  providerEpisodes.value = null
-  providerItemType.value = (result.item_type === 'generic' ? 'movie' : result.item_type) as CatalogItemType
-  try {
-    const detailResult = await invoke<ProviderDetailResult>('provider_detail', {
-      source,
-      ids,
-    })
-    if (detailResult.episodes.length === 0) {
-      providerDetailError.value = '该视频没有可播放的剧集'
-      return
-    }
-    // Update top panel with source detail metadata (poster, title, summary)
-    if (detailResult.title || detailResult.poster) {
-      sourceDetailMeta.value = {
-        doubanId: 0,
-        title: detailResult.title || cleanTitle(result.title || ''),
-        rating: null,
-        ratingCount: null,
-        director: [],
-        writer: [],
-        actors: [],
-        genre: [],
-        country: [],
-        language: [],
-        releaseDate: [],
-        runtime: null,
-        summary: detailResult.summary,
-        poster: detailResult.poster || result.poster || null,
-      }
-    }
-    providerEpisodes.value = [{
-      source_name: result.source_name,
-      source_key: source,
-      detail_url: ids,
-      episodes: detailResult.episodes,
-    }]
-  } catch (e) {
-    console.error('[VodDetail] provider_detail failed:', e)
-    providerDetailError.value = String(e)
-  } finally {
-    loadingProviderDetail.value = false
-  }
-}
-
-async function handleProviderEpisodePlay(episode: CatalogEpisode) {
-  if (!providerEpisodes.value?.length) return
-  const group = providerEpisodes.value[0]
-  const source = group.source_key
-  const detailUrl = group.detail_url
-
-  try {
-    const targets = await invoke<PlaybackTarget[]>('provider_play', {
-      source,
-      flag: 'auto',
-      playUrl: episode.play_url,
-    })
-    if (targets.length > 0) {
-      const target = targets[0]
-      // Navigate to vod player which uses playbackStore.resolve() to handle
-      // various play page formats (xb6v, zxzj, etc.)
-      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source}&detailUrl=${encodeURIComponent(detailUrl)}&episodeLabel=${encodeURIComponent(episode.episode_label)}`)
-    } else {
-      providerDetailError.value = '播放地址获取失败'
-    }
-  } catch (e) {
-    console.error('[VodDetail] provider_play failed:', e)
-    providerDetailError.value = String(e)
-  }
-}
 </script>
 
 <template>
@@ -535,29 +434,11 @@ async function handleProviderEpisodePlay(episode: CatalogEpisode) {
             :source-details="getSourceDetailsForItem(item)"
             :loading-sources="getLoadingSourcesForItem(item)"
             @play-episode="(ep, sourceKey) => handleCardEpisodePlay(ep, sourceKey, item)"
-            @play-source="(source, detailUrl) => handleCardSourcePlay(source, detailUrl, item)"
             @select-source="(sourceKey) => preloadSource(item, sourceKey)"
           />
         </section>
 
-        <!-- Provider detail episodes (shown after clicking a search result) -->
-        <section v-if="loadingProviderDetail" class="space-y-4">
-          <EpisodeGroupSkeleton :count="4" />
-        </section>
-        <section v-else-if="providerEpisodes" class="source-list space-y-4">
-          <EpisodeGroupPanel
-            v-for="group in providerEpisodes"
-            :key="group.source_name"
-            :group="group"
-            :item_type="providerItemType"
-            @play="handleProviderEpisodePlay"
-          />
-        </section>
-        <div v-else-if="providerDetailError" class="home-empty-state text-red-500">
-          {{ providerDetailError }}
-        </div>
-
-        <div v-else-if="searchError" class="home-empty-state text-red-500">
+        <div v-if="searchError" class="home-empty-state text-red-500">
           {{ searchError }}
         </div>
         <div v-else-if="!loadingSearch && dedupSearchItems.length === 0" class="home-empty-state">
