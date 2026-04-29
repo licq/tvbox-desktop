@@ -31,6 +31,8 @@ const emit = defineEmits<{
   'select-source': [sourceKey: string]
 }>()
 
+const isMovie = computed(() => props.itemType === 'movie')
+
 const selectedSourceKey = ref(props.sources[0]?.source ?? '')
 
 watch(
@@ -83,6 +85,49 @@ const visibleSourceCount = computed(() => {
     return detail && detail.episodes.length > 0
   }).length
 })
+
+const isLoadingAnyMovieSource = computed(() => {
+  if (!isMovie.value) return false
+  return props.sources.some(s =>
+    props.loadingSources?.includes(s.source)
+  )
+})
+
+interface MovieEpisodeButton {
+  key: string
+  source: string
+  episode: CatalogEpisode
+  label: string
+}
+
+const movieEpisodeButtons = computed<MovieEpisodeButton[]>(() => {
+  if (!isMovie.value) return []
+  const buttons: MovieEpisodeButton[] = []
+  for (const src of props.sources) {
+    const detail = props.sourceDetails?.[src.source]
+    if (!detail) continue
+    for (const ep of detail.episodes) {
+      const label = formatEpisodeLabel(src.source_name, ep.episode_label)
+      buttons.push({
+        key: `${src.source}-${ep.id}`,
+        source: src.source,
+        episode: ep,
+        label,
+      })
+    }
+  }
+  return buttons
+})
+
+function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
+  // If episodeLabel already contains sourceName, return as-is
+  if (episodeLabel.includes(sourceName)) {
+    return episodeLabel
+  }
+  // Extract a short name (first 2-4 chars, preserving whole characters for CJK)
+  const short = sourceName.slice(0, 4)
+  return `${short} · ${episodeLabel}`
+}
 </script>
 
 <template>
@@ -99,37 +144,66 @@ const visibleSourceCount = computed(() => {
       </div>
     </div>
     <div class="card-right">
-      <div class="source-action-area">
-        <div class="source-selector-row">
-          <button
-            v-for="src in visibleSources"
-            :key="src.source"
-            type="button"
-            :class="['source-btn', { active: selectedSourceKey === src.source }]"
-            @click="onSelectSource(src.source)"
+      <!-- Movie mode: episode buttons directly -->
+      <template v-if="isMovie">
+        <div class="source-action-area">
+          <div v-if="isLoadingAnyMovieSource" class="loading-placeholder">
+            加载中…
+          </div>
+          <div v-else class="source-selector-row">
+            <button
+              v-for="btn in movieEpisodeButtons"
+              :key="btn.key"
+              type="button"
+              class="source-btn"
+              @click="emit('play-episode', btn.episode, btn.source)"
+            >
+              {{ btn.label }}
+            </button>
+          </div>
+          <div
+            v-if="!isLoadingAnyMovieSource && movieEpisodeButtons.length === 0"
+            class="load-episodes-btn"
           >
-            {{ src.source_name }}
-          </button>
+            暂无播放链接
+          </div>
         </div>
+      </template>
 
-        <EpisodeGrid
-          v-if="currentEpisodes.length > 0"
-          :episodes="currentEpisodes"
-          @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
-        />
-        <div
-          v-else-if="isLoadingCurrent"
-          class="loading-placeholder"
-        >
-          加载中…
+      <!-- Series mode: source selector + EpisodeGrid -->
+      <template v-else>
+        <div class="source-action-area">
+          <div class="source-selector-row">
+            <button
+              v-for="src in visibleSources"
+              :key="src.source"
+              type="button"
+              :class="['source-btn', { active: selectedSourceKey === src.source }]"
+              @click="onSelectSource(src.source)"
+            >
+              {{ src.source_name }}
+            </button>
+          </div>
+
+          <EpisodeGrid
+            v-if="currentEpisodes.length > 0"
+            :episodes="currentEpisodes"
+            @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
+          />
+          <div
+            v-else-if="isLoadingCurrent"
+            class="loading-placeholder"
+          >
+            加载中…
+          </div>
+          <div
+            v-else
+            class="load-episodes-btn"
+          >
+            暂无播放链接
+          </div>
         </div>
-        <div
-          v-else
-          class="load-episodes-btn"
-        >
-          暂无播放链接
-        </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>

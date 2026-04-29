@@ -23,16 +23,93 @@ const sourceDetails = {
 }
 
 describe('SearchResultCard', () => {
-  it('renders source selector buttons only for sources with episodes', () => {
+  it('renders episode buttons for movies when source details provided', () => {
     const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'movie', sourceDetails },
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sourceDetails,
+      },
     })
-    const buttons = wrapper.findAll('.source-btn')
-    expect(buttons.length).toBe(1)
-    expect(buttons[0].text()).toBe('来源A')
+    expect(wrapper.find('.movie-action-panel').exists()).toBe(false)
+    expect(wrapper.findAll('.source-btn').length).toBe(2)
   })
 
-  it('renders EpisodeGrid when source detail provided', () => {
+  it('deduplicates source name from movie episode label', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        title: '测试影片',
+        itemType: 'movie',
+        sources: [
+          { source: 's1', source_name: '文才', detail_url: 'url1' },
+        ],
+        sourceDetails: {
+          s1: {
+            title: '测试影片',
+            poster: null,
+            summary: null,
+            episodes: [
+              { id: 1, episode_label: '文才HD', play_url: 'http://a/1', order_index: 1 },
+            ],
+          },
+        },
+      },
+    })
+    const btn = wrapper.find('.source-btn')
+    expect(btn.text()).toBe('文才HD')
+    expect(btn.text()).not.toContain('文才 ·')
+  })
+
+  it('prefixes source short name when episode label does not contain it', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sourceDetails,
+      },
+    })
+    const btn = wrapper.find('.source-btn')
+    expect(btn.text()).toBe('来源A · 01')
+  })
+
+  it('shows loading placeholder for movie when a source is loading', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sourceDetails,
+        loadingSources: ['s1'],
+      },
+    })
+    expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
+  })
+
+  it('skips empty sources for movies', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sourceDetails,
+      },
+    })
+    // s1 has 2 episodes, s2 has 0 episodes => 2 buttons
+    expect(wrapper.findAll('.source-btn').length).toBe(2)
+  })
+
+  it('emits play-episode when a movie episode button is clicked', async () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sourceDetails,
+      },
+    })
+    await wrapper.find('.source-btn').trigger('click')
+    expect(wrapper.emitted('play-episode')).toHaveLength(1)
+    expect(wrapper.emitted('play-episode')![0]).toEqual([episodes[0], 's1'])
+  })
+
+  it('renders EpisodeGrid when source detail provided (series)', () => {
     const wrapper = mount(SearchResultCard, {
       props: {
         ...baseProps,
@@ -44,7 +121,7 @@ describe('SearchResultCard', () => {
     expect(wrapper.findAll('.episode-chip').length).toBe(2)
   })
 
-  it('shows loading placeholder when selected source is loading', () => {
+  it('shows loading placeholder when selected source is loading (series)', () => {
     const wrapper = mount(SearchResultCard, {
       props: {
         ...baseProps,
@@ -53,33 +130,6 @@ describe('SearchResultCard', () => {
       },
     })
     expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
-  })
-
-  it('shows loading placeholder for movie when selected source is loading without cache', () => {
-    const wrapper = mount(SearchResultCard, {
-      props: {
-        ...baseProps,
-        itemType: 'movie',
-        loadingSources: ['s1'],
-      },
-    })
-    expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
-  })
-
-  it('hides empty sources and only shows sources with episodes', () => {
-    const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'movie', sourceDetails },
-    })
-    expect(wrapper.findAll('.source-btn').length).toBe(1)
-  })
-
-  it('emits play-episode when an episode chip is clicked', async () => {
-    const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'movie', sourceDetails },
-    })
-    await wrapper.find('.episode-chip').trigger('click')
-    expect(wrapper.emitted('play-episode')).toHaveLength(1)
-    expect(wrapper.emitted('play-episode')![0]).toEqual([episodes[0], 's1'])
   })
 
   it('emits play-episode with sourceKey when EpisodeGrid plays (series)', async () => {
@@ -95,7 +145,7 @@ describe('SearchResultCard', () => {
     expect(wrapper.emitted('play-episode')![0]).toEqual([episodes[0], 's1'])
   })
 
-  it('emits select-source when source button is clicked', async () => {
+  it('emits select-source when source button is clicked (series)', async () => {
     const twoSourceDetails = {
       s1: { title: '测试影片', poster: null, summary: null, episodes },
       s2: { title: '测试影片', poster: null, summary: null, episodes: [episodes[0]] },
@@ -121,7 +171,7 @@ describe('SearchResultCard', () => {
     expect(wrapper.find('.card-type-tag').text()).toBe('综艺')
   })
 
-  it('switches source and updates displayed episodes', async () => {
+  it('switches source and updates displayed episodes (series)', async () => {
     const twoSourceDetails = {
       s1: { title: '测试影片', poster: null, summary: null, episodes },
       s2: { title: '测试影片', poster: null, summary: null, episodes: [] },
