@@ -156,6 +156,44 @@ function itemTypePriority(t: SearchResult['item_type']): number {
   }
 }
 
+/**
+ * Infer item type from episode labels.
+ * Distinguishes series (sequential episodes) from movies (multi-lineage copies).
+ */
+function inferTypeFromEpisodes(episodes: CatalogEpisode[]): 'series' | 'movie' | 'unknown' {
+  if (episodes.length === 0) return 'unknown'
+  if (episodes.length === 1) return 'movie'
+
+  const labels = episodes.map(e => e.episode_label)
+
+  // Strong series signal: any label contains "第X集" or S01E01 format
+  if (labels.some(l => /第\s*\d+\s*集/.test(l))) return 'series'
+  if (labels.some(l => /S\d+E\d+/i.test(l))) return 'series'
+
+  // Strong series signal: pure numeric labels (01, 02, 03...) when count > 1
+  // Filter out "线路1" style lineage labels first
+  const pureNumericLabels = labels.filter(l => /^\d+$/.test(l))
+  if (pureNumericLabels.length > 1) return 'series'
+
+  // Movie multi-lineage patterns: all labels are quality/lineage identifiers
+  const moviePatterns = [
+    /^HD$/i, /^高清$/, /^1080P$/i, /^720P$/i, /^480P$/i, /^SD$/i,
+    /^蓝光$/, /^BD$/i, /^DVD$/i, /^线路\d+$/, /^备用$/, /^正片$/, /^全集$/,
+    /^立即播放$/, /^播放$/, /^m3u8$/i,
+    /^国语$/, /^粤语$/, /^英语$/, /^中字$/, /^中英双字$/,
+    /^HD中字$/, /^高清中字$/, /^BD中字$/, /^HD国语$/, /^高清国语$/,
+  ]
+  const allMatchMovie = labels.every(l =>
+    moviePatterns.some(p => p.test(l))
+  )
+  if (allMatchMovie) return 'movie'
+
+  // Heuristic: very high count strongly suggests series (movies rarely have 10+ lineages)
+  if (episodes.length > 10) return 'series'
+
+  return 'unknown'
+}
+
 const dedupSearchItems = computed<DedupSearchItem[]>(() => {
   const map = new Map<string, DedupSearchItem>()
   for (const group of searchResults.value) {
@@ -175,17 +213,19 @@ const dedupSearchItems = computed<DedupSearchItem[]>(() => {
       }
     }
   }
-  // Infer series from preloaded provider details: if any source has >1 episodes,
-  // upgrade the item type from movie/generic to series.
+  // Infer type from preloaded provider details using episode label patterns.
   for (const item of map.values()) {
-    if (item.item_type !== 'movie' && item.item_type !== 'generic') continue
     for (const src of item.sources) {
       const cacheKey = getCacheKey(item.title, src.source)
       const detail = providerDetailCache.value.get(cacheKey)
-      if (detail && detail.episodes.length > 1) {
+      if (!detail) continue
+      const inferred = inferTypeFromEpisodes(detail.episodes)
+      if (inferred === 'series' && (item.item_type === 'movie' || item.item_type === 'generic')) {
         item.item_type = 'series'
-        break
+      } else if (inferred === 'movie' && item.item_type === 'generic') {
+        item.item_type = 'movie'
       }
+      // Don't downgrade (e.g. keep 'series' if already set)
     }
   }
   return Array.from(map.values())
