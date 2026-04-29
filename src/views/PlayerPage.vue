@@ -65,6 +65,7 @@ const episodeId = computed(() => {
 const providerDetailUrl = computed(() => route.query.detailUrl as string | undefined)
 const episodeLabelFromQuery = computed(() => route.query.episodeLabel as string | undefined)
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
+const itemType = computed(() => detailStore.item?.item_type ?? 'movie')
 const unifiedEpisodes = computed(() => {
   if (detailStore.episodeGroups.length > 0 && detailStore.item) {
     return mergeEpisodes(detailStore.episodeGroups, detailStore.item.item_type)
@@ -480,8 +481,6 @@ async function initVodPlayback(url: string, id?: number) {
     errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
   }
 }
-
-const itemType = computed(() => detailStore.item?.item_type ?? 'movie')
 
 async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 0) {
   currentUnifiedEpisode.value = unifiedEpisode
