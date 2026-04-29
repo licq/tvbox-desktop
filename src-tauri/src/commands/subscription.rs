@@ -1,4 +1,4 @@
-use crate::models::{RefreshResult, Subscription};
+use crate::models::{RefreshResult, SourceHealthSummary, Subscription};
 use crate::services::tvbox::TvboxLiveRecord;
 use crate::services::{Parser, TvboxConfigParser};
 use crate::AppState;
@@ -30,6 +30,20 @@ pub async fn get_subscriptions(state: State<'_, AppState>) -> Result<Vec<Subscri
     tokio::task::spawn_blocking(move || storage.get_subscriptions().map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_source_health_summaries(
+    state: State<'_, AppState>,
+) -> Result<Vec<SourceHealthSummary>, String> {
+    let storage = state.storage.clone();
+    tokio::task::spawn_blocking(move || {
+        storage
+            .get_source_health_summaries()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

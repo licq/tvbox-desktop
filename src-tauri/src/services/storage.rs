@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::models::{
     CatalogDetail, CatalogDetailItem, CatalogEpisode, CatalogEpisodeGroup, ChannelSource,
     DoubanHot, DoubanSubjectMeta, HomeCatalogItem, HomePayload, LiveChannel, LiveChannelGroup,
-    LiveChannelGroupItem, MergedLiveChannel, PlayHistory, RefreshResult, Subscription, VodItem,
+    LiveChannelGroupItem, MergedLiveChannel, PlayHistory, RefreshResult, SourceHealthSummary,
+    Subscription, VodItem,
 };
 use crate::services::tvbox::{
     TvboxConfigRecords, TvboxLiveRecord, TvboxParseRecord, TvboxSiteRecord,
@@ -660,6 +661,39 @@ impl Storage {
         subscriptions.collect()
     }
 
+    pub fn get_source_health_summaries(&self) -> SqliteResult<Vec<SourceHealthSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.name, s.url, s.kind, s.enabled, s.last_refreshed_at, s.last_error,
+                    COUNT(DISTINCT sl.id) AS live_channel_count,
+                    COUNT(DISTINCT ci.id) AS catalog_item_count,
+                    COUNT(DISTINCT ce.id) AS catalog_episode_count
+             FROM subscriptions s
+             LEFT JOIN source_lives sl ON sl.subscription_id = s.id
+             LEFT JOIN catalog_items ci ON ci.subscription_id = s.id
+             LEFT JOIN catalog_episodes ce ON ce.catalog_item_id = ci.id
+             GROUP BY s.id
+             ORDER BY s.id DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(SourceHealthSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                url: row.get(2)?,
+                kind: row.get(3)?,
+                enabled: row.get::<_, i32>(4)? != 0,
+                last_refreshed_at: row.get(5)?,
+                last_error: row.get(6)?,
+                live_channel_count: row.get(7)?,
+                catalog_item_count: row.get(8)?,
+                catalog_episode_count: row.get(9)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn delete_subscription(&self, id: i64) -> SqliteResult<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
@@ -899,10 +933,21 @@ impl Storage {
     pub fn get_library_home(&self) -> SqliteResult<HomePayload> {
         let conn = self.conn.lock().unwrap();
 
-        let continue_watching = Vec::new();
+        let continue_watching = query_home_catalog_items(
+            &conn,
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, ph.progress, s.name AS source_badge, '继续观看' AS update_badge
+             FROM play_history ph
+             INNER JOIN catalog_items ci ON ph.item_type = 'vod' AND ph.item_id = ci.id
+             INNER JOIN subscriptions s ON ci.subscription_id = s.id
+             WHERE s.enabled = 1
+               AND COALESCE(json_extract(ci.detail_json, '$.source'), '') != 'zxzj'
+             ORDER BY ph.last_played DESC
+             LIMIT 12",
+            [],
+        )?;
         let latest_updates = query_home_catalog_items(
             &conn,
-            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
              FROM catalog_items ci
              INNER JOIN subscriptions s ON ci.subscription_id = s.id
              WHERE s.enabled = 1
@@ -913,7 +958,7 @@ impl Storage {
         )?;
         let featured = query_home_catalog_items(
             &conn,
-            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+            "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
              FROM catalog_items ci
              INNER JOIN subscriptions s ON ci.subscription_id = s.id
              WHERE s.enabled = 1
@@ -942,7 +987,7 @@ impl Storage {
         match (item_type, keyword) {
             (Some(item_type), Some(keyword)) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -955,7 +1000,7 @@ impl Storage {
             ),
             (Some(item_type), None) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -967,7 +1012,7 @@ impl Storage {
             ),
             (None, Some(keyword)) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -979,7 +1024,7 @@ impl Storage {
             ),
             (None, None) => query_home_catalog_items(
                 &conn,
-                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress
+                "SELECT ci.id, ci.title, ci.item_type, ci.poster, NULL as progress, s.name AS source_badge, NULL AS update_badge
                  FROM catalog_items ci
                  INNER JOIN subscriptions s ON ci.subscription_id = s.id
                  WHERE s.enabled = 1
@@ -1613,6 +1658,8 @@ fn query_home_catalog_items(
             item_type: row.get(2)?,
             poster: row.get(3)?,
             progress: row.get(4)?,
+            source_badge: row.get(5)?,
+            update_badge: row.get(6)?,
         })
     })?;
     rows.collect()
@@ -2160,24 +2207,104 @@ mod tests {
     }
 
     #[test]
-    fn library_home_returns_empty_continue_watching_for_now() {
+    fn source_health_summaries_count_live_catalog_and_episode_rows() {
         let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
         let subscription = storage
-            .add_subscription("tvbox", "https://example.com/tvbox.json")
+            .add_subscription("饭太硬", "https://example.com/tvbox.json")
             .expect("subscription should be inserted");
 
-        seed_catalog_item(&storage, subscription.id, 101, "示例影片", "movie");
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-1",
+            "https://live.example/cctv1.m3u8",
+        );
+        seed_live_source(
+            &storage,
+            subscription.id,
+            Some("央视频道"),
+            "CCTV-2",
+            "https://live.example/cctv2.m3u8",
+        );
+        seed_catalog_item_with_source(
+            &storage,
+            subscription.id,
+            201,
+            "示例电影",
+            "movie",
+            "jianpian",
+        );
+        seed_catalog_item_with_source(
+            &storage,
+            subscription.id,
+            202,
+            "示例剧集",
+            "series",
+            "jianpian",
+        );
+        seed_catalog_episode(
+            &storage,
+            201,
+            "荐片线路",
+            "第01集",
+            "https://media.example/movie-1.m3u8",
+            0,
+        );
+        seed_catalog_episode(
+            &storage,
+            202,
+            "荐片线路",
+            "第01集",
+            "https://media.example/series-1.m3u8",
+            0,
+        );
+        seed_catalog_episode(
+            &storage,
+            202,
+            "荐片线路",
+            "第02集",
+            "https://media.example/series-2.m3u8",
+            1,
+        );
+
+        let summaries = storage
+            .get_source_health_summaries()
+            .expect("source summaries should query");
+
+        let summary = summaries
+            .iter()
+            .find(|summary| summary.id == subscription.id)
+            .expect("subscription summary should exist");
+        assert_eq!(summary.name, "饭太硬");
+        assert_eq!(summary.live_channel_count, 2);
+        assert_eq!(summary.catalog_item_count, 2);
+        assert_eq!(summary.catalog_episode_count, 3);
+        assert!(summary.enabled);
+    }
+
+    #[test]
+    fn library_home_returns_continue_watching_from_vod_history() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let subscription = storage
+            .add_subscription("荐片", "https://example.com/tvbox.json")
+            .expect("subscription should be inserted");
+
+        seed_catalog_item_with_source(&storage, subscription.id, 101, "示例影片", "movie", "jianpian");
         storage
-            .save_play_history("vod", 101, 0.5)
-            .expect("legacy play history should insert");
+            .save_play_history("vod", 101, 42.0)
+            .expect("play history should insert");
 
         let home = storage
             .get_library_home()
             .expect("library home should query");
 
-        assert!(home.continue_watching.is_empty());
-        assert_eq!(home.latest_updates.len(), 1);
-        assert_eq!(home.featured.len(), 1);
+        assert_eq!(home.continue_watching.len(), 1);
+        assert_eq!(home.continue_watching[0].id, 101);
+        assert_eq!(home.continue_watching[0].title, "示例影片");
+        assert_eq!(home.continue_watching[0].item_type, "movie");
+        assert_eq!(home.continue_watching[0].progress, Some(42.0));
+        assert_eq!(home.continue_watching[0].source_badge.as_deref(), Some("荐片"));
     }
 
     #[test]

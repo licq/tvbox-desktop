@@ -10,6 +10,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             tvbox_lib::commands::subscription::add_subscription,
             tvbox_lib::commands::subscription::get_subscriptions,
+            tvbox_lib::commands::subscription::get_source_health_summaries,
             tvbox_lib::commands::subscription::delete_subscription,
             tvbox_lib::commands::subscription::refresh_subscription,
             tvbox_lib::commands::subscription::toggle_subscription,
