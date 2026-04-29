@@ -1,5 +1,6 @@
 # Git worktrees
 .worktrees/
+.superpowers/
 
 # Dependencies
 node_modules/
