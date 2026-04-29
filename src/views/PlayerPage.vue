@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { open } from '@tauri-apps/plugin-shell'
 import { invoke } from '@tauri-apps/api/core'
@@ -10,7 +10,7 @@ import { useDetailStore } from '@/stores/detail'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
 import type { CatalogEpisodeGroup, PlaybackTarget, UnifiedEpisode } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
-import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
+import { describeMediaErrorCode, describePlaybackFailure, formatPlayerTitle, isAutoplayBlocked } from '@/utils/player'
 import { mergeEpisodes } from '@/utils/episode'
 import {
   attachCandidatesToActiveSource,
@@ -97,6 +97,24 @@ const itemType = computed(() => {
   if (unifiedEpisodes.value.length > 1) return 'series'
   return 'movie'
 })
+
+const currentEpisodeLabel = computed(() => {
+  if (currentUnifiedEpisode.value?.displayLabel) return currentUnifiedEpisode.value.displayLabel
+  return episodeLabelFromQuery.value ?? null
+})
+
+const pageTitle = computed(() =>
+  formatPlayerTitle({
+    title: detailStore.item?.title ?? sourceTitle.value ?? null,
+    episodeLabel: currentEpisodeLabel.value,
+    sourceLabel: currentSource.value?.label ?? null,
+  })
+)
+
+watch(pageTitle, title => {
+  document.title = title
+}, { immediate: true })
+
 const unifiedEpisodes = computed(() => {
   if (detailStore.episodeGroups.length > 0 && detailStore.item) {
     return mergeEpisodes(detailStore.episodeGroups, detailStore.item.item_type)
@@ -1177,6 +1195,9 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
         <button class="action-button action-button-secondary" type="button" @click="router.back()">
           返回
         </button>
+        <div class="player-title">
+          <strong>{{ pageTitle }}</strong>
+        </div>
         <div class="player-context">
           <span>{{ playerModeLabel }}</span>
           <span>{{ sourceLabel }}</span>

@@ -30,3 +30,21 @@ export function describePlaybackFailure(error: unknown): string {
 
   return '无法直接播放当前地址'
 }
+
+export interface PlayerTitleInput {
+  title?: string | null
+  episodeLabel?: string | null
+  sourceLabel?: string | null
+}
+
+export function formatPlayerTitle(input: PlayerTitleInput) {
+  const title = input.title?.trim()
+  const episodeLabel = input.episodeLabel?.trim()
+  const sourceLabel = input.sourceLabel?.trim()
+
+  if (title && episodeLabel) return `${title} · ${episodeLabel}`
+  if (title) return title
+  if (episodeLabel) return episodeLabel
+  if (sourceLabel) return sourceLabel
+  return 'TVBox'
+}

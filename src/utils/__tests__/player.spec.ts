@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
+import { describeMediaErrorCode, describePlaybackFailure, formatPlayerTitle, isAutoplayBlocked } from '@/utils/player'
 
 describe('player utils', () => {
   it('detects autoplay blocking errors', () => {
@@ -17,5 +17,19 @@ describe('player utils', () => {
   it('treats autoplay rejection as a non-fatal playback message', () => {
     expect(describePlaybackFailure({ name: 'NotAllowedError' })).toBe('线路已加载，点击播放开始')
     expect(describePlaybackFailure(new Error('network failed'))).toBe('network failed')
+  })
+})
+
+describe('player title formatting', () => {
+  it('formats series title with episode label', () => {
+    expect(formatPlayerTitle({ title: '庆余年', episodeLabel: '第03集' })).toBe('庆余年 · 第03集')
+  })
+
+  it('falls back to episode label when title is missing', () => {
+    expect(formatPlayerTitle({ episodeLabel: '第03集' })).toBe('第03集')
+  })
+
+  it('uses source label only as a final fallback', () => {
+    expect(formatPlayerTitle({ sourceLabel: '非凡线路' })).toBe('非凡线路')
   })
 })
