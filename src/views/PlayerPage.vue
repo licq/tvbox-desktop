@@ -12,6 +12,16 @@ import type { CatalogEpisodeGroup, PlaybackTarget, UnifiedEpisode } from '@/type
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
 import { mergeEpisodes } from '@/utils/episode'
+import {
+  attachCandidatesToActiveSource,
+  createEpisodePlaybackSession,
+  markCurrentCandidateFailed,
+  markCurrentCandidatePlaying,
+  nextCandidateToPlay,
+  shouldFailoverAfterPlaybackError,
+  startNextSourceAttempt,
+  type EpisodePlaybackSession,
+} from '@/utils/playbackSession'
 import type Hls from 'hls.js'
 
 const route = useRoute()
@@ -46,6 +56,8 @@ const currentSourceIndex = ref(0)
 const failedSourceIndexes = ref<number[]>([])
 const currentUnifiedEpisode = ref<UnifiedEpisode | null>(null)
 const currentUnifiedSourceIndex = ref(0)
+const playbackSession = ref<EpisodePlaybackSession | null>(null)
+const currentEpisodeSourceAttempts = computed(() => playbackSession.value?.sourceAttempts ?? [])
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
 const mode = computed(() => String(route.params.mode ?? 'live'))
@@ -99,6 +111,7 @@ const currentNormalizedIndex = computed(() => {
 })
 
 async function loadSourceDetail() {
+  playbackSession.value = null
   if (!sourceDetailUrl.value || !sourceName.value) {
     errorMsg.value = '缺少播放地址参数'
     return
@@ -167,6 +180,7 @@ const playerStatusText = computed(() => {
   if (errorMsg.value) return '需要处理'
   if (pendingAutoplay.value) return '等待播放'
   if (playing.value) return '播放中'
+  if (currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')) return '解析中'
   if (playbackStore.status === 'resolving') return '解析中'
   return playbackStore.status === 'idle' ? '就绪' : playbackStore.status
 })
@@ -206,6 +220,7 @@ onMounted(async () => {
   if (route.name === 'player-source') {
     await loadSourceDetail()
   } else if (mode.value === 'live') {
+    playbackSession.value = null
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(channel => channel.id === itemId.value)
     if (channel && channel.sources.length > 0) {
@@ -474,13 +489,135 @@ async function switchToSource(index: number) {
   await playSource(sources.value[index])
 }
 
+function toPlayerSource(candidate: PlayerSource): PlayerSource {
+  return {
+    url: candidate.url,
+    label: candidate.label,
+    kind: candidate.kind,
+    headers: candidate.headers,
+    referer: candidate.referer,
+  }
+}
+
+function syncActiveSessionAttempt(session: EpisodePlaybackSession) {
+  const attempt = session.sourceAttempts[session.activeSourceIndex]
+  if (!attempt) {
+    sources.value = []
+    currentSourceIndex.value = 0
+    failedSourceIndexes.value = []
+    return
+  }
+
+  sources.value = attempt.candidates.map(toPlayerSource)
+  currentSourceIndex.value = session.activeCandidateIndex >= 0 ? session.activeCandidateIndex : 0
+  failedSourceIndexes.value = attempt.failedCandidateIndexes
+
+  const unifiedSourceIndex = currentUnifiedEpisode.value?.sources.findIndex(source =>
+    source.sourceKey === attempt.source.sourceKey &&
+    source.episode.play_url === attempt.source.episode.play_url
+  )
+  if (unifiedSourceIndex !== undefined && unifiedSourceIndex >= 0) {
+    currentUnifiedSourceIndex.value = unifiedSourceIndex
+  }
+}
+
+async function resolveActiveAttempt(session: EpisodePlaybackSession) {
+  const attempt = session.sourceAttempts[session.activeSourceIndex]
+  if (!attempt) return false
+
+  try {
+    if (itemId.value > 0) {
+      const resolved = await playbackStore.resolve(
+        attempt.source.episode.play_url,
+        attempt.source.episode.id
+      )
+      attachCandidatesToActiveSource(session, resolved.candidates.map(toPlayerSource))
+      return true
+    }
+
+    if (sourceName.value) {
+      const targets = await invoke<PlaybackTarget[]>('provider_play', {
+        source: sourceName.value,
+        flag: 'auto',
+        playUrl: attempt.source.episode.play_url,
+      })
+      const target = targets[0]
+      if (!target) {
+        attachCandidatesToActiveSource(session, [])
+        return true
+      }
+
+      if (target.target_kind === 'Direct') {
+        attachCandidatesToActiveSource(session, [{
+          url: target.target_url,
+          label: attempt.source.sourceName || sourceName.value || '来源',
+          kind: target.target_url.includes('.m3u8') ? 'hls' : 'http',
+          headers: target.headers ?? undefined,
+          referer: target.referer ?? undefined,
+        }])
+        return true
+      }
+
+      const resolved = await playbackStore.resolve(target.target_url, attempt.source.episode.id)
+      attachCandidatesToActiveSource(session, resolved.candidates.map(toPlayerSource))
+      return true
+    }
+
+    attachCandidatesToActiveSource(session, [])
+    return true
+  } catch (error) {
+    markCurrentCandidateFailed(session, String(error))
+    return false
+  }
+}
+
+async function playNextFromSession(reason?: string) {
+  const session = playbackSession.value
+  if (!session) return
+
+  if (reason) {
+    markCurrentCandidateFailed(session, reason)
+  }
+
+  const nextCandidate = nextCandidateToPlay(session)
+  if (nextCandidate) {
+    syncActiveSessionAttempt(session)
+    await playSource(nextCandidate)
+    return
+  }
+
+  for (;;) {
+    const attempt = startNextSourceAttempt(session)
+    if (!attempt) {
+      errorMsg.value = session.lastError ?? '该集所有播放源均不可用'
+      return
+    }
+
+    const resolved = await resolveActiveAttempt(session)
+    if (!resolved) {
+      continue
+    }
+
+    const candidate = nextCandidateToPlay(session)
+    if (candidate) {
+      syncActiveSessionAttempt(session)
+      await playSource(candidate)
+      return
+    }
+
+    markCurrentCandidateFailed(session, attempt.failureReason ?? '当前源没有可用候选线路')
+  }
+}
+
 async function initVodPlayback(url: string, id?: number) {
+  playbackSession.value = null
   const decodedUrl = decodeURIComponent(url)
   const resolved = await playbackStore.resolve(decodedUrl, id)
   sources.value = resolved.candidates.map(candidate => ({
     url: candidate.url,
     label: candidate.label,
     kind: candidate.kind,
+    headers: candidate.headers,
     referer: candidate.referer
   }))
   currentSourceIndex.value = 0
@@ -499,48 +636,40 @@ async function initVodPlayback(url: string, id?: number) {
 async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 0) {
   currentUnifiedEpisode.value = unifiedEpisode
   currentUnifiedSourceIndex.value = sourceIndex
+  failedSourceIndexes.value = []
 
-  if (sourceIndex >= unifiedEpisode.sources.length) {
+  if (sourceIndex >= unifiedEpisode.sources.length || unifiedEpisode.sources.length === 0) {
     errorMsg.value = '该集所有线路均不可用'
     return
   }
 
-  const source = unifiedEpisode.sources[sourceIndex]
+  const session = createEpisodePlaybackSession(unifiedEpisode)
+  playbackSession.value = session
 
-  if (itemId.value > 0) {
-    await initVodPlayback(source.episode.play_url, source.episode.id)
-  } else if (sourceName.value) {
-    try {
-      const targets = await invoke<PlaybackTarget[]>('provider_play', {
-        source: sourceName.value,
-        flag: 'auto',
-        playUrl: source.episode.play_url,
-      })
-      if (targets.length > 0) {
-        const target = targets[0]
-        // For Direct targets from providers, bypass resolve (which would lose headers and fail probing)
-        // and play directly with the provider-supplied headers.
-        if (target.target_kind === 'Direct') {
-          sources.value = [{
-            url: target.target_url,
-            label: sourceName.value || '来源',
-            kind: target.target_url.includes('.m3u8') ? 'hls' : 'http',
-            referer: target.referer ?? undefined,
-          }]
-          currentSourceIndex.value = 0
-          failedSourceIndexes.value = []
-          await playSource(sources.value[0])
-        } else {
-          await initVodPlayback(target.target_url, source.episode.id)
-        }
-      } else {
-        await playUnifiedEpisode(unifiedEpisode, sourceIndex + 1)
-      }
-    } catch (e) {
-      console.error('[PlayerPage] provider_play failed:', e)
-      await playUnifiedEpisode(unifiedEpisode, sourceIndex + 1)
-    }
+  const preferredSource = unifiedEpisode.sources[sourceIndex]
+  const attempt = startNextSourceAttempt(session, {
+    sourceKey: preferredSource?.sourceKey,
+    manual: sourceIndex > 0,
+  })
+  if (!attempt) {
+    errorMsg.value = session.lastError ?? '该集所有播放源均不可用'
+    return
   }
+
+  const resolved = await resolveActiveAttempt(session)
+  if (!resolved) {
+    await playNextFromSession()
+    return
+  }
+
+  const candidate = nextCandidateToPlay(session)
+  if (candidate) {
+    syncActiveSessionAttempt(session)
+    await playSource(candidate)
+    return
+  }
+
+  await playNextFromSession('当前源没有可用候选线路')
 }
 
 async function switchToEpisode(unifiedEpisode: UnifiedEpisode) {
@@ -623,6 +752,11 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
+        if (playbackSession.value) {
+          void playNextFromSession(data.error?.message || 'HLS 播放失败')
+          return
+        }
+
         markCurrentSourceFailed()
 
         if (currentSourceIndex.value < sources.value.length - 1) {
@@ -657,7 +791,7 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
   pendingAutoplay.value = true
 }
 
-async function attemptPlayback(manual: boolean) {
+async function attemptPlayback(_manual: boolean) {
   if (!videoRef.value) return
 
   try {
@@ -668,9 +802,13 @@ async function attemptPlayback(manual: boolean) {
   } catch (error) {
     playing.value = false
     pendingAutoplay.value = false
-    errorMsg.value = manual ? describePlaybackFailure(error) : describePlaybackFailure(error)
-    if (!manual && isAutoplayBlocked(error)) {
+    const message = describePlaybackFailure(error)
+    errorMsg.value = message
+    if (isAutoplayBlocked(error)) {
       return
+    }
+    if (playbackSession.value && shouldFailoverAfterPlaybackError(error)) {
+      await playNextFromSession(message)
     }
   }
 }
@@ -683,6 +821,9 @@ function handleCanPlay() {
 function handleVideoPlay() {
   playing.value = true
   errorMsg.value = ''
+  if (playbackSession.value) {
+    markCurrentCandidatePlaying(playbackSession.value)
+  }
   showControls()
 }
 
@@ -699,6 +840,11 @@ function handleVideoError() {
   pendingAutoplay.value = false
   const mediaError = videoRef.value?.error
   const message = describeMediaErrorCode(mediaError?.code)
+  if (playbackSession.value) {
+    void playNextFromSession(message)
+    return
+  }
+
   markCurrentSourceFailed()
 
   if (currentSourceIndex.value < sources.value.length - 1) {
