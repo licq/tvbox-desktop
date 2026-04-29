@@ -547,8 +547,8 @@ async function initHlsPlayer(url: string) {
               })
             return
           }
-          // .ts segments from known problematic CDNs still need Rust proxy for CORS
-          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng') || url.includes('fengbao9') || url.includes('lzcdn')) {
+          // .ts segments from known problematic CDNs still need Rust proxy for CORS / referer check
+          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng') || url.includes('fengbao9') || url.includes('lzcdn') || url.includes('cdnlz')) {
             invoke<string>('fetch_hls_manifest', { url })
               .then((data) => {
                 const isSegment = !url.includes('.m3u8')
