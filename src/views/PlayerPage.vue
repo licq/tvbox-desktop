@@ -481,6 +481,8 @@ async function initVodPlayback(url: string, id?: number) {
   }
 }
 
+const itemType = computed(() => detailStore.item?.item_type ?? 'movie')
+
 async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 0) {
   currentUnifiedEpisode.value = unifiedEpisode
   currentUnifiedSourceIndex.value = sourceIndex
@@ -794,8 +796,9 @@ function handleVideoError() {
           :error-message="errorMsg || playbackStore.errorMessage"
           :unified-episodes="unifiedEpisodes"
           :current-normalized-index="currentNormalizedIndex"
-          @select="switchToSource"
-          @select-unified-episode="switchToEpisode"
+          :item-type="itemType"
+          @select-episode="switchToEpisode"
+          @switch-line="switchToSource"
         />
       </div>
     </div>
