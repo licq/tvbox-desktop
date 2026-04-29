@@ -192,6 +192,18 @@ export interface CatalogEpisodeGroup {
   episodes: CatalogEpisode[];
 }
 
+export interface UnifiedEpisodeSource {
+  sourceKey: string
+  sourceName: string
+  episode: CatalogEpisode
+}
+
+export interface UnifiedEpisode {
+  normalizedIndex: number
+  displayLabel: string
+  sources: UnifiedEpisodeSource[]
+}
+
 export interface CatalogDetailItem {
   id: number;
   title: string;
