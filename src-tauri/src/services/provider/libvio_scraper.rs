@@ -51,6 +51,7 @@ impl LibvioScraper {
             headers: None,
             sort_hint: 0,
             meta: None,
+        referer: None,
         }])
     }
 

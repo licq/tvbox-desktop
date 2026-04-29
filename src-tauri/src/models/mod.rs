@@ -175,6 +175,7 @@ pub struct PlaybackCandidate {
     pub label: String,
     pub kind: String,
     pub headers: Option<HashMap<String, String>>,
+    pub referer: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

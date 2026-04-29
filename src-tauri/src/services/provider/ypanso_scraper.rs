@@ -52,6 +52,7 @@ impl YpansoScraper {
         let body = self.base.fetch_text(play_url).await?;
         let video_url = extract_ypanso_player_url(&body)
             .unwrap_or_else(|| play_url.to_string());
+
         Ok(vec![PlaybackTarget {
             episode_id: None,
             source_key: "YpanSo".to_string(),
@@ -61,6 +62,7 @@ impl YpansoScraper {
             headers: None,
             sort_hint: 0,
             meta: None,
+            referer: Some(play_url.to_string()),
         }])
     }
 

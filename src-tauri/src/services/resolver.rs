@@ -44,7 +44,7 @@ impl PlaybackResolver {
             }
         }
 
-        Ok(ready_with_candidate(input.to_string(), detect_kind(input)))
+        Ok(ready_with_candidate(input.to_string(), detect_kind(input), Some(input)))
     }
 }
 
@@ -76,8 +76,8 @@ pub fn classify_playback_target(input: &str) -> &'static str {
     }
 
     // Non-media URLs that aren't recognized as guard/external/resolvable
-    // are treated as embedded targets (player pages with iframes, etc.)
-    "embedded"
+    // are treated as external_required (no embed fallback — iframe experience is poor).
+    "external"
 }
 
 pub fn is_visible_playback_target(input: &str) -> bool {
@@ -88,7 +88,6 @@ pub fn playback_sort_rank(input: &str) -> i32 {
     match classify_playback_target(input) {
         "direct" => 0,
         "resolvable" => 1,
-        "embedded" => 2,
         _ => 3,
     }
 }
@@ -105,12 +104,13 @@ fn external_required(message: &str, input: &str) -> ResolvedPlayback {
             label: "外部打开".to_string(),
             kind: "external".to_string(),
             headers: None,
+            referer: Some(input.to_string()),
         }],
         error_message: Some(message.to_string()),
     }
 }
 
-fn ready_with_candidate(url: String, kind: &'static str) -> ResolvedPlayback {
+fn ready_with_candidate(url: String, kind: &'static str, referer: Option<&str>) -> ResolvedPlayback {
     ResolvedPlayback {
         status: "ready".to_string(),
         candidates: vec![PlaybackCandidate {
@@ -118,6 +118,7 @@ fn ready_with_candidate(url: String, kind: &'static str) -> ResolvedPlayback {
             label: "默认线路".to_string(),
             kind: kind.to_string(),
             headers: None,
+            referer: referer.map(|s| s.to_string()),
         }],
         error_message: None,
     }
@@ -156,12 +157,15 @@ async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
     let body = fetch_text(&client, input).await?;
 
+    let referer = Some(input);
+
     // Try 1: Aliplayer "source" JSON field
     if let Some(source_url) = extract_aliplayer_source(&body) {
         eprintln!("[resolve_play] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
         return Ok(ready_with_candidate(
             source_url.clone(),
             detect_kind(&source_url),
+            referer,
         ));
     }
 
@@ -169,16 +173,18 @@ async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
     if let Some(video_url) = extract_maccms_player_url(&body) {
         eprintln!("[resolve_play] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
         let kind = detect_kind(&video_url);
-        return Ok(ready_with_candidate(video_url, kind));
+        return Ok(ready_with_candidate(video_url, kind, referer));
     }
 
     // Try 3: Direct <video> or <source> elements
     if let Some(video_url) = extract_html_video_src(input, &body) {
         eprintln!("[resolve_play] Found video element src: {}", &video_url[..video_url.len().min(80)]);
-        return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url)));
+        return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url), referer));
     }
 
     // Try 4: iframe-based player (share page)
+    // We still attempt to resolve the share page for a direct URL, but we no longer
+    // fall back to an embed candidate — iframe playback experience is poor.
     if let Some(iframe_url) = extract_iframe_src(input, &body) {
         eprintln!("[resolve_play] Found iframe: {}", &iframe_url[..iframe_url.len().min(80)]);
         match resolve_embedded_share_page(&client, &iframe_url).await {
@@ -187,18 +193,8 @@ async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
                 return Ok(playback);
             }
             other => {
-                eprintln!("[resolve_play] Share page resolution failed, falling back to embed. Result: {:?}",
+                eprintln!("[resolve_play] Share page resolution failed, no embed fallback. Result: {:?}",
                     other.as_ref().map(|r| &r.status).unwrap_or(&"error".to_string()));
-                return Ok(ResolvedPlayback {
-                    status: "ready".to_string(),
-                    candidates: vec![PlaybackCandidate {
-                        url: iframe_url,
-                        label: "内嵌播放".to_string(),
-                        kind: "embed".to_string(),
-                        headers: None,
-                    }],
-                    error_message: None,
-                });
             }
         }
     }
@@ -278,6 +274,7 @@ async fn resolve_embedded_share_page(
     Ok(ready_with_candidate(
         source_url.clone(),
         detect_kind(&source_url),
+        Some(iframe_url),
     ))
 }
 
@@ -642,18 +639,90 @@ fn normalize_master_playlist(master_body: &str, master_url: &str, variant_body: 
     result_lines.join("\n")
 }
 
+/// Check if an error string indicates an auth/referer-blocked failure
+/// that might succeed on retry with a Referer header.
+fn looks_like_auth_failure(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("403")
+        || lower.contains("401")
+        || lower.contains("406")
+        || lower.contains("407")
+        || lower.contains("blocked")
+        || lower.contains("forbidden")
+        || lower.contains("unauthorized")
+}
+
+/// Wrapper for playlist fetch that retries with Referer on auth failure.
+async fn fetch_hls_playlist_with_headers_no_cors_and_retry(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+    referer: Option<&str>,
+) -> Result<String, String> {
+    let h = headers;
+    let r = referer;
+    match fetch_hls_playlist_with_headers_no_cors(client, url, h).await {
+        Ok(body) => Ok(body),
+        Err(e) if r.is_some() && looks_like_auth_failure(&e) => {
+            let mut retry_headers = h.cloned().unwrap_or_default();
+            retry_headers.insert("Referer".to_string(), r.unwrap().to_string());
+            fetch_hls_playlist_with_headers_no_cors(client, url, Some(&retry_headers)).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Wrapper for binary proxy that retries with Referer on auth failure.
+async fn proxy_url_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    referer: Option<&str>,
+) -> Result<String, String> {
+    match proxy_url(client, url).await {
+        Ok(body) => Ok(body),
+        Err(e) if referer.is_some() && looks_like_auth_failure(&e) => {
+            proxy_url_with_referer(client, url, referer.unwrap()).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Proxy a URL with an explicit Referer header.
+async fn proxy_url_with_referer(
+    client: &reqwest::Client,
+    url: &str,
+    referer: &str,
+) -> Result<String, String> {
+    use base64::Engine;
+    let request = client
+        .get(url)
+        .header("Referer", referer)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        );
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("proxy request failed: {status}"));
+    }
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 pub(crate) async fn fetch_hls_manifest_internal(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
+    referer: Option<&str>,
 ) -> Result<String, String> {
     // For non-manifest URLs (segments), use binary proxy
     if !url.contains(".m3u8") {
         let client = build_client()?;
-        return proxy_url(&client, url).await;
+        return proxy_url_with_retry(&client, url, referer).await;
     }
 
     let client = build_client()?;
-    let body = fetch_hls_playlist_with_headers_no_cors(&client, url, headers).await?;
+    let body = fetch_hls_playlist_with_headers_no_cors_and_retry(&client, url, headers, referer).await?;
 
     // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
     if body.contains("#EXT-X-STREAM-INF") {
@@ -662,8 +731,8 @@ pub(crate) async fn fetch_hls_manifest_internal(
             return Err("master playlist missing variant url".to_string());
         };
 
-        // Fetch the variant playlist without CORS check
-        let variant_body = fetch_hls_playlist_with_headers_no_cors(&client, &variant_url, headers).await?;
+        // Fetch the variant playlist with retry
+        let variant_body = fetch_hls_playlist_with_headers_no_cors_and_retry(&client, &variant_url, headers, referer).await?;
 
         // Normalize the master playlist with embedded variant
         let normalized = normalize_master_playlist(&body, url, &variant_body, &variant_url);

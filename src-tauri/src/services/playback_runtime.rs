@@ -58,13 +58,14 @@ pub async fn resolve_playback_for_input(
 }
 
 pub fn discover_initial_targets(input: &str) -> Vec<PlaybackTarget> {
-    vec![build_runtime_target(input, "default", None)]
+    vec![build_runtime_target(input, "default", None, Some(input))]
 }
 
 pub fn build_runtime_target(
     url: &str,
     source_key: &str,
     episode_id: Option<i64>,
+    referer: Option<&str>,
 ) -> PlaybackTarget {
     let target_kind = match classify_playback_target(url) {
         "direct" => PlaybackTargetKind::Direct,
@@ -83,6 +84,7 @@ pub fn build_runtime_target(
         headers: None,
         sort_hint: 0,
         meta: None,
+        referer: referer.map(|s| s.to_string()),
     }
 }
 
@@ -103,6 +105,7 @@ pub fn maybe_cached_targets_for_episode(
                 headers: parse_headers_json(record.headers_json.as_deref())?,
                 sort_hint: record.sort_hint,
                 meta: record.meta_text,
+                referer: None,
             })
         })
         .collect()
@@ -249,8 +252,8 @@ pub fn filter_presentable_targets(
 pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> ResolvedPlayback {
     let failure_message = summarize_runtime_failures(&candidates);
 
-    // First try: well-probed desktop-playable candidates
-    let visible = filter_presentable_targets(candidates.clone());
+    // Only desktop-playable candidates (no embed fallback — iframe experience is poor)
+    let visible = filter_presentable_targets(candidates);
     if !visible.is_empty() {
         return ResolvedPlayback {
             status: "ready".to_string(),
@@ -262,28 +265,7 @@ pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> Resolv
         };
     }
 
-    // Second try: embed candidates (iframe-based players like zxzj, xb6v share pages)
-    // These can render in an iframe even though they're not desktop-playable as video.
-    let embed_candidates: Vec<_> = candidates
-        .into_iter()
-        .filter(|c| {
-            matches!(c.target.target_kind, PlaybackTargetKind::Embedded)
-                && matches!(c.probe.status, PlaybackProbeStatus::Playable)
-        })
-        .collect();
-
-    if !embed_candidates.is_empty() {
-        return ResolvedPlayback {
-            status: "ready".to_string(),
-            candidates: embed_candidates
-                .into_iter()
-                .map(to_playback_candidate)
-                .collect(),
-            error_message: None,
-        };
-    }
-
-    // No playable candidates of any kind
+    // No playable candidates
     ResolvedPlayback {
         status: resolved_failure_status(&failure_message).to_string(),
         candidates: vec![],
@@ -321,6 +303,7 @@ async fn expand_resolved_playback(
             headers: candidate.headers,
             sort_hint: parent.sort_hint.saturating_add(index as i32),
             meta: Some(candidate.label),
+            referer: candidate.referer.or_else(|| parent.referer.clone()),
         };
 
         let probe = if target.is_desktop_playable_kind() && !is_known_cdn_url(&target.target_url) {
@@ -331,10 +314,8 @@ async fn expand_resolved_playback(
             // and trust the URL since hls.js works correctly in the WebView.
             PlaybackProbeResult::playable()
         } else if matches!(target.target_kind, PlaybackTargetKind::Embedded) {
-            // Resolver explicitly chose to return an embed candidate (e.g., xb6v share
-            // page fallback when direct URL extraction failed). These can render in an
-            // iframe and don't need traditional media probing.
-            PlaybackProbeResult::playable()
+            // Embed candidates are no longer presented to users (iframe experience is poor).
+            PlaybackProbeResult::failed("embed playback disabled", None)
         } else {
             PlaybackProbeResult::failed("target kind is not desktop playable", None)
         };
@@ -354,7 +335,7 @@ fn parse_candidate_kind(value: &str, url: &str) -> PlaybackTargetKind {
                 PlaybackTargetKind::Resolvable
             }
         }
-        "embed" => PlaybackTargetKind::Embedded,
+        "embed" => PlaybackTargetKind::ExternalRequired,
         "external" => PlaybackTargetKind::ExternalRequired,
         _ => PlaybackTargetKind::Resolvable,
     }
@@ -642,6 +623,7 @@ fn to_playback_candidate(candidate: RuntimeResolvedCandidate) -> PlaybackCandida
             .unwrap_or_else(|| "默认线路".to_string()),
         kind: kind.to_string(),
         headers: candidate.target.headers,
+        referer: candidate.target.referer,
     }
 }
 
@@ -710,6 +692,7 @@ mod tests {
             headers: None,
             sort_hint: 0,
             meta: None,
+            referer: None,
         }
     }
 
@@ -1037,14 +1020,10 @@ mod tests {
     #[test]
     fn builds_resolvable_and_embedded_runtime_targets() {
         let guard = build_runtime_target(
-            "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1",
-            "guard",
-            Some(1),
+            "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1", "guard", Some(1), None,
         );
         let embedded = build_runtime_target(
-            "https://www.zxzjhd.com/vodplay/4627-1-1.html",
-            "zxzj",
-            Some(2),
+            "https://www.zxzjhd.com/vodplay/4627-1-1.html", "zxzj", Some(2), None,
         );
 
         assert_eq!(guard.target_kind, PlaybackTargetKind::Resolvable);
@@ -1131,6 +1110,7 @@ mod tests {
                     headers: Some(headers),
                     sort_hint: 1,
                     meta: Some("无尽线路".to_string()),
+                    referer: None,
                 },
                 probe: PlaybackProbeResult::playable(),
             }],
@@ -1167,6 +1147,7 @@ mod tests {
                         headers: None,
                         sort_hint: 9,
                         meta: Some("第二条".to_string()),
+                        referer: None,
                     },
                     probe: PlaybackProbeResult::playable(),
                 },
@@ -1180,6 +1161,7 @@ mod tests {
                         headers: None,
                         sort_hint: 1,
                         meta: Some("第一条".to_string()),
+                        referer: None,
                     },
                     probe: PlaybackProbeResult::playable(),
                 },
@@ -1212,6 +1194,7 @@ mod tests {
                     headers: None,
                     sort_hint: 2,
                     meta: Some("文采线路A:第1集".to_string()),
+                    referer: None,
                 },
                 probe: PlaybackProbeResult::playable(),
             }],

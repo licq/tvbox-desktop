@@ -28,7 +28,7 @@ pub fn runtime_targets_for_item(item: &ScrapedCatalogItem) -> Vec<PlaybackTarget
         .enumerate()
         .map(|(index, episode)| {
             let mut target =
-                build_runtime_target(&episode.play_url, &source_key, Some((index + 1) as i64));
+                build_runtime_target(&episode.play_url, &source_key, Some((index + 1) as i64), None);
             target.sort_hint = episode.order_index as i32;
             target.meta = Some(runtime_target_label(episode));
             target

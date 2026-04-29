@@ -69,11 +69,12 @@ export interface PlaybackTarget {
   episode_id: number | null
   source_key: string
   target_url: string
-  target_kind: 'direct' | 'resolvable' | 'embedded' | 'external_required'
+  target_kind: 'Direct' | 'Resolvable' | 'Embedded' | 'ExternalRequired'
   resolver_key: string | null
   headers: Record<string, string> | null
   sort_hint: number
   meta: string | null
+  referer: string | null
 }
 
 export interface VodItem {
@@ -223,6 +224,7 @@ export interface PlaybackCandidate {
   label: string;
   kind: 'hls' | 'http' | 'external' | 'embed';
   headers?: Record<string, string>;
+  referer?: string;
 }
 
 export type PlayerSource = PlaybackCandidate

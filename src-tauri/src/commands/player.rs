@@ -45,7 +45,8 @@ pub async fn resolve_playback(
 pub async fn fetch_hls_manifest(
     url: String,
     headers: Option<std::collections::HashMap<String, String>>,
+    referer: Option<String>,
 ) -> Result<String, String> {
-    crate::services::resolver::fetch_hls_manifest_internal(&url, headers.as_ref())
+    crate::services::resolver::fetch_hls_manifest_internal(&url, headers.as_ref(), referer.as_deref())
         .await
 }

@@ -59,6 +59,7 @@ pub struct PlaybackTarget {
     pub headers: Option<HashMap<String, String>>,
     pub sort_hint: i32,
     pub meta: Option<String>,
+    pub referer: Option<String>,
 }
 
 impl PlaybackTarget {
@@ -123,6 +124,7 @@ mod tests {
             headers: None,
             sort_hint,
             meta: None,
+            referer: None,
         }
     }
 

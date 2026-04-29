@@ -1942,6 +1942,7 @@ mod tests {
             "guard://csp_JPJGuard/%E8%B4%B1%E8%B4%B1/97910/1/1",
             "csp_JPJGuard",
             Some(88),
+            None,
         );
         target.sort_hint = 0;
         let record = playback_target_record(88, &target);

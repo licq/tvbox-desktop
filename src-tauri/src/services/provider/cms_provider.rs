@@ -171,6 +171,7 @@ impl VideoProvider for CmsProvider {
             headers: None,
             sort_hint: 0,
             meta: None,
+            referer: None,
         };
         Ok(vec![target])
     }

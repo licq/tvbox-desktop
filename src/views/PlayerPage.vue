@@ -26,6 +26,8 @@ type PlayerSource = {
   url: string
   label: string
   kind: 'hls' | 'http' | 'external' | 'embed'
+  headers?: Record<string, string>
+  referer?: string
 }
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -46,7 +48,6 @@ const currentUnifiedEpisode = ref<UnifiedEpisode | null>(null)
 const currentUnifiedSourceIndex = ref(0)
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
-const isEmbedSource = computed(() => currentSource.value?.kind === 'embed')
 const mode = computed(() => String(route.params.mode ?? 'live'))
 const itemId = computed(() => Number(route.params.id))
 const sourceDetailUrl = computed(() => route.params.detailUrl as string | undefined)
@@ -108,7 +109,8 @@ async function loadSourceDetail() {
         sources.value = resolved.candidates.map(c => ({
           url: c.url,
           label: c.label,
-          kind: c.kind
+          kind: c.kind,
+          referer: c.referer
         }))
         currentSourceIndex.value = 0
         if (resolved.status === 'ready' || resolved.status === 'external_required') {
@@ -463,7 +465,8 @@ async function initVodPlayback(url: string, id?: number) {
   sources.value = resolved.candidates.map(candidate => ({
     url: candidate.url,
     label: candidate.label,
-    kind: candidate.kind
+    kind: candidate.kind,
+    referer: candidate.referer
   }))
   currentSourceIndex.value = 0
   failedSourceIndexes.value = []
@@ -499,7 +502,22 @@ async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 
         playUrl: source.episode.play_url,
       })
       if (targets.length > 0) {
-        await initVodPlayback(targets[0].target_url, source.episode.id)
+        const target = targets[0]
+        // For Direct targets from providers, bypass resolve (which would lose headers and fail probing)
+        // and play directly with the provider-supplied headers.
+        if (target.target_kind === 'Direct') {
+          sources.value = [{
+            url: target.target_url,
+            label: sourceName.value || '来源',
+            kind: target.target_url.includes('.m3u8') ? 'hls' : 'http',
+            referer: target.referer ?? undefined,
+          }]
+          currentSourceIndex.value = 0
+          failedSourceIndexes.value = []
+          await playSource(sources.value[0])
+        } else {
+          await initVodPlayback(target.target_url, source.episode.id)
+        }
       } else {
         await playUnifiedEpisode(unifiedEpisode, sourceIndex + 1)
       }
@@ -538,16 +556,10 @@ async function playSource(source: PlayerSource) {
     return
   }
 
-  if (source.kind === 'embed') {
-    resetVideoElement()
-    errorMsg.value = ''
-    return
-  }
-
-  await initHlsPlayer(url)
+  await initHlsPlayer(url, source.headers, source.referer)
 }
 
-async function initHlsPlayer(url: string) {
+async function initHlsPlayer(url: string, headers?: Record<string, string>, referer?: string) {
   if (!videoRef.value) return
 
   if (hlsInstance) {
@@ -564,32 +576,13 @@ async function initHlsPlayer(url: string) {
       const CustomLoader = class extends Hls.DefaultConfig.loader {
         load(context: any, config: any, callbacks: any) {
           const url = context.url
-          // All .m3u8 requests go through Rust proxy for ad filtering + CORS bypass
-          if (url.includes('.m3u8')) {
-            invoke<string>('fetch_hls_manifest', { url })
+          // All manifest and segment requests go through Rust proxy for ad filtering,
+          // CORS bypass, and automatic Referer retry for auth-blocking CDNs.
+          const isManifest = url.includes('.m3u8')
+          const isSegment = url.endsWith('.ts') || url.endsWith('.mp4')
+          if (isManifest || isSegment) {
+            invoke<string>('fetch_hls_manifest', { url, headers, referer })
               .then((data) => {
-                const stats = {
-                  aborted: false, loaded: data.length, retry: 0,
-                  total: data.length, chunkCount: 0, bwEstimate: 0,
-                  loading: { start: 0, first: 0, end: 0 },
-                  parsing: { start: 0, end: 0 },
-                  buffering: { start: 0, end: 0 },
-                }
-                callbacks.onSuccess({ data, url, code: 200 }, stats, context, null)
-              })
-              .catch((err) => {
-                callbacks.onError(
-                  { code: 0, text: String(err) }, context, null,
-                  { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } }
-                )
-              })
-            return
-          }
-          // .ts segments from known problematic CDNs still need Rust proxy for CORS / referer check
-          if (url.includes('baofeng10') || url.includes('bfllvip') || url.includes('baofeng') || url.includes('fengbao9') || url.includes('lzcdn') || url.includes('cdnlz')) {
-            invoke<string>('fetch_hls_manifest', { url })
-              .then((data) => {
-                const isSegment = !url.includes('.m3u8')
                 const finalData: string | ArrayBuffer = isSegment
                   ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
                   : data
@@ -725,7 +718,6 @@ function handleVideoError() {
         <section class="player-stage">
           <div class="player-video-wrap" ref="videoWrapRef">
             <video
-              v-show="!isEmbedSource"
               ref="videoRef"
               class="player-video"
               playsinline
@@ -735,13 +727,6 @@ function handleVideoError() {
               @pause="handleVideoPause"
               @error="handleVideoError"
             ></video>
-            <iframe
-              v-if="isEmbedSource && currentSource"
-              class="player-video"
-              :src="currentSource.url"
-              allow="autoplay; fullscreen"
-              referrerpolicy="no-referrer"
-            ></iframe>
 
             <div class="player-vignette-top"></div>
             <div class="player-vignette-bottom"></div>
