@@ -51,6 +51,7 @@ const isFromDouban = computed(() => route.query.douban === '1')
 const isSearch = computed(() => route.query.search === '1')
 
 // Clean common Chinese suffixes from search result titles (e.g. "生命树[全集]" → "生命树")
+// Also strips trailing English/original title (e.g. "匹兹堡医护前线 The Pitt" → "匹兹堡医护前线")
 function cleanTitle(title: string): string {
   return title
     .replace(/\[全集\]/g, '')
@@ -62,6 +63,8 @@ function cleanTitle(title: string): string {
     .replace(/第\d+部/g, '')
     .replace(/\[HD\]/gi, '')
     .replace(/\[高清\]/g, '')
+    // Strip trailing English/original title (e.g. "The Pitt", "Avatar")
+    .replace(/\s+[A-Za-z][A-Za-z\s\d\-\:\.]*$/, '')
     .trim()
 }
 
@@ -340,7 +343,7 @@ async function loadDetail() {
 
     // OPTIMIZATION 2: Start source search IMMEDIATELY (we have title now)
     if (hotItem.value?.name) {
-      searchSources(hotItem.value.name)
+      searchSources(cleanTitle(hotItem.value.name))
     }
 
     // Also fetch enriched Douban metadata in background for director/actors/summary
