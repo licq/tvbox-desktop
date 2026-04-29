@@ -23,12 +23,12 @@ const sourceDetails = {
 }
 
 describe('SearchResultCard', () => {
-  it('renders MovieActionPanel for movies', () => {
+  it('renders episode buttons for movies when source details provided', () => {
     const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'movie' },
+      props: { ...baseProps, itemType: 'movie', sourceDetails },
     })
-    expect(wrapper.find('.movie-action-panel').exists()).toBe(true)
-    expect(wrapper.find('.episode-grid').exists()).toBe(false)
+    expect(wrapper.find('.movie-action-panel').exists()).toBe(false)
+    expect(wrapper.findAll('.source-btn').length).toBe(2)
   })
 
   it('renders EpisodeGrid for series when source detail provided', () => {
@@ -62,13 +62,59 @@ describe('SearchResultCard', () => {
     expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
   })
 
-  it('emits play-source when MovieActionPanel primary button is clicked', async () => {
+  it('deduplicates source name from movie episode label', () => {
+    const detailsWithOverlap = {
+      s1: {
+        title: '测试影片',
+        poster: null,
+        summary: null,
+        episodes: [
+          { id: 1, episode_label: '文才HD', play_url: 'http://a/1', order_index: 1 },
+        ],
+      },
+    }
     const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'movie' },
+      props: { ...baseProps, itemType: 'movie', sourceDetails: detailsWithOverlap },
     })
-    await wrapper.find('.play-btn-primary').trigger('click')
-    expect(wrapper.emitted('play-source')).toHaveLength(1)
-    expect(wrapper.emitted('play-source')![0]).toEqual(['s1', 'url1'])
+    const firstBtn = wrapper.find('.source-btn')
+    expect(firstBtn.text()).toBe('文才HD')
+    expect(firstBtn.text()).not.toContain('文才 ·')
+  })
+
+  it('prefixes source short name when episode label does not contain it', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: { ...baseProps, itemType: 'movie', sourceDetails },
+    })
+    const firstBtn = wrapper.find('.source-btn')
+    expect(firstBtn.text()).toBe('来源A · 01')
+  })
+
+  it('shows loading placeholder for movie when a source is loading', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sourceDetails,
+        loadingSources: ['s1'],
+      },
+    })
+    expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
+  })
+
+  it('skips empty sources for movies', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: { ...baseProps, itemType: 'movie', sourceDetails },
+    })
+    expect(wrapper.findAll('.source-btn').length).toBe(2)
+  })
+
+  it('emits play-episode when a movie episode button is clicked', async () => {
+    const wrapper = mount(SearchResultCard, {
+      props: { ...baseProps, itemType: 'movie', sourceDetails },
+    })
+    await wrapper.find('.source-btn').trigger('click')
+    expect(wrapper.emitted('play-episode')).toHaveLength(1)
+    expect(wrapper.emitted('play-episode')![0]).toEqual([episodes[0], 's1'])
   })
 
   it('emits play-episode with sourceKey when EpisodeGrid plays', async () => {
