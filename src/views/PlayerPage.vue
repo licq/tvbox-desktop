@@ -309,10 +309,8 @@ onUnmounted(() => {
   if (hideTimer) {
     window.clearTimeout(hideTimer)
   }
-  if (removeNativeVideoErrorHandler) {
-    removeNativeVideoErrorHandler()
-    removeNativeVideoErrorHandler = null
-  }
+  detachNativeVideoErrorHandler()
+  activePlaybackAttempt = null
 
   if (hlsInstance) {
     hlsInstance.destroy()
@@ -485,10 +483,8 @@ function resetVideoElement() {
     hlsInstance.destroy()
     hlsInstance = null
   }
-  if (removeNativeVideoErrorHandler) {
-    removeNativeVideoErrorHandler()
-    removeNativeVideoErrorHandler = null
-  }
+  detachNativeVideoErrorHandler()
+  activePlaybackAttempt = null
   if (videoRef.value) {
     videoRef.value.pause()
     videoRef.value.removeAttribute('src')
@@ -516,16 +512,18 @@ function invalidateSessionFailover() {
   resetSessionFailoverState()
 }
 
-function beginPlaybackAttempt(source: PlayerSource): PlaybackAttemptContext {
-  const attempt = {
+function createPlaybackAttempt(source: PlayerSource): PlaybackAttemptContext {
+  return {
     id: ++playbackAttemptId,
     generation: sessionGeneration,
     url: source.url,
     startedAt: performance.now(),
   }
+}
+
+function activatePlaybackAttempt(attempt: PlaybackAttemptContext) {
   activePlaybackAttempt = attempt
   attachNativeVideoErrorHandler(attempt)
-  return attempt
 }
 
 function isCurrentPlaybackAttempt(attempt: PlaybackAttemptContext | null | undefined) {
@@ -539,10 +537,7 @@ function isCurrentPlaybackAttempt(attempt: PlaybackAttemptContext | null | undef
 }
 
 function attachNativeVideoErrorHandler(attempt: PlaybackAttemptContext) {
-  if (removeNativeVideoErrorHandler) {
-    removeNativeVideoErrorHandler()
-    removeNativeVideoErrorHandler = null
-  }
+  detachNativeVideoErrorHandler()
   const video = videoRef.value
   if (!video) return
 
@@ -551,6 +546,13 @@ function attachNativeVideoErrorHandler(attempt: PlaybackAttemptContext) {
   }
   video.addEventListener('error', handler)
   removeNativeVideoErrorHandler = () => video.removeEventListener('error', handler)
+}
+
+function detachNativeVideoErrorHandler() {
+  if (removeNativeVideoErrorHandler) {
+    removeNativeVideoErrorHandler()
+    removeNativeVideoErrorHandler = null
+  }
 }
 
 async function switchToSource(index: number) {
@@ -878,7 +880,6 @@ function markCurrentSourceFailed() {
 
 async function playSource(source: PlayerSource) {
   errorMsg.value = ''
-  const attempt = beginPlaybackAttempt(source)
   const url = source.url
 
   if (isDrpyProtocol(url) || source.kind === 'external') {
@@ -888,24 +889,26 @@ async function playSource(source: PlayerSource) {
     return
   }
 
-  await initHlsPlayer(url, source.headers, source.referer, attempt)
+  await initHlsPlayer(source)
 }
 
-async function initHlsPlayer(
-  url: string,
-  headers?: Record<string, string>,
-  referer?: string,
-  playbackAttempt?: PlaybackAttemptContext
-) {
+async function initHlsPlayer(source: PlayerSource) {
   if (!videoRef.value) return
+  const video = videoRef.value
+  const { url, headers, referer } = source
 
+  detachNativeVideoErrorHandler()
+  activePlaybackAttempt = null
   if (hlsInstance) {
     hlsInstance.destroy()
     hlsInstance = null
   }
 
+  const playbackAttempt = createPlaybackAttempt(source)
+
   if (url.includes('.m3u8')) {
     const Hls = await getHlsConstructor()
+    if (playbackAttempt.generation !== sessionGeneration) return
 
     if (Hls.isSupported()) {
       // Custom loader to bypass CORS for CDN URLs
@@ -939,10 +942,6 @@ async function initHlsPlayer(
       }
 
       const hls = new Hls({ loader: CustomLoader as any })
-      hlsInstance = hls
-      hls.loadSource(url)
-      hls.attachMedia(videoRef.value)
-
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
         if (playbackSession.value) {
@@ -968,19 +967,25 @@ async function initHlsPlayer(
         void attemptPlayback(false, playbackAttempt)
       })
 
+      hlsInstance = hls
+      hls.loadSource(url)
+      hls.attachMedia(video)
+      activatePlaybackAttempt(playbackAttempt)
       return
     }
 
-    if (videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.value.src = url
-      videoRef.value.load()
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url
+      video.load()
+      activatePlaybackAttempt(playbackAttempt)
       pendingAutoplay.value = true
       return
     }
   }
 
-  videoRef.value.src = url
-  videoRef.value.load()
+  video.src = url
+  video.load()
+  activatePlaybackAttempt(playbackAttempt)
   pendingAutoplay.value = true
 }
 
