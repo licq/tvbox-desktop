@@ -103,12 +103,25 @@ const movieEpisodeButtons = computed<MovieEpisodeButton[]>(() => {
   return buttons
 })
 
-function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
-  if (/^\d+$/.test(episodeLabel)) {
-    const short = sourceName.slice(0, 4)
-    return `${short} · ${episodeLabel}`
+function extractShortName(name: string): string {
+  // For CJK names, take first 2 characters (typically enough to identify)
+  // For ASCII names, take first 4 characters
+  const cjkMatch = name.match(/^[\u4e00-\u9fa5]{2,}/)
+  if (cjkMatch) {
+    return cjkMatch[0].slice(0, 2)
   }
-  return episodeLabel
+  return name.slice(0, 4)
+}
+
+function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
+  const short = extractShortName(sourceName)
+
+  // If episodeLabel already contains the short name, don't prefix (avoid repetition)
+  if (short && episodeLabel.includes(short)) {
+    return episodeLabel
+  }
+
+  return `${short} · ${episodeLabel}`
 }
 </script>
 

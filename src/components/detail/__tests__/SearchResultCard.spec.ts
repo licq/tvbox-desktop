@@ -63,18 +63,22 @@ describe('SearchResultCard', () => {
   })
 
   it('deduplicates source name from movie episode label', () => {
-    const detailsWithOverlap = {
-      s1: {
-        title: '测试影片',
-        poster: null,
-        summary: null,
-        episodes: [
-          { id: 1, episode_label: '文才HD', play_url: 'http://a/1', order_index: 1 },
-        ],
-      },
-    }
     const wrapper = mount(SearchResultCard, {
-      props: { ...baseProps, itemType: 'movie', sourceDetails: detailsWithOverlap },
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+        sources: [{ source: 's1', source_name: '文才影视', detail_url: 'url1' }],
+        sourceDetails: {
+          s1: {
+            title: '测试影片',
+            poster: null,
+            summary: null,
+            episodes: [
+              { id: 1, episode_label: '文才HD', play_url: 'http://a/1', order_index: 1 },
+            ],
+          },
+        },
+      },
     })
     const firstBtn = wrapper.find('.source-btn')
     expect(firstBtn.text()).toBe('文才HD')
@@ -86,7 +90,7 @@ describe('SearchResultCard', () => {
       props: { ...baseProps, itemType: 'movie', sourceDetails },
     })
     const firstBtn = wrapper.find('.source-btn')
-    expect(firstBtn.text()).toBe('来源A · 01')
+    expect(firstBtn.text()).toBe('来源 · 01')
   })
 
   it('shows loading placeholder for movie when a source is loading', () => {
