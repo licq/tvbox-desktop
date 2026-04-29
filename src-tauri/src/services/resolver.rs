@@ -429,6 +429,14 @@ async fn probe_binary_resource_result(
 
     if response.status().is_success() || response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
         if !has_browser_cors(&response) {
+            // m3u8 URLs are always fetched through the Rust proxy (fetch_hls_manifest)
+            // which bypasses browser CORS entirely, so a missing CORS header is
+            // not a failure for HLS playlists.
+            if url.contains(".m3u8") {
+                let mut probe = PlaybackProbeResult::playable();
+                probe.http_status = http_status;
+                return probe;
+            }
             let mut probe =
                 PlaybackProbeResult::failed("resource probe missing browser CORS headers", http_status);
             probe.manifest_ok = true;
