@@ -8,9 +8,10 @@ import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
 import { useDetailStore } from '@/stores/detail'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
-import type { CatalogEpisode, CatalogEpisodeGroup, PlaybackTarget } from '@/types'
+import type { CatalogEpisode, CatalogEpisodeGroup, PlaybackTarget, UnifiedEpisode } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
+import { mergeEpisodes } from '@/utils/episode'
 import type Hls from 'hls.js'
 
 const route = useRoute()
@@ -61,13 +62,28 @@ const episodeId = computed(() => {
 const providerDetailUrl = computed(() => route.query.detailUrl as string | undefined)
 const episodeLabelFromQuery = computed(() => route.query.episodeLabel as string | undefined)
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
-const currentEpisodeIdForDrawer = computed(() => {
-  if (episodeId.value) return episodeId.value
-  if (episodeLabelFromQuery.value && activeGroup.value) {
-    const ep = activeGroup.value.episodes.find(
-      e => e.episode_label === episodeLabelFromQuery.value
+const unifiedEpisodes = computed(() => {
+  if (detailStore.episodeGroups.length > 0 && detailStore.item) {
+    return mergeEpisodes(detailStore.episodeGroups, detailStore.item.item_type)
+  }
+  if (activeGroup.value) {
+    return mergeEpisodes([activeGroup.value], 'series')
+  }
+  return []
+})
+
+const currentNormalizedIndex = computed(() => {
+  if (episodeId.value) {
+    const ue = unifiedEpisodes.value.find(u =>
+      u.sources.some(s => s.episode.id === episodeId.value)
     )
-    if (ep) return ep.id
+    return ue?.normalizedIndex
+  }
+  if (episodeLabelFromQuery.value) {
+    const ue = unifiedEpisodes.value.find(u =>
+      u.sources.some(s => s.episode.episode_label === episodeLabelFromQuery.value)
+    )
+    return ue?.normalizedIndex
   }
   return undefined
 })
@@ -483,6 +499,11 @@ async function switchToEpisode(episode: CatalogEpisode) {
   }
 }
 
+async function switchToUnifiedEpisode(ue: UnifiedEpisode) {
+  if (ue.sources.length === 0) return
+  await switchToEpisode(ue.sources[0].episode)
+}
+
 function markCurrentSourceFailed() {
   if (!failedSourceIndexes.value.includes(currentSourceIndex.value)) {
     failedSourceIndexes.value = [...failedSourceIndexes.value, currentSourceIndex.value]
@@ -759,10 +780,10 @@ function handleVideoError() {
           :failed-indexes="failedSourceIndexes"
           :status="playerStatusText"
           :error-message="errorMsg || playbackStore.errorMessage"
-          :episodes="activeGroup?.episodes"
-          :current-episode-id="currentEpisodeIdForDrawer"
+          :unified-episodes="unifiedEpisodes"
+          :current-normalized-index="currentNormalizedIndex"
           @select="switchToSource"
-          @select-episode="switchToEpisode"
+          @select-unified-episode="switchToUnifiedEpisode"
         />
       </div>
     </div>

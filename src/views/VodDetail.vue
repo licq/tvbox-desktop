@@ -10,7 +10,7 @@ import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
 import SearchResultCard from '@/components/detail/SearchResultCard.vue'
-import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult } from '@/types'
+import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult, UnifiedEpisode } from '@/types'
 
 interface DoubanSubjectMeta {
   doubanId: number
@@ -454,7 +454,9 @@ onUnmounted(() => {
   stopWatch()
 })
 
-function handlePlay(episode: CatalogEpisode) {
+function handlePlay(ue: UnifiedEpisode) {
+  if (ue.sources.length === 0) return
+  const episode = ue.sources[0].episode
   router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
 }
 

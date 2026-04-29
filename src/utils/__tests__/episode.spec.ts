@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { extractEpisodeIndex, mergeEpisodes, formatDisplayLabel } from '../episode'
-import type { CatalogEpisodeGroup, CatalogItemType } from '@/types'
+import type { CatalogEpisodeGroup } from '@/types'
 
 describe('extractEpisodeIndex', () => {
   it('extracts from 第1集', () => expect(extractEpisodeIndex('第1集')).toBe(1))

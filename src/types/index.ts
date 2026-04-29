@@ -225,6 +225,8 @@ export interface PlaybackCandidate {
   headers?: Record<string, string>;
 }
 
+export type PlayerSource = PlaybackCandidate
+
 export interface ResolvedPlayback {
   status: 'ready' | 'failed' | 'external_required';
   candidates: PlaybackCandidate[];

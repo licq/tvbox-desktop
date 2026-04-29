@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import SourceBadge from '@/components/media/SourceBadge.vue'
-
-type PlayerSource = {
-  url: string
-  label: string
-  kind: 'hls' | 'http' | 'external' | 'embed'
-}
+import type { PlayerSource, UnifiedEpisode } from '@/types'
 
 const props = defineProps<{
   sources: PlayerSource[]
@@ -14,14 +9,14 @@ const props = defineProps<{
   failedIndexes: number[]
   status: string
   errorMessage?: string | null
-  episodes?: import('@/types').CatalogEpisode[]
-  currentEpisodeId?: number
+  unifiedEpisodes?: UnifiedEpisode[]
+  currentNormalizedIndex?: number
   activeTab?: 'sources' | 'episodes'
 }>()
 
 defineEmits<{
   select: [index: number]
-  selectEpisode: [episode: import('@/types').CatalogEpisode]
+  selectUnifiedEpisode: [episode: UnifiedEpisode]
   tabChange: [tab: 'sources' | 'episodes']
 }>()
 
@@ -84,16 +79,20 @@ const innerTab = ref<'sources' | 'episodes'>(props.activeTab ?? 'sources')
       </button>
     </div>
 
-    <!-- Episodes grid — shown when on episodes tab with episodes -->
-    <div v-else-if="innerTab === 'episodes' && episodes?.length" class="episode-grid">
+    <!-- Episodes grid — shown when on episodes tab with unified episodes -->
+    <div v-else-if="innerTab === 'episodes' && unifiedEpisodes?.length" class="episode-grid">
       <button
-        v-for="ep in episodes"
-        :key="ep.id"
-        :class="['episode-chip', ep.id === currentEpisodeId ? 'episode-chip-active' : '']"
+        v-for="ue in unifiedEpisodes"
+        :key="ue.normalizedIndex"
+        :class="[
+          'episode-chip',
+          ue.normalizedIndex === currentNormalizedIndex ? 'episode-chip-active' : ''
+        ]"
         type="button"
-        @click="$emit('selectEpisode', ep)"
+        @click="$emit('selectUnifiedEpisode', ue)"
       >
-        {{ ep.episode_label }}
+        {{ ue.displayLabel }}
+        <span v-if="ue.sources.length > 1" class="source-count-badge">{{ ue.sources.length }}源</span>
       </button>
     </div>
 
@@ -173,5 +172,14 @@ const innerTab = ref<'sources' | 'episodes'>(props.activeTab ?? 'sources')
   color: #000;
   font-weight: 600;
   border-color: var(--accent);
+}
+
+.source-count-badge {
+  font-size: 0.6rem;
+  background: rgba(160, 120, 200, 0.2);
+  color: rgba(220, 200, 245, 0.9);
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.2rem;
+  margin-left: 0.25rem;
 }
 </style>
