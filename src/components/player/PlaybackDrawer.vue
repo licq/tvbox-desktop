@@ -11,7 +11,7 @@ const props = defineProps<{
   errorMessage?: string | null
   unifiedEpisodes?: UnifiedEpisode[]
   currentNormalizedIndex?: number
-  itemType: string
+  itemType: 'movie' | 'series' | 'variety' | 'anime'
 }>()
 
 const emit = defineEmits<{
@@ -40,6 +40,8 @@ async function copyUrl(url: string) {
 const isSeries = computed(() =>
   props.itemType === 'series' || props.itemType === 'variety' || props.itemType === 'anime'
 )
+
+const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
 </script>
 
 <template>
@@ -53,7 +55,7 @@ const isSeries = computed(() =>
         </template>
         <template v-else>
           <span class="eyebrow">播放线路</span>
-          <h2>{{ sources[currentIndex]?.label || '选择线路' }}</h2>
+          <h2>{{ currentSource?.label || '选择线路' }}</h2>
         </template>
       </div>
       <SourceBadge :label="status" :tone="status === 'failed' ? 'danger' : 'warm'" />
@@ -121,12 +123,12 @@ const isSeries = computed(() =>
 
       <!-- UrlDisplay -->
       <div
-        v-if="sources[currentIndex]?.url"
+        v-if="currentSource?.url"
         :class="['url-display', { 'url-display-copied': copied }]"
-        @click="copyUrl(sources[currentIndex].url)"
+        @click="copyUrl(currentSource.url)"
         title="点击复制 URL"
       >
-        <span class="url-text">{{ sources[currentIndex].url }}</span>
+        <span class="url-text">{{ currentSource.url }}</span>
         <span class="url-copy-hint">{{ copied ? '✓ 已复制' : '复制' }}</span>
       </div>
 
