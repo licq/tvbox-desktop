@@ -530,9 +530,7 @@ function handlePlay(episode: CatalogEpisode) {
 
         <section v-else-if="detailStore.episodeGroups.length" class="source-list space-y-4">
           <EpisodeGroupPanel
-            v-for="group in detailStore.episodeGroups"
-            :key="group.source_name"
-            :group="group"
+            :groups="detailStore.episodeGroups"
             :item_type="detailStore.item?.item_type"
             @play="handlePlay"
           />

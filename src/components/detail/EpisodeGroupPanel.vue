@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import EpisodeChip from '@/components/media/EpisodeChip.vue'
-import type { CatalogEpisode, CatalogEpisodeGroup, CatalogItemType } from '@/types'
+import { mergeEpisodes } from '@/utils/episode'
+import type { CatalogEpisodeGroup, CatalogItemType, UnifiedEpisode } from '@/types'
 
 const props = defineProps<{
-  group: CatalogEpisodeGroup
+  groups: CatalogEpisodeGroup[]
   item_type?: CatalogItemType
 }>()
 
 const emit = defineEmits<{
-  play: [episode: CatalogEpisode]
+  play: [episode: UnifiedEpisode]
 }>()
 
 const isMovie = computed(() => props.item_type === 'movie')
@@ -24,21 +25,26 @@ const typeLabel = computed(() => {
   }
 })
 
+const unifiedEpisodes = computed(() => {
+  const itemType = props.item_type ?? 'series'
+  return mergeEpisodes(props.groups, itemType)
+})
+
 const EXPAND_THRESHOLD = 24
 const needsExpand = computed(() => {
-  return !isMovie.value && props.group.episodes.length > EXPAND_THRESHOLD
+  return !isMovie.value && unifiedEpisodes.value.length > EXPAND_THRESHOLD
 })
 const expanded = ref(false)
 
 const visibleEpisodes = computed(() => {
   if (isMovie.value || !needsExpand.value || expanded.value) {
-    return props.group.episodes
+    return unifiedEpisodes.value
   }
-  return props.group.episodes.slice(0, EXPAND_THRESHOLD)
+  return unifiedEpisodes.value.slice(0, EXPAND_THRESHOLD)
 })
 
 const remainingCount = computed(() => {
-  return props.group.episodes.length - EXPAND_THRESHOLD
+  return unifiedEpisodes.value.length - EXPAND_THRESHOLD
 })
 </script>
 
@@ -46,9 +52,9 @@ const remainingCount = computed(() => {
   <section class="source-group-card">
     <div class="source-group-header">
       <div class="source-group-header-left">
-        <span class="source-group-name">{{ group.source_name }}</span>
+        <span class="source-group-name">全部播放源</span>
         <span class="source-group-count-badge">
-          {{ isMovie ? `${group.episodes.length} 个播放源` : `${group.episodes.length} 集` }}
+          {{ isMovie ? `${unifiedEpisodes.length} 个播放源` : `${unifiedEpisodes.length} 集` }}
         </span>
       </div>
       <span class="source-group-type-tag">{{ typeLabel }}</span>
@@ -57,24 +63,25 @@ const remainingCount = computed(() => {
     <div class="source-group-body">
       <div v-if="isMovie" class="play-button-row">
         <button
-          v-for="episode in group.episodes"
-          :key="episode.id"
+          v-for="ue in unifiedEpisodes"
+          :key="ue.sources[0].episode.id"
           class="play-button"
-          @click="emit('play', episode)"
+          @click="emit('play', ue)"
         >
           <span class="play-icon">▶</span>
-          <span class="play-label">{{ episode.episode_label }}</span>
+          <span class="play-label">{{ ue.displayLabel }}</span>
         </button>
       </div>
 
       <template v-else>
         <div class="episode-chip-grid">
           <EpisodeChip
-            v-for="episode in visibleEpisodes"
-            :key="episode.id"
-            :label="episode.episode_label"
+            v-for="ue in visibleEpisodes"
+            :key="ue.normalizedIndex"
+            :label="ue.displayLabel"
+            :source-count="ue.sources.length"
             state="playable"
-            @click="emit('play', episode)"
+            @click="emit('play', ue)"
           />
         </div>
 
