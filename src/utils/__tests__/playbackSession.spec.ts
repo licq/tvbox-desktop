@@ -1,9 +1,14 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import type { UnifiedEpisode } from '@/types'
+import type { PlaybackCandidate, UnifiedEpisode } from '@/types'
 import {
+  attachCandidatesToActiveSource,
   createEpisodePlaybackSession,
   clearPlaybackHealth,
+  markCurrentCandidateFailed,
   markPlaybackHealth,
+  nextCandidateToPlay,
+  startNextSourceAttempt,
+  shouldFailoverAfterPlaybackError,
 } from '@/utils/playbackSession'
 
 function episode(): UnifiedEpisode {
@@ -49,5 +54,47 @@ describe('playback session', () => {
     const session = createEpisodePlaybackSession(episode())
 
     expect(session.sourceAttempts.map(attempt => attempt.source.sourceName)).toEqual(['慢线路', '快线路', '坏线路'])
+  })
+})
+
+const candidates = [
+  { url: 'https://cdn.example/a.m3u8', label: '候选1', kind: 'hls' },
+  { url: 'https://cdn.example/b.m3u8', label: '候选2', kind: 'hls' },
+] satisfies PlaybackCandidate[]
+
+describe('playback session advancement', () => {
+  beforeEach(() => clearPlaybackHealth())
+
+  it('tries another candidate in the same source before moving to the next source', () => {
+    const session = createEpisodePlaybackSession(episode())
+    const firstAttempt = startNextSourceAttempt(session)
+    expect(firstAttempt?.source.sourceKey).toBe('slow')
+
+    attachCandidatesToActiveSource(session, candidates)
+    expect(nextCandidateToPlay(session)?.url).toBe('https://cdn.example/a.m3u8')
+
+    markCurrentCandidateFailed(session, 'manifest failed')
+    expect(nextCandidateToPlay(session)?.url).toBe('https://cdn.example/b.m3u8')
+
+    markCurrentCandidateFailed(session, 'segment failed')
+    const nextAttempt = startNextSourceAttempt(session)
+    expect(nextAttempt?.source.sourceKey).toBe('fast')
+  })
+
+  it('does not fail over for autoplay blocking', () => {
+    expect(shouldFailoverAfterPlaybackError({ name: 'NotAllowedError' })).toBe(false)
+    expect(shouldFailoverAfterPlaybackError(new Error('NotAllowedError: play() failed'))).toBe(false)
+    expect(shouldFailoverAfterPlaybackError(new Error('media decode failed'))).toBe(true)
+  })
+
+  it('allows manual attempts for a skipped failed source', () => {
+    const ep = episode()
+    markPlaybackHealth({ scope: 'source', key: 'bad|https://bad.example/play', status: 'failed', reason: 'previous failure' })
+    const session = createEpisodePlaybackSession(ep)
+
+    const manual = startNextSourceAttempt(session, { sourceKey: 'bad', manual: true })
+
+    expect(manual?.source.sourceKey).toBe('bad')
+    expect(manual?.status).toBe('resolving')
   })
 })
