@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import type { CatalogEpisode, CatalogItemType } from '@/types'
 import EpisodeGrid from './EpisodeGrid.vue'
-import MovieActionPanel from './MovieActionPanel.vue'
 
 interface Source {
   source: string
@@ -70,6 +69,47 @@ const typeLabel = computed(() => {
     default: return '剧集'
   }
 })
+
+const isLoadingAnyMovieSource = computed(() => {
+  if (!isMovie.value) return false
+  return props.sources.some(s =>
+    props.loadingSources?.includes(s.source)
+  )
+})
+
+interface MovieEpisodeButton {
+  key: string
+  source: string
+  episode: CatalogEpisode
+  label: string
+}
+
+const movieEpisodeButtons = computed<MovieEpisodeButton[]>(() => {
+  if (!isMovie.value) return []
+  const buttons: MovieEpisodeButton[] = []
+  for (const src of props.sources) {
+    const detail = props.sourceDetails?.[src.source]
+    if (!detail) continue
+    for (const ep of detail.episodes) {
+      const label = formatEpisodeLabel(src.source_name, ep.episode_label)
+      buttons.push({
+        key: `${src.source}-${ep.id}`,
+        source: src.source,
+        episode: ep,
+        label,
+      })
+    }
+  }
+  return buttons
+})
+
+function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
+  if (/^\d+$/.test(episodeLabel)) {
+    const short = sourceName.slice(0, 4)
+    return `${short} · ${episodeLabel}`
+  }
+  return episodeLabel
+}
 </script>
 
 <template>
@@ -86,11 +126,30 @@ const typeLabel = computed(() => {
       </div>
     </div>
     <div class="card-right">
-      <MovieActionPanel
-        v-if="isMovie"
-        :sources="sources"
-        @play="(s, d) => emit('play-source', s, d)"
-      />
+      <template v-if="isMovie">
+        <div class="source-action-area">
+          <div v-if="isLoadingAnyMovieSource" class="loading-placeholder">
+            加载中…
+          </div>
+          <div v-else class="source-selector-row">
+            <button
+              v-for="btn in movieEpisodeButtons"
+              :key="btn.key"
+              type="button"
+              class="source-btn"
+              @click="emit('play-episode', btn.episode, btn.source)"
+            >
+              {{ btn.label }}
+            </button>
+          </div>
+          <div
+            v-if="!isLoadingAnyMovieSource && movieEpisodeButtons.length === 0"
+            class="load-episodes-btn"
+          >
+            暂无播放链接
+          </div>
+        </div>
+      </template>
       <template v-else>
         <div class="source-action-area">
           <div class="source-selector-row">
