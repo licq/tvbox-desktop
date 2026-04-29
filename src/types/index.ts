@@ -227,6 +227,23 @@ export interface PlaybackCandidate {
   referer?: string;
 }
 
+export type PlaybackSourceAttemptStatus =
+  | 'idle'
+  | 'resolving'
+  | 'playable'
+  | 'playing'
+  | 'failed'
+  | 'skipped'
+
+export interface PlaybackSourceAttempt {
+  source: UnifiedEpisodeSource
+  status: PlaybackSourceAttemptStatus
+  candidates: PlaybackCandidate[]
+  failedCandidateIndexes: number[]
+  failureReason?: string
+  lastTriedAt?: number
+}
+
 export type PlayerSource = PlaybackCandidate
 
 export interface ResolvedPlayback {
