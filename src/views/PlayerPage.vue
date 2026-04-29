@@ -940,6 +940,36 @@ async function switchToEpisode(unifiedEpisode: UnifiedEpisode) {
   await playUnifiedEpisode(unifiedEpisode)
 }
 
+async function switchEpisodeSource(sourceKey: string) {
+  const session = playbackSession.value
+  if (!session) return
+
+  invalidateSessionFailover()
+  const attempt = startNextSourceAttempt(session, { sourceKey, manual: true })
+  if (!attempt) {
+    errorMsg.value = session.lastError ?? '该源不可用'
+    return
+  }
+
+  const resolved = await resolveActiveAttempt(session)
+  if (!resolved) {
+    errorMsg.value = attempt.failureReason ?? '解析失败'
+    await playNextFromSession(attempt.failureReason ?? '解析失败')
+    return
+  }
+
+  const candidate = nextCandidateToPlay(session)
+  if (!candidate) {
+    errorMsg.value = '当前源没有可用候选线路'
+    await playNextFromSession('当前源没有可用候选线路')
+    return
+  }
+
+  syncActiveSessionAttempt(session)
+  errorMsg.value = ''
+  await playSource(candidate)
+}
+
 function markCurrentSourceFailed() {
   if (!failedSourceIndexes.value.includes(currentSourceIndex.value)) {
     failedSourceIndexes.value = [...failedSourceIndexes.value, currentSourceIndex.value]
@@ -1234,8 +1264,10 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
           :unified-episodes="unifiedEpisodes"
           :current-normalized-index="currentNormalizedIndex"
           :item-type="itemType"
+          :episode-source-attempts="currentEpisodeSourceAttempts"
           @select-episode="switchToEpisode"
           @switch-line="switchToSource"
+          @switch-episode-source="switchEpisodeSource"
         />
       </div>
     </div>

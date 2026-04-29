@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import SourceBadge from '@/components/media/SourceBadge.vue'
-import type { CatalogItemType, PlayerSource, UnifiedEpisode } from '@/types'
+import type { CatalogItemType, PlaybackSourceAttempt, PlayerSource, UnifiedEpisode } from '@/types'
 
 const props = defineProps<{
   sources: PlayerSource[]
@@ -12,11 +12,13 @@ const props = defineProps<{
   unifiedEpisodes?: UnifiedEpisode[]
   currentNormalizedIndex?: number
   itemType: CatalogItemType
+  episodeSourceAttempts?: PlaybackSourceAttempt[]
 }>()
 
 const emit = defineEmits<{
   selectEpisode: [unifiedEpisode: UnifiedEpisode]
   switchLine: [index: number]
+  switchEpisodeSource: [sourceKey: string]
 }>()
 
 const copied = ref(false)
@@ -40,6 +42,15 @@ async function copyUrl(url: string) {
 const isSeries = computed(() =>
   props.itemType === 'series' || props.itemType === 'variety' || props.itemType === 'anime'
 )
+
+function attemptStatusLabel(status: PlaybackSourceAttempt['status']) {
+  if (status === 'playing') return '当前播放'
+  if (status === 'resolving') return '解析中'
+  if (status === 'failed') return '本次失败'
+  if (status === 'skipped') return '最近失败'
+  if (status === 'playable') return '可播放'
+  return '待探测'
+}
 
 const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
 </script>
@@ -100,6 +111,28 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
 
       <!-- Empty state -->
       <div v-else class="playback-empty">没有可用线路</div>
+
+      <!-- Episode source list (series mode) -->
+      <div v-if="isSeries && episodeSourceAttempts?.length" class="episode-source-list">
+        <div class="episode-source-title">本集播放源</div>
+        <button
+          v-for="attempt in episodeSourceAttempts"
+          :key="attempt.source.sourceKey"
+          :data-testid="`episode-source-${attempt.source.sourceKey}`"
+          :class="[
+            'source-row',
+            attempt.status === 'playing' ? 'source-row-active' : '',
+            attempt.status === 'failed' || attempt.status === 'skipped' ? 'source-row-failed' : ''
+          ]"
+          type="button"
+          @click="emit('switchEpisodeSource', attempt.source.sourceKey)"
+        >
+          <span class="source-row-label">{{ attempt.source.sourceName }}</span>
+          <span class="source-row-meta">
+            {{ attempt.failureReason || attemptStatusLabel(attempt.status) }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <!-- LinkInfoPanel (fixed bottom) -->
@@ -379,5 +412,25 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border-radius: 0.25rem;
   line-height: 1.4;
+}
+
+/* Episode source list */
+.episode-source-list {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.episode-source-title {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.source-row-meta {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-align: right;
 }
 </style>
