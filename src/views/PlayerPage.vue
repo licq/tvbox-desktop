@@ -555,24 +555,92 @@ function detachNativeVideoErrorHandler() {
   }
 }
 
+function headersMatch(
+  left: Record<string, string> | undefined,
+  right: Record<string, string> | undefined
+) {
+  const leftEntries = Object.entries(left ?? {})
+  const rightEntries = Object.entries(right ?? {})
+  if (leftEntries.length !== rightEntries.length) return false
+
+  return leftEntries.every(([key, value]) => right?.[key] === value)
+}
+
+function candidateMatchesSource(candidate: PlayerSource, source: PlayerSource) {
+  return (
+    candidate.url === source.url &&
+    candidate.kind === source.kind &&
+    candidate.label === source.label &&
+    (candidate.referer ?? '') === (source.referer ?? '') &&
+    headersMatch(candidate.headers, source.headers)
+  )
+}
+
+function findSessionCandidate(session: EpisodePlaybackSession, source: PlayerSource) {
+  for (const [sourceIndex, sourceAttempt] of session.sourceAttempts.entries()) {
+    const candidateIndex = sourceAttempt.candidates.findIndex(candidate =>
+      candidateMatchesSource(candidate, source)
+    )
+    if (candidateIndex >= 0) {
+      return { sourceIndex, candidateIndex, sourceAttempt }
+    }
+  }
+
+  return null
+}
+
+function setManualSessionCandidate(
+  session: EpisodePlaybackSession,
+  sourceIndex: number,
+  candidateIndex: number
+) {
+  const previousAttempt = session.sourceAttempts[session.activeSourceIndex]
+  const nextAttempt = session.sourceAttempts[sourceIndex]
+  if (!nextAttempt) return null
+
+  if (
+    previousAttempt &&
+    previousAttempt !== nextAttempt &&
+    (previousAttempt.status === 'playing' || previousAttempt.status === 'resolving')
+  ) {
+    previousAttempt.status = previousAttempt.candidates.length > 0 ? 'playable' : 'idle'
+  }
+
+  session.activeSourceIndex = sourceIndex
+  session.activeCandidateIndex = candidateIndex
+  session.status = 'playing'
+  nextAttempt.status = 'playing'
+  return nextAttempt
+}
+
 async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
+  const source = sources.value[index]
+  if (!source) return
   const session = playbackSession.value
-  const attempt = session?.sourceAttempts[session.activeSourceIndex]
-  if (session && attempt && index < attempt.candidates.length) {
+  if (session) {
     invalidateSessionFailover()
-    session.activeCandidateIndex = index
-    session.status = 'playing'
-    attempt.status = 'playing'
-    currentSourceIndex.value = index
-    failedSourceIndexes.value = attempt.failedCandidateIndexes
-    await playSource(attempt.candidates[index])
+    const owner = findSessionCandidate(session, source)
+    if (!owner) {
+      playbackSession.value = null
+      currentSourceIndex.value = index
+      failedSourceIndexes.value = []
+      await playSource(source)
+      return
+    }
+
+    const sourceAttempt = setManualSessionCandidate(session, owner.sourceIndex, owner.candidateIndex)
+    if (!sourceAttempt) return
+    const candidate = sourceAttempt.candidates[owner.candidateIndex]
+    if (!candidate) return
+    syncActiveSessionAttempt(session)
+    await playSource(candidate)
     return
   }
 
   invalidateSessionFailover()
   currentSourceIndex.value = index
-  await playSource(sources.value[index])
+  await playSource(source)
 }
 
 function toPlayerSource(candidate: PlayerSource): PlayerSource {
