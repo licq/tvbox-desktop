@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import SourceBadge from '@/components/media/SourceBadge.vue'
-import type { PlayerSource, UnifiedEpisode } from '@/types'
+import type { CatalogItemType, PlayerSource, UnifiedEpisode } from '@/types'
 
 const props = defineProps<{
   sources: PlayerSource[]
@@ -11,7 +11,7 @@ const props = defineProps<{
   errorMessage?: string | null
   unifiedEpisodes?: UnifiedEpisode[]
   currentNormalizedIndex?: number
-  itemType: 'movie' | 'series' | 'variety' | 'anime'
+  itemType: CatalogItemType
 }>()
 
 const emit = defineEmits<{
@@ -107,7 +107,7 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
       <!-- LineSwitcher -->
       <div v-if="sources.length > 1" class="line-switcher">
         <button
-          v-for="(source, index) in sources"
+          v-for="(_, index) in sources"
           :key="index"
           :class="[
             'line-btn',
