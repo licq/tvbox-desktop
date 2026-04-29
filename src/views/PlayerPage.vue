@@ -8,7 +8,7 @@ import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
 import { useDetailStore } from '@/stores/detail'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
-import type { CatalogEpisode, CatalogEpisodeGroup, PlaybackTarget, UnifiedEpisode } from '@/types'
+import type { CatalogEpisodeGroup, PlaybackTarget, UnifiedEpisode } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, isAutoplayBlocked } from '@/utils/player'
 import { mergeEpisodes } from '@/utils/episode'
@@ -42,6 +42,8 @@ const pendingAutoplay = ref(false)
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
 const failedSourceIndexes = ref<number[]>([])
+const currentUnifiedEpisode = ref<UnifiedEpisode | null>(null)
+const currentUnifiedSourceIndex = ref(0)
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
 const isEmbedSource = computed(() => currentSource.value?.kind === 'embed')
@@ -208,8 +210,14 @@ onMounted(async () => {
     } else {
       errorMsg.value = '当前频道没有可用线路'
     }
-  } else if (mode.value === 'vod' && episodeUrl.value) {
-    await initVodPlayback(episodeUrl.value, episodeId.value)
+  } else if (mode.value === 'vod') {
+    const pending = playerStore.pendingUnifiedEpisode
+    if (pending) {
+      playerStore.setPendingUnifiedEpisode(null)
+      await playUnifiedEpisode(pending)
+    } else if (episodeUrl.value) {
+      await initVodPlayback(episodeUrl.value, episodeId.value)
+    }
 
     if (itemId.value) {
       try {
@@ -470,38 +478,47 @@ async function initVodPlayback(url: string, id?: number) {
   }
 }
 
-async function switchToEpisode(episode: CatalogEpisode) {
-  // Update URL for back navigation / refresh
-  router.replace(
-    `/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`
-  )
+async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 0) {
+  currentUnifiedEpisode.value = unifiedEpisode
+  currentUnifiedSourceIndex.value = sourceIndex
+
+  if (sourceIndex >= unifiedEpisode.sources.length) {
+    errorMsg.value = '该集所有线路均不可用'
+    return
+  }
+
+  const source = unifiedEpisode.sources[sourceIndex]
 
   if (itemId.value > 0) {
-    // Catalog flow: play_url is directly resolvable
-    await initVodPlayback(episode.play_url, episode.id)
+    await initVodPlayback(source.episode.play_url, source.episode.id)
   } else if (sourceName.value) {
-    // Provider flow: need provider_play first to get target_url
     try {
       const targets = await invoke<PlaybackTarget[]>('provider_play', {
         source: sourceName.value,
         flag: 'auto',
-        playUrl: episode.play_url,
+        playUrl: source.episode.play_url,
       })
       if (targets.length > 0) {
-        await initVodPlayback(targets[0].target_url, episode.id)
+        await initVodPlayback(targets[0].target_url, source.episode.id)
       } else {
-        errorMsg.value = '播放地址获取失败'
+        await playUnifiedEpisode(unifiedEpisode, sourceIndex + 1)
       }
     } catch (e) {
       console.error('[PlayerPage] provider_play failed:', e)
-      errorMsg.value = String(e)
+      await playUnifiedEpisode(unifiedEpisode, sourceIndex + 1)
     }
   }
 }
 
-async function switchToUnifiedEpisode(ue: UnifiedEpisode) {
-  if (ue.sources.length === 0) return
-  await switchToEpisode(ue.sources[0].episode)
+async function switchToEpisode(unifiedEpisode: UnifiedEpisode) {
+  const firstSource = unifiedEpisode.sources[0]
+  if (!firstSource) return
+
+  router.replace(
+    `/player/vod/${itemId.value}?episode=${encodeURIComponent(firstSource.episode.play_url)}&episodeId=${firstSource.episode.id}`
+  )
+
+  await playUnifiedEpisode(unifiedEpisode)
 }
 
 function markCurrentSourceFailed() {
@@ -601,6 +618,11 @@ async function initHlsPlayer(url: string) {
 
         if (currentSourceIndex.value < sources.value.length - 1) {
           void switchToSource(currentSourceIndex.value + 1)
+        } else if (
+          currentUnifiedEpisode.value &&
+          currentUnifiedSourceIndex.value < currentUnifiedEpisode.value.sources.length - 1
+        ) {
+          void playUnifiedEpisode(currentUnifiedEpisode.value, currentUnifiedSourceIndex.value + 1)
         } else {
           errorMsg.value = data.error?.message || '所有线路均不可用'
         }
@@ -673,10 +695,15 @@ function handleVideoError() {
   if (currentSourceIndex.value < sources.value.length - 1) {
     errorMsg.value = `${message}，正在切换下一条线路`
     void switchToSource(currentSourceIndex.value + 1)
-    return
+  } else if (
+    currentUnifiedEpisode.value &&
+    currentUnifiedSourceIndex.value < currentUnifiedEpisode.value.sources.length - 1
+  ) {
+    errorMsg.value = `${message}，正在切换下一个源`
+    void playUnifiedEpisode(currentUnifiedEpisode.value, currentUnifiedSourceIndex.value + 1)
+  } else {
+    errorMsg.value = message
   }
-
-  errorMsg.value = message
 }
 </script>
 
@@ -783,7 +810,7 @@ function handleVideoError() {
           :unified-episodes="unifiedEpisodes"
           :current-normalized-index="currentNormalizedIndex"
           @select="switchToSource"
-          @select-unified-episode="switchToUnifiedEpisode"
+          @select-unified-episode="switchToEpisode"
         />
       </div>
     </div>
