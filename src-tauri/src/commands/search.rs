@@ -78,6 +78,10 @@ pub async fn search_all_sources(
                         if let Ok(json) = serde_json::to_string(&items) {
                             let _ = storage.set_source_search_cache(&sk, &kw, &json);
                         }
+                    } else {
+                        // Delete stale cache when provider now returns empty
+                        // (e.g. auete search disabled, old home-page cache still present)
+                        let _ = storage.delete_source_search_cache(&sk, &kw);
                     }
                     Some(SourceSearchResult { source_key: sk, source_name: name, items })
                 }

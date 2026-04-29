@@ -413,6 +413,15 @@ impl Storage {
         Ok(())
     }
 
+    pub fn delete_source_search_cache(&self, source_key: &str, keyword: &str) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM source_search_cache WHERE source_key = ?1 AND keyword = ?2",
+            rusqlite::params![source_key, keyword],
+        )?;
+        Ok(())
+    }
+
     pub fn get_douban_search_cache(&self, keyword: &str) -> SqliteResult<Option<(String, bool)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

@@ -65,6 +65,27 @@ function cleanTitle(title: string): string {
     .trim()
 }
 
+/**
+ * Check if a search result title is relevant to the search keyword.
+ * We require at least one character from the keyword to appear in the title.
+ * This filters out completely unrelated results from loose provider matches
+ * (e.g. ypanso returning "梅尔特伊" for "危险关系").
+ */
+function isTitleRelevant(title: string, keyword: string): boolean {
+  const normalizedTitle = title.toLowerCase()
+  const normalizedKeyword = keyword.toLowerCase()
+
+  // Extract Chinese characters and alphanumeric from keyword
+  const keywordChars = Array.from(new Set(
+    normalizedKeyword.match(/[\u4e00-\u9fa5a-z0-9]/g) || []
+  ))
+
+  if (keywordChars.length === 0) return true // keyword has no extractable chars, don't filter
+
+  // Require at least one keyword character to appear in title
+  return keywordChars.some(ch => normalizedTitle.includes(ch))
+}
+
 // Quick lookup from library store (already has DoubanHot data from home page)
 const hotItem = ref<DoubanHot | null>(null)
 
@@ -391,6 +412,8 @@ async function searchSources(title: string) {
     for (const r of results) {
       for (const item of r.items) {
         if (!r.source_name) continue
+        // Filter out results whose title shares no characters with the keyword
+        if (!isTitleRelevant(item.title, title)) continue
         grouped[r.source_name] ||= []
         grouped[r.source_name].push({
           source: r.source_key,
