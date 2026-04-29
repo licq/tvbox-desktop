@@ -31,15 +31,13 @@ const emit = defineEmits<{
   'select-source': [sourceKey: string]
 }>()
 
-const isMovie = computed(() => props.itemType === 'movie')
-
 const selectedSourceKey = ref(props.sources[0]?.source ?? '')
 
 watch(
   () => props.sources.map(s => s.source).join(','),
   () => {
-    if (props.sources.length > 0 && !props.sources.some(s => s.source === selectedSourceKey.value)) {
-      selectedSourceKey.value = props.sources[0].source
+    if (visibleSources.value.length > 0 && !visibleSources.value.some(s => s.source === selectedSourceKey.value)) {
+      selectedSourceKey.value = visibleSources.value[0].source
     }
   },
 )
@@ -70,59 +68,21 @@ const typeLabel = computed(() => {
   }
 })
 
-const isLoadingAnyMovieSource = computed(() => {
-  if (!isMovie.value) return false
-  return props.sources.some(s =>
-    props.loadingSources?.includes(s.source)
-  )
-})
-
-interface MovieEpisodeButton {
-  key: string
-  source: string
-  episode: CatalogEpisode
-  label: string
-}
-
-const movieEpisodeButtons = computed<MovieEpisodeButton[]>(() => {
-  if (!isMovie.value) return []
-  const buttons: MovieEpisodeButton[] = []
-  for (const src of props.sources) {
+// A source is visible if it has episodes in cache, or is still loading.
+const visibleSources = computed(() => {
+  return props.sources.filter(src => {
     const detail = props.sourceDetails?.[src.source]
-    if (!detail) continue
-    for (const ep of detail.episodes) {
-      const label = formatEpisodeLabel(src.source_name, ep.episode_label)
-      buttons.push({
-        key: `${src.source}-${ep.id}`,
-        source: src.source,
-        episode: ep,
-        label,
-      })
-    }
-  }
-  return buttons
+    const isLoading = props.loadingSources?.includes(src.source)
+    return (detail && detail.episodes.length > 0) || isLoading
+  })
 })
 
-function extractShortName(name: string): string {
-  // For CJK names, take first 2 characters (typically enough to identify)
-  // For ASCII names, take first 4 characters
-  const cjkMatch = name.match(/^[\u4e00-\u9fa5]{2,}/)
-  if (cjkMatch) {
-    return cjkMatch[0].slice(0, 2)
-  }
-  return name.slice(0, 4)
-}
-
-function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
-  const short = extractShortName(sourceName)
-
-  // If episodeLabel already contains the short name, don't prefix (avoid repetition)
-  if (short && episodeLabel.includes(short)) {
-    return episodeLabel
-  }
-
-  return `${short} · ${episodeLabel}`
-}
+const visibleSourceCount = computed(() => {
+  return props.sources.filter(src => {
+    const detail = props.sourceDetails?.[src.source]
+    return detail && detail.episodes.length > 0
+  }).length
+})
 </script>
 
 <template>
@@ -135,67 +95,41 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
           <span class="card-title">{{ title }}</span>
           <span class="card-type-tag">{{ typeLabel }}</span>
         </div>
-        <div class="card-meta">{{ sources.length }} 个播放源</div>
+        <div class="card-meta">{{ visibleSourceCount }} 个可用播放源</div>
       </div>
     </div>
     <div class="card-right">
-      <template v-if="isMovie">
-        <div class="source-action-area">
-          <div v-if="isLoadingAnyMovieSource" class="loading-placeholder">
-            加载中…
-          </div>
-          <div v-else class="source-selector-row">
-            <button
-              v-for="btn in movieEpisodeButtons"
-              :key="btn.key"
-              type="button"
-              class="source-btn"
-              @click="emit('play-episode', btn.episode, btn.source)"
-            >
-              {{ btn.label }}
-            </button>
-          </div>
-          <div
-            v-if="!isLoadingAnyMovieSource && movieEpisodeButtons.length === 0"
-            class="load-episodes-btn"
+      <div class="source-action-area">
+        <div class="source-selector-row">
+          <button
+            v-for="src in visibleSources"
+            :key="src.source"
+            type="button"
+            :class="['source-btn', { active: selectedSourceKey === src.source }]"
+            @click="onSelectSource(src.source)"
           >
-            暂无播放链接
-          </div>
+            {{ src.source_name }}
+          </button>
         </div>
-      </template>
-      <template v-else>
-        <div class="source-action-area">
-          <div class="source-selector-row">
-            <button
-              v-for="src in sources"
-              :key="src.source"
-              type="button"
-              :class="['source-btn', { active: selectedSourceKey === src.source }]"
-              @click="onSelectSource(src.source)"
-            >
-              {{ src.source_name }}
-            </button>
-          </div>
 
-          <EpisodeGrid
-            v-if="currentEpisodes.length > 0"
-            :episodes="currentEpisodes"
-            @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
-          />
-          <div
-            v-else-if="isLoadingCurrent"
-            class="loading-placeholder"
-          >
-            加载中…
-          </div>
-          <div
-            v-else
-            class="load-episodes-btn"
-          >
-            暂无播放链接
-          </div>
+        <EpisodeGrid
+          v-if="currentEpisodes.length > 0"
+          :episodes="currentEpisodes"
+          @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
+        />
+        <div
+          v-else-if="isLoadingCurrent"
+          class="loading-placeholder"
+        >
+          加载中…
         </div>
-      </template>
+        <div
+          v-else
+          class="load-episodes-btn"
+        >
+          暂无播放链接
+        </div>
+      </div>
     </div>
   </div>
 </template>

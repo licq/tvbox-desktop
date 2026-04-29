@@ -257,6 +257,38 @@ const dedupSearchItems = computed<DedupSearchItem[]>(() => {
   return Array.from(map.values())
 })
 
+// Filter out items that have no playable episodes across all loaded sources.
+// Only hide when all sources have finished loading (none pending) and all have 0 episodes.
+const visibleDedupSearchItems = computed<DedupSearchItem[]>(() => {
+  return dedupSearchItems.value.filter(item => {
+    let allLoadedEmpty = true
+    let hasAnyLoaded = false
+    let hasAnyPending = false
+    for (const src of item.sources) {
+      const cacheKey = getCacheKey(item.title, src.source)
+      const isLoading = preloadingKeys.value.has(cacheKey)
+      const detail = providerDetailCache.value.get(cacheKey)
+      if (isLoading) {
+        hasAnyPending = true
+        allLoadedEmpty = false
+        continue
+      }
+      if (detail) {
+        hasAnyLoaded = true
+        if (detail.episodes.length > 0) {
+          allLoadedEmpty = false
+        }
+      }
+    }
+    // Keep if: at least one source has episodes, or some sources are still loading
+    if (hasAnyPending) return true
+    // If no sources were ever loaded, keep it (preload hasn't reached it yet)
+    if (!hasAnyLoaded) return true
+    // All loaded sources are empty → hide
+    return !allLoadedEmpty
+  })
+})
+
 interface ProviderDetailResult {
   title: string | null
   poster: string | null
@@ -270,10 +302,10 @@ function getCacheKey(title: string, source: string): string {
   return `${title}-${source}`
 }
 
-async function preloadFirstSource(item: DedupSearchItem) {
-  const first = item.sources[0]
-  if (!first) return
-  await preloadSource(item, first.source)
+async function preloadAllSources(item: DedupSearchItem) {
+  await Promise.all(
+    item.sources.map(src => preloadSource(item, src.source))
+  )
 }
 
 async function preloadSource(item: DedupSearchItem, sourceKey: string) {
@@ -439,7 +471,7 @@ async function searchSources(title: string) {
 
     // Preload first source detail for each dedup result
     for (const item of dedupSearchItems.value) {
-      preloadFirstSource(item)
+      preloadAllSources(item)
     }
   } catch (e) {
     console.error('[VodDetail] searchSources failed:', e)
@@ -494,9 +526,9 @@ function handlePlay(ue: UnifiedEpisode) {
           <EpisodeGroupSkeleton :count="4" />
         </section>
 
-        <section v-else-if="dedupSearchItems.length" class="source-list space-y-4">
+        <section v-else-if="visibleDedupSearchItems.length" class="source-list space-y-4">
           <SearchResultCard
-            v-for="item in dedupSearchItems"
+            v-for="item in visibleDedupSearchItems"
             :key="item.title"
             :title="item.title"
             :poster="item.poster"
@@ -512,7 +544,7 @@ function handlePlay(ue: UnifiedEpisode) {
         <div v-if="searchError" class="home-empty-state text-red-500">
           {{ searchError }}
         </div>
-        <div v-else-if="!loadingSearch && dedupSearchItems.length === 0" class="home-empty-state">
+        <div v-else-if="!loadingSearch && visibleDedupSearchItems.length === 0" class="home-empty-state">
           暂未找到可用的播放源
         </div>
       </div>

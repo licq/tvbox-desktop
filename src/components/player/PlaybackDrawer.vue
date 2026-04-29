@@ -191,47 +191,49 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
 /* Episode grid (series/variety/anime) */
 .episode-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 0.35rem;
 }
 
 .episode-chip {
-  aspect-ratio: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 0.8125rem;
-  border-radius: 0.375rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--stroke);
-  color: var(--text);
+  padding: 0.3rem 0.2rem;
+  font-size: 0.72rem;
+  border-radius: 0.45rem;
+  min-height: 1.75rem;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(246, 241, 232, 0.82);
   cursor: pointer;
   text-align: center;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
   position: relative;
   line-height: 1.2;
 }
 
 .episode-chip:hover {
-  border-color: var(--accent);
+  border-color: rgba(216, 154, 87, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
 }
 
 .episode-chip-active {
-  background: var(--accent);
-  color: #000;
+  background: rgba(216, 154, 87, 0.1);
+  color: var(--accent);
   font-weight: 600;
-  border-color: var(--accent);
+  border-color: rgba(216, 154, 87, 0.35);
 }
 
 .source-count-badge {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  font-size: 0.6rem;
-  background: rgba(160, 120, 200, 0.2);
+  top: -3px;
+  right: -3px;
+  font-size: 0.55rem;
+  background: rgba(160, 120, 200, 0.22);
   color: rgba(220, 200, 245, 0.9);
-  padding: 0.05rem 0.3rem;
+  padding: 0.02rem 0.22rem;
   border-radius: 0.2rem;
   line-height: 1.3;
 }
@@ -314,10 +316,10 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
 }
 
 .line-btn-active {
-  background: var(--accent);
-  color: #000;
+  background: rgba(216, 154, 87, 0.08);
+  color: var(--accent);
   font-weight: 500;
-  border-color: var(--accent);
+  border-color: rgba(216, 154, 87, 0.28);
 }
 
 .line-btn-failed {

@@ -3,6 +3,7 @@ use crate::AppState;
 use crate::services::xb6v::ScrapedCatalogEpisode;
 use crate::services::xb6v::ScrapedCatalogItem;
 use crate::services::playback_types::PlaybackTarget;
+use crate::services::resolver::is_visible_playback_target;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,12 +119,21 @@ pub async fn provider_detail(
     let registry = state.provider_registry.read().await;
     let provider = registry.get(&source).ok_or_else(|| format!("provider not found: {}", source))?;
     match provider.detail(&ids).await {
-        Ok(Some(item)) => Ok(ProviderDetailResult {
-            title: Some(item.title),
-            poster: item.poster,
-            summary: item.summary,
-            episodes: item.episodes,
-        }),
+        Ok(Some(item)) => {
+            let episodes: Vec<ScrapedCatalogEpisode> = item.episodes
+                .into_iter()
+                .filter(|ep| {
+                    is_visible_playback_target(&ep.play_url)
+                        && ep.episode_label.trim() != "立即播放"
+                })
+                .collect();
+            Ok(ProviderDetailResult {
+                title: Some(item.title),
+                poster: item.poster,
+                summary: item.summary,
+                episodes,
+            })
+        }
         Ok(None) => Ok(ProviderDetailResult {
             title: None,
             poster: None,

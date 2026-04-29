@@ -750,7 +750,7 @@ body::-webkit-scrollbar-track {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 360px;
     gap: 1.25rem;
-    align-items: start;
+    align-items: stretch;
   }
 
   .player-stage,

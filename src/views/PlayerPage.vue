@@ -65,7 +65,13 @@ const episodeId = computed(() => {
 const providerDetailUrl = computed(() => route.query.detailUrl as string | undefined)
 const episodeLabelFromQuery = computed(() => route.query.episodeLabel as string | undefined)
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
-const itemType = computed(() => detailStore.item?.item_type ?? 'movie')
+const itemType = computed(() => {
+  if (detailStore.item?.item_type) return detailStore.item.item_type
+  // Infer from activeGroup / unifiedEpisodes when detailStore.item is not yet loaded
+  if (activeGroup.value && activeGroup.value.episodes.length > 1) return 'series'
+  if (unifiedEpisodes.value.length > 1) return 'series'
+  return 'movie'
+})
 const unifiedEpisodes = computed(() => {
   if (detailStore.episodeGroups.length > 0 && detailStore.item) {
     return mergeEpisodes(detailStore.episodeGroups, detailStore.item.item_type)
@@ -217,9 +223,17 @@ onMounted(async () => {
     const pending = playerStore.pendingUnifiedEpisode
     if (pending) {
       playerStore.setPendingUnifiedEpisode(null)
-      await playUnifiedEpisode(pending)
+      try {
+        await playUnifiedEpisode(pending)
+      } catch (e) {
+        console.error('[PlayerPage] playUnifiedEpisode failed:', e)
+      }
     } else if (episodeUrl.value) {
-      await initVodPlayback(episodeUrl.value, episodeId.value)
+      try {
+        await initVodPlayback(episodeUrl.value, episodeId.value)
+      } catch (e) {
+        console.error('[PlayerPage] initVodPlayback failed:', e)
+      }
     }
 
     if (itemId.value) {
