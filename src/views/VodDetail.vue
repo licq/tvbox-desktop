@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDetailStore } from '@/stores/detail'
 import { useLibraryStore } from '@/stores/library'
+import { usePlayerStore } from '@/stores/player'
 import { invoke } from '@tauri-apps/api/core'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import DoubanMetaPanel from '@/components/detail/DoubanMetaPanel.vue'
@@ -45,6 +46,7 @@ const route = useRoute()
 const router = useRouter()
 const detailStore = useDetailStore()
 const libraryStore = useLibraryStore()
+const playerStore = usePlayerStore()
 
 const itemId = computed(() => Number(route.params.itemId))
 const isFromDouban = computed(() => route.query.douban === '1')
@@ -456,6 +458,7 @@ onUnmounted(() => {
 
 function handlePlay(ue: UnifiedEpisode) {
   if (ue.sources.length === 0) return
+  playerStore.setPendingUnifiedEpisode(ue)
   const episode = ue.sources[0].episode
   router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
 }

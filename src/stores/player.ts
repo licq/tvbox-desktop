@@ -1,12 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { PlayHistory } from '@/types'
+import type { PlayHistory, UnifiedEpisode } from '@/types'
 
 export const usePlayerStore = defineStore('player', () => {
   const currentUrl = ref<string | null>(null)
   const history = ref<PlayHistory[]>([])
   const loading = ref(false)
+  const pendingUnifiedEpisode = ref<UnifiedEpisode | null>(null)
+
+  function setPendingUnifiedEpisode(ep: UnifiedEpisode | null) {
+    pendingUnifiedEpisode.value = ep
+  }
 
   async function saveHistory(itemType: string, itemId: number, progress: number) {
     try {
@@ -28,6 +33,8 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   return {
+    pendingUnifiedEpisode,
+    setPendingUnifiedEpisode,
     currentUrl,
     history,
     loading,
