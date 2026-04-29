@@ -40,6 +40,13 @@ type PlayerSource = {
   referer?: string
 }
 
+type PlaybackAttemptContext = {
+  id: number
+  generation: number
+  url: string
+  startedAt: number
+}
+
 const videoRef = ref<HTMLVideoElement | null>(null)
 const videoWrapRef = ref<HTMLElement | null>(null)
 const playing = ref(false)
@@ -60,6 +67,10 @@ const playbackSession = ref<EpisodePlaybackSession | null>(null)
 const currentEpisodeSourceAttempts = computed(() => playbackSession.value?.sourceAttempts ?? [])
 let sessionFailoverPromise: Promise<void> | null = null
 let lastSessionFailureKey: string | null = null
+let sessionGeneration = 0
+let playbackAttemptId = 0
+let activePlaybackAttempt: PlaybackAttemptContext | null = null
+let removeNativeVideoErrorHandler: (() => void) | null = null
 
 const currentSource = computed(() => sources.value[currentSourceIndex.value] ?? null)
 const mode = computed(() => String(route.params.mode ?? 'live'))
@@ -114,7 +125,7 @@ const currentNormalizedIndex = computed(() => {
 
 async function loadSourceDetail() {
   playbackSession.value = null
-  resetSessionFailoverState()
+  invalidateSessionFailover()
   if (!sourceDetailUrl.value || !sourceName.value) {
     errorMsg.value = '缺少播放地址参数'
     return
@@ -224,7 +235,7 @@ onMounted(async () => {
     await loadSourceDetail()
   } else if (mode.value === 'live') {
     playbackSession.value = null
-    resetSessionFailoverState()
+    invalidateSessionFailover()
     await liveStore.fetchChannels()
     const channel = liveStore.channels.find(channel => channel.id === itemId.value)
     if (channel && channel.sources.length > 0) {
@@ -297,6 +308,10 @@ onUnmounted(() => {
   }
   if (hideTimer) {
     window.clearTimeout(hideTimer)
+  }
+  if (removeNativeVideoErrorHandler) {
+    removeNativeVideoErrorHandler()
+    removeNativeVideoErrorHandler = null
   }
 
   if (hlsInstance) {
@@ -470,6 +485,10 @@ function resetVideoElement() {
     hlsInstance.destroy()
     hlsInstance = null
   }
+  if (removeNativeVideoErrorHandler) {
+    removeNativeVideoErrorHandler()
+    removeNativeVideoErrorHandler = null
+  }
   if (videoRef.value) {
     videoRef.value.pause()
     videoRef.value.removeAttribute('src')
@@ -492,21 +511,64 @@ function resetSessionFailoverState() {
   lastSessionFailureKey = null
 }
 
+function invalidateSessionFailover() {
+  sessionGeneration += 1
+  resetSessionFailoverState()
+}
+
+function beginPlaybackAttempt(source: PlayerSource): PlaybackAttemptContext {
+  const attempt = {
+    id: ++playbackAttemptId,
+    generation: sessionGeneration,
+    url: source.url,
+    startedAt: performance.now(),
+  }
+  activePlaybackAttempt = attempt
+  attachNativeVideoErrorHandler(attempt)
+  return attempt
+}
+
+function isCurrentPlaybackAttempt(attempt: PlaybackAttemptContext | null | undefined) {
+  return (
+    !!attempt &&
+    activePlaybackAttempt?.id === attempt.id &&
+    activePlaybackAttempt.generation === attempt.generation &&
+    activePlaybackAttempt.url === attempt.url &&
+    sessionGeneration === attempt.generation
+  )
+}
+
+function attachNativeVideoErrorHandler(attempt: PlaybackAttemptContext) {
+  if (removeNativeVideoErrorHandler) {
+    removeNativeVideoErrorHandler()
+    removeNativeVideoErrorHandler = null
+  }
+  const video = videoRef.value
+  if (!video) return
+
+  const handler = (event: Event) => {
+    handleVideoError(event, attempt)
+  }
+  video.addEventListener('error', handler)
+  removeNativeVideoErrorHandler = () => video.removeEventListener('error', handler)
+}
+
 async function switchToSource(index: number) {
   if (index < 0 || index >= sources.value.length) return
   const session = playbackSession.value
   const attempt = session?.sourceAttempts[session.activeSourceIndex]
   if (session && attempt && index < attempt.candidates.length) {
+    invalidateSessionFailover()
     session.activeCandidateIndex = index
     session.status = 'playing'
     attempt.status = 'playing'
     currentSourceIndex.value = index
     failedSourceIndexes.value = attempt.failedCandidateIndexes
-    lastSessionFailureKey = null
     await playSource(attempt.candidates[index])
     return
   }
 
+  invalidateSessionFailover()
   currentSourceIndex.value = index
   await playSource(sources.value[index])
 }
@@ -613,8 +675,16 @@ async function resolveActiveAttempt(session: EpisodePlaybackSession) {
 async function runSessionFailover(
   session: EpisodePlaybackSession,
   reason?: string,
-  expectedCandidateUrl?: string | null
+  expectedAttempt?: PlaybackAttemptContext | null,
+  expectedGeneration = sessionGeneration
 ) {
+  if (sessionGeneration !== expectedGeneration) {
+    return
+  }
+  if (expectedAttempt && !isCurrentPlaybackAttempt(expectedAttempt)) {
+    return
+  }
+  const expectedCandidateUrl = expectedAttempt?.url ?? null
   if (
     expectedCandidateUrl &&
     activeSessionCandidateUrl(session) &&
@@ -637,6 +707,7 @@ async function runSessionFailover(
 
   const nextCandidate = nextCandidateToPlay(session)
   if (nextCandidate) {
+    if (sessionGeneration !== expectedGeneration) return
     if (playbackSession.value !== session) return
     syncActiveSessionAttempt(session)
     await playSource(nextCandidate)
@@ -646,11 +717,13 @@ async function runSessionFailover(
   for (;;) {
     const attempt = startNextSourceAttempt(session)
     if (!attempt) {
+      if (sessionGeneration !== expectedGeneration) return
       errorMsg.value = session.lastError ?? '该集所有播放源均不可用'
       return
     }
 
     const resolved = await resolveActiveAttempt(session)
+    if (sessionGeneration !== expectedGeneration) return
     if (playbackSession.value !== session) return
     if (!resolved) {
       continue
@@ -658,6 +731,7 @@ async function runSessionFailover(
 
     const candidate = nextCandidateToPlay(session)
     if (candidate) {
+      if (sessionGeneration !== expectedGeneration) return
       if (playbackSession.value !== session) return
       syncActiveSessionAttempt(session)
       await playSource(candidate)
@@ -668,10 +742,15 @@ async function runSessionFailover(
   }
 }
 
-async function playNextFromSession(reason?: string, expectedCandidateUrl?: string | null) {
+async function playNextFromSession(reason?: string, expectedAttempt?: PlaybackAttemptContext | null) {
   const session = playbackSession.value
   if (!session) return
 
+  const expectedGeneration = sessionGeneration
+  if (expectedAttempt && !isCurrentPlaybackAttempt(expectedAttempt)) {
+    return
+  }
+  const expectedCandidateUrl = expectedAttempt?.url ?? null
   const failureKey = reason ? activeSessionFailureKey(session) : null
   if (failureKey && failureKey === lastSessionFailureKey) {
     return
@@ -687,7 +766,11 @@ async function playNextFromSession(reason?: string, expectedCandidateUrl?: strin
 
   if (sessionFailoverPromise) {
     await sessionFailoverPromise
+    if (sessionGeneration !== expectedGeneration) return
     if (playbackSession.value !== session) return
+    if (expectedAttempt && !isCurrentPlaybackAttempt(expectedAttempt)) {
+      return
+    }
     if (failureKey && failureKey === lastSessionFailureKey) {
       return
     }
@@ -700,7 +783,7 @@ async function playNextFromSession(reason?: string, expectedCandidateUrl?: strin
     }
   }
 
-  const promise = runSessionFailover(session, reason, expectedCandidateUrl)
+  const promise = runSessionFailover(session, reason, expectedAttempt, expectedGeneration)
   sessionFailoverPromise = promise
   try {
     await promise
@@ -713,7 +796,7 @@ async function playNextFromSession(reason?: string, expectedCandidateUrl?: strin
 
 async function initVodPlayback(url: string, id?: number) {
   playbackSession.value = null
-  resetSessionFailoverState()
+  invalidateSessionFailover()
   const decodedUrl = decodeURIComponent(url)
   const resolved = await playbackStore.resolve(decodedUrl, id)
   sources.value = resolved.candidates.map(candidate => ({
@@ -748,7 +831,7 @@ async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 
 
   const session = createEpisodePlaybackSession(unifiedEpisode)
   playbackSession.value = session
-  resetSessionFailoverState()
+  invalidateSessionFailover()
 
   const preferredSource = unifiedEpisode.sources[sourceIndex]
   const attempt = startNextSourceAttempt(session, {
@@ -795,6 +878,7 @@ function markCurrentSourceFailed() {
 
 async function playSource(source: PlayerSource) {
   errorMsg.value = ''
+  const attempt = beginPlaybackAttempt(source)
   const url = source.url
 
   if (isDrpyProtocol(url) || source.kind === 'external') {
@@ -804,10 +888,15 @@ async function playSource(source: PlayerSource) {
     return
   }
 
-  await initHlsPlayer(url, source.headers, source.referer)
+  await initHlsPlayer(url, source.headers, source.referer, attempt)
 }
 
-async function initHlsPlayer(url: string, headers?: Record<string, string>, referer?: string) {
+async function initHlsPlayer(
+  url: string,
+  headers?: Record<string, string>,
+  referer?: string,
+  playbackAttempt?: PlaybackAttemptContext
+) {
   if (!videoRef.value) return
 
   if (hlsInstance) {
@@ -857,7 +946,7 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
         if (playbackSession.value) {
-          void playNextFromSession(data.error?.message || 'HLS 播放失败', url)
+          void playNextFromSession(data.error?.message || 'HLS 播放失败', playbackAttempt)
           return
         }
 
@@ -876,7 +965,7 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
       })
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        void attemptPlayback(false)
+        void attemptPlayback(false, playbackAttempt)
       })
 
       return
@@ -895,12 +984,16 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
   pendingAutoplay.value = true
 }
 
-async function attemptPlayback(_manual: boolean) {
+async function attemptPlayback(
+  _manual: boolean,
+  playbackAttempt: PlaybackAttemptContext | null = activePlaybackAttempt
+) {
   if (!videoRef.value) return
-  const attemptedUrl = currentSource.value?.url ?? null
+  if (playbackAttempt && !isCurrentPlaybackAttempt(playbackAttempt)) return
 
   try {
     await videoRef.value.play()
+    if (playbackAttempt && !isCurrentPlaybackAttempt(playbackAttempt)) return
     errorMsg.value = ''
     playing.value = true
     pendingAutoplay.value = false
@@ -913,14 +1006,14 @@ async function attemptPlayback(_manual: boolean) {
       return
     }
     if (playbackSession.value && shouldFailoverAfterPlaybackError(error)) {
-      await playNextFromSession(message, attemptedUrl)
+      await playNextFromSession(message, playbackAttempt)
     }
   }
 }
 
 function handleCanPlay() {
   if (!pendingAutoplay.value) return
-  void attemptPlayback(false)
+  void attemptPlayback(false, activePlaybackAttempt)
 }
 
 function handleVideoPlay() {
@@ -941,13 +1034,19 @@ function handleVideoPause() {
   controlsVisible.value = true
 }
 
-function handleVideoError() {
+function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext) {
+  if (event.timeStamp > 0 && event.timeStamp + 1 < playbackAttempt.startedAt) {
+    return
+  }
+  if (!isCurrentPlaybackAttempt(playbackAttempt)) {
+    return
+  }
+
   pendingAutoplay.value = false
   const mediaError = videoRef.value?.error
   const message = describeMediaErrorCode(mediaError?.code)
   if (playbackSession.value) {
-    const failedUrl = videoRef.value?.currentSrc || videoRef.value?.src || currentSource.value?.url
-    void playNextFromSession(message, failedUrl)
+    void playNextFromSession(message, playbackAttempt)
     return
   }
 
@@ -993,7 +1092,6 @@ function handleVideoError() {
               @canplay="handleCanPlay"
               @play="handleVideoPlay"
               @pause="handleVideoPause"
-              @error="handleVideoError"
             ></video>
 
             <div class="player-vignette-top"></div>
