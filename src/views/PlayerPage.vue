@@ -593,8 +593,9 @@ async function initHlsPlayer(url: string, headers?: Record<string, string>, refe
           const url = context.url
           // All manifest and segment requests go through Rust proxy for ad filtering,
           // CORS bypass, and automatic Referer retry for auth-blocking CDNs.
-          const isManifest = url.includes('.m3u8')
-          const isSegment = url.endsWith('.ts') || url.endsWith('.mp4')
+          const cleanUrl = url.split('?')[0].split('#')[0]
+          const isManifest = cleanUrl.includes('.m3u8')
+          const isSegment = cleanUrl.endsWith('.ts') || cleanUrl.endsWith('.mp4')
           if (isManifest || isSegment) {
             invoke<string>('fetch_hls_manifest', { url, headers, referer })
               .then((data) => {

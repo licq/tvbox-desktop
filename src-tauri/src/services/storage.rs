@@ -1478,6 +1478,27 @@ impl Storage {
         Ok(())
     }
 
+    pub fn get_douban_hot_by_id(&self, id: i64) -> SqliteResult<Option<DoubanHot>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, year, poster, rating, rank, updated_at, item_type
+             FROM douban_hot WHERE id = ?1"
+        )?;
+        let mut rows = stmt.query_map([id], |row| {
+            Ok(DoubanHot {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                year: row.get(2)?,
+                poster: row.get(3)?,
+                rating: row.get(4)?,
+                rank: row.get(5)?,
+                updated_at: row.get(6)?,
+                item_type: row.get(7)?,
+            })
+        })?;
+        rows.next().transpose()
+    }
+
     pub fn get_douban_hot_by_type(&self, item_type: &str) -> SqliteResult<Vec<DoubanHot>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

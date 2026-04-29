@@ -102,7 +102,17 @@ async function loadHotItemFromDb() {
     hotItem.value = found
     return
   }
-  // Fallback: fetch from database by type
+  // Fallback 1: fetch from database by id (direct lookup, no LIMIT)
+  try {
+    const dbFound = await invoke<DoubanHot | null>('get_douban_hot_by_id', { id: itemId.value })
+    if (dbFound) {
+      hotItem.value = dbFound
+      return
+    }
+  } catch {
+    // ignore
+  }
+  // Fallback 2: legacy bulk fetch (LIMIT 100 may miss some items)
   try {
     const items = await invoke<DoubanHot[]>('get_douban_hot', {})
     const dbFound = items.find(h => h.id === itemId.value)

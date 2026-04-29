@@ -120,6 +120,13 @@ export const useLibraryStore = defineStore('library', () => {
         items,
         updated_at: String(Date.now())
       }
+      // Sync into doubanHot so detail pages can look up by id without fetchHome()
+      const existingIds = new Set(doubanHot.value.map(h => h.id))
+      for (const item of items) {
+        if (!existingIds.has(item.id)) {
+          doubanHot.value.push(item)
+        }
+      }
       return items
     } catch (e) {
       console.error('[fetchDoubanHotByType] Error:', e)

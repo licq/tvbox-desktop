@@ -97,6 +97,14 @@ pub async fn search_vod_sources(
 }
 
 #[tauri::command]
+pub async fn get_douban_hot_by_id(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<Option<DoubanHot>, String> {
+    state.storage.get_douban_hot_by_id(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_douban_hot_by_type(
     state: State<'_, AppState>,
     item_type: String,
