@@ -1,0 +1,116 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to build
+        required: true
+        default: main
+        type: string
+      tag_name:
+        description: Git tag for the draft release
+        required: true
+        type: string
+      release_name:
+        description: Draft release title
+        required: true
+        default: TVBox Desktop
+        type: string
+      release_body:
+        description: Draft release notes
+        required: true
+        default: Unsigned release artifacts built from the selected ref.
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - name: Create or reuse draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          RELEASE_NAME: ${{ inputs.release_name }}
+          RELEASE_BODY: ${{ inputs.release_body }}
+          RELEASE_COMMITISH: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+
+          notes_file="$(mktemp)"
+          printf '%s\n' "$RELEASE_BODY" > "$notes_file"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$TAG_NAME" --json isDraft --jq '.isDraft')"
+            if [ "$is_draft" != "true" ]; then
+              echo "Release $TAG_NAME already exists and is not a draft." >&2
+              exit 1
+            fi
+          else
+            gh release create "$TAG_NAME" \
+              --draft \
+              --title "$RELEASE_NAME" \
+              --notes-file "$notes_file" \
+              --target "$RELEASE_COMMITISH"
+          fi
+
+          release_id="$(gh release view "$TAG_NAME" --json id --jq '.id')"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            label: linux
+          - os: macos-latest
+            label: macos
+          - os: windows-latest
+            label: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          tagName: ${{ inputs.tag_name }}
+          releaseDraft: true
+          args: ''
