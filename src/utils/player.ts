@@ -88,3 +88,48 @@ export function parsePlaybackHeaders(raw?: string | null): Record<string, string
     return null
   }
 }
+
+export function isDirectMediaUrl(url: string): boolean {
+  const normalized = url.toLowerCase()
+  return [
+    '.m3u8',
+    '.mp4',
+    '.m4v',
+    '.webm',
+    '.mov',
+  ].some(ext => normalized.includes(ext))
+}
+
+export function isPlaybackPageUrl(url: string): boolean {
+  const normalized = url.toLowerCase()
+  if (isDirectMediaUrl(normalized)) return false
+
+  return (
+    normalized.includes('xb6v.com/e/downsys/play/') ||
+    normalized.includes('/vodplay/') ||
+    normalized.includes('/vod/play/') ||
+    (normalized.includes('/play/') && !normalized.includes('/player/'))
+  )
+}
+
+export function shouldFallbackToBrowserHls(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : String(error)
+
+  const normalized = message.toLowerCase()
+  return [
+    'tls handshake eof',
+    'connection closed via error',
+    'error sending request',
+    'unexpected eof',
+    'connection reset',
+    'timed out',
+    'timeout',
+    'dns error',
+    'could not resolve host',
+  ].some(pattern => normalized.includes(pattern))
+}

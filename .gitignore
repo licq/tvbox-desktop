@@ -9,6 +9,11 @@ node_modules/
 dist/
 src-tauri/target/
 
+# Local test/debug artifacts
+.playwright-mcp/
+screenshot*.png
+snapshot*.yml
+
 # OS files
 .DS_Store
 .gstack/

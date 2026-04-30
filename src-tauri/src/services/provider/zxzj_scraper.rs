@@ -41,12 +41,12 @@ impl ZxzjScraper {
     }
 
     pub async fn play(&self, _flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
-        // zxzj play pages are resolved by resolver.rs
+        // zxzj returns a play page URL that must be resolved before playback.
         Ok(vec![PlaybackTarget {
             episode_id: None,
             source_key: "zxzj".to_string(),
             target_url: play_url.to_string(),
-            target_kind: PlaybackTargetKind::Direct,
+            target_kind: PlaybackTargetKind::Resolvable,
             resolver_key: None,
             headers: None,
             sort_hint: 0,
@@ -252,5 +252,17 @@ mod tests {
         let scraper = ZxzjScraper::new();
         test_scraper(&scraper, "zxzj", TEST_KEYWORD).await
             .expect("zxzj test failed");
+    }
+
+    #[tokio::test]
+    async fn play_returns_resolvable_play_page() {
+        let scraper = ZxzjScraper::new();
+        let targets = scraper
+            .play("auto", "https://www.zxzjhd.com/vodplay/4627-1-1.html")
+            .await
+            .expect("zxzj play should return a target");
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].target_kind, PlaybackTargetKind::Resolvable);
     }
 }

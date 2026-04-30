@@ -6,6 +6,9 @@ import {
   isAutoplayBlocked,
   isProviderDirectPlaybackRoute,
   parsePlaybackHeaders,
+  isDirectMediaUrl,
+  isPlaybackPageUrl,
+  shouldFallbackToBrowserHls,
 } from '@/utils/player'
 
 describe('player utils', () => {
@@ -68,5 +71,22 @@ describe('provider playback routing', () => {
       Origin: 'https://example.com',
     })
     expect(parsePlaybackHeaders('{bad json')).toBeNull()
+  })
+
+  it('detects direct media urls but not play pages', () => {
+    expect(isDirectMediaUrl('https://cdn.example.com/live/index.m3u8')).toBe(true)
+    expect(isDirectMediaUrl('https://www.xb6v.com/e/DownSys/play/?classid=6&id=28451&pathid1=0&bf=0')).toBe(false)
+  })
+
+  it('detects play page urls', () => {
+    expect(isPlaybackPageUrl('https://www.xb6v.com/e/DownSys/play/?classid=6&id=28451&pathid1=0&bf=0')).toBe(true)
+    expect(isPlaybackPageUrl('https://www.zxzjhd.com/vodplay/4627-1-1.html')).toBe(true)
+    expect(isPlaybackPageUrl('https://cdn.example.com/live/index.m3u8')).toBe(false)
+  })
+
+  it('falls back to browser hls only for transport-style failures', () => {
+    expect(shouldFallbackToBrowserHls(new Error('error sending request for url (https://example.com)'))).toBe(true)
+    expect(shouldFallbackToBrowserHls(new Error('tls handshake eof'))).toBe(true)
+    expect(shouldFallbackToBrowserHls(new Error('playlist request failed: 403 Forbidden'))).toBe(false)
   })
 })

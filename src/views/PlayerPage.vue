@@ -13,10 +13,13 @@ import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import {
   describeMediaErrorCode,
   describePlaybackFailure,
+  isDirectMediaUrl,
   formatPlayerTitle,
   isAutoplayBlocked,
   isProviderDirectPlaybackRoute,
   parsePlaybackHeaders,
+  isPlaybackPageUrl,
+  shouldFallbackToBrowserHls,
 } from '@/utils/player'
 import { mergeEpisodes } from '@/utils/episode'
 import {
@@ -205,6 +208,31 @@ async function loadProviderDirectPlayback() {
   }
 
   const url = decodeURIComponent(episodeUrl.value)
+  if (!isDirectMediaUrl(url)) {
+    try {
+      const resolved = await playbackStore.resolve(url, undefined)
+      if (resolved.candidates.length > 0) {
+        sources.value = resolved.candidates.map(candidate => ({
+          url: candidate.url,
+          label: candidate.label,
+          kind: candidate.kind,
+          headers: candidate.headers,
+          referer: candidate.referer,
+        }))
+        currentSourceIndex.value = 0
+        failedSourceIndexes.value = []
+        if (resolved.status === 'ready' || resolved.status === 'external_required') {
+          await playSource(sources.value[0]!)
+        } else {
+          errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+        }
+        return
+      }
+    } catch (e) {
+      console.error('[PlayerPage] provider direct resolve failed:', e)
+    }
+  }
+
   sources.value = [{
     url,
     label: sourceTitle.value || sourceName.value || '来源',
@@ -1119,6 +1147,31 @@ async function playSource(source: PlayerSource) {
     return
   }
 
+  if (source.kind === 'http' && isPlaybackPageUrl(url)) {
+    try {
+      const resolved = await playbackStore.resolve(url, undefined)
+      if (resolved.candidates.length > 0) {
+        sources.value = resolved.candidates.map(candidate => ({
+          url: candidate.url,
+          label: candidate.label,
+          kind: candidate.kind,
+          headers: candidate.headers,
+          referer: candidate.referer,
+        }))
+        currentSourceIndex.value = 0
+        failedSourceIndexes.value = []
+        if (resolved.status === 'ready' || resolved.status === 'external_required') {
+          await playSource(sources.value[0]!)
+        } else {
+          errorMsg.value = resolved.errorMessage ?? '当前条目没有可用线路'
+        }
+        return
+      }
+    } catch (e) {
+      console.error('[PlayerPage] late play-page resolve failed:', e)
+    }
+  }
+
   await initHlsPlayer(source)
 }
 
@@ -1162,6 +1215,10 @@ async function initHlsPlayer(source: PlayerSource) {
                 callbacks.onSuccess({ data: finalData, url, code: 200 }, stats, context, null)
               })
               .catch((err) => {
+                if (shouldFallbackToBrowserHls(err)) {
+                  ;(super.load as any)(context, config, callbacks)
+                  return
+                }
                 callbacks.onError({ code: 0, text: String(err) }, context, null, { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } })
               })
             return

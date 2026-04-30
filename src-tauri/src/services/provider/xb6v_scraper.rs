@@ -74,12 +74,12 @@ impl Xb6vScraper {
     }
 
     pub async fn play(&self, _flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
-        // xb6v play pages are resolved by resolver.rs
+        // xb6v returns a play page URL that must be resolved before playback.
         Ok(vec![PlaybackTarget {
             episode_id: None,
             source_key: "xb6v".to_string(),
             target_url: play_url.to_string(),
-            target_kind: PlaybackTargetKind::Direct,
+            target_kind: PlaybackTargetKind::Resolvable,
             resolver_key: None,
             headers: None,
             sort_hint: 0,
@@ -407,5 +407,17 @@ mod tests {
         let scraper = Xb6vScraper::new();
         test_scraper(&scraper, "xb6v", TEST_KEYWORD).await
             .expect("xb6v test failed");
+    }
+
+    #[tokio::test]
+    async fn play_returns_resolvable_play_page() {
+        let scraper = Xb6vScraper::new();
+        let targets = scraper
+            .play("auto", "https://www.xb6v.com/e/DownSys/play/?classid=6&id=28451&pathid1=0&bf=0")
+            .await
+            .expect("xb6v play should return a target");
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].target_kind, PlaybackTargetKind::Resolvable);
     }
 }

@@ -96,12 +96,20 @@ pub fn maybe_cached_targets_for_episode(
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|record| {
+            let target_kind = normalize_cached_target_kind(&record.target_kind, &record.target_url);
+            let resolver_key = match target_kind {
+                PlaybackTargetKind::Resolvable => record
+                    .resolver_key
+                    .or_else(|| Some(record.source_key.clone())),
+                _ => record.resolver_key,
+            };
+
             Ok(PlaybackTarget {
                 episode_id: Some(record.episode_id),
                 source_key: record.source_key,
                 target_url: record.target_url,
-                target_kind: parse_target_kind(&record.target_kind),
-                resolver_key: record.resolver_key,
+                target_kind,
+                resolver_key,
                 headers: parse_headers_json(record.headers_json.as_deref())?,
                 sort_hint: record.sort_hint,
                 meta: record.meta_text,
@@ -348,6 +356,17 @@ fn parse_target_kind(value: &str) -> PlaybackTargetKind {
         "embedded" => PlaybackTargetKind::Embedded,
         _ => PlaybackTargetKind::ExternalRequired,
     }
+}
+
+fn normalize_cached_target_kind(value: &str, url: &str) -> PlaybackTargetKind {
+    let parsed = parse_target_kind(value);
+    if matches!(parsed, PlaybackTargetKind::Direct)
+        && classify_playback_target(url) == "resolvable"
+    {
+        return PlaybackTargetKind::Resolvable;
+    }
+
+    parsed
 }
 
 fn parse_headers_json(value: Option<&str>) -> Result<Option<HashMap<String, String>>, String> {
@@ -677,7 +696,10 @@ mod tests {
     use crate::services::playback_types::{
         PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
     };
-    use crate::services::storage::playback_cache::{list_playback_targets, upsert_playback_health};
+    use crate::services::storage::playback_cache::{
+        list_playback_targets, replace_playback_targets, upsert_playback_health,
+        PlaybackTargetRecord,
+    };
     use crate::services::Storage;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1027,7 +1049,7 @@ mod tests {
         );
 
         assert_eq!(guard.target_kind, PlaybackTargetKind::Resolvable);
-        assert_eq!(embedded.target_kind, PlaybackTargetKind::Embedded);
+        assert_eq!(embedded.target_kind, PlaybackTargetKind::Resolvable);
     }
 
     #[test]
@@ -1210,6 +1232,31 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_legacy_cached_play_pages_to_resolvable_targets() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let record = PlaybackTargetRecord {
+            episode_id: 91,
+            source_key: "xb6v".to_string(),
+            target_url: "https://www.xb6v.com/e/DownSys/play/?classid=6&id=28451&pathid1=0&bf=0"
+                .to_string(),
+            target_kind: "direct".to_string(),
+            resolver_key: None,
+            headers_json: None,
+            meta_text: None,
+            sort_hint: 0,
+        };
+
+        replace_playback_targets(&storage, 91, vec![record]).expect("runtime targets should persist");
+
+        let restored =
+            maybe_cached_targets_for_episode(&storage, 91).expect("cached targets should restore");
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].target_kind, PlaybackTargetKind::Resolvable);
+        assert_eq!(restored[0].resolver_key.as_deref(), Some("xb6v"));
+    }
+
+    #[test]
     fn maps_target_kind_to_storage_label() {
         assert_eq!(target_kind_label(&PlaybackTargetKind::Direct), "direct");
         assert_eq!(
@@ -1342,6 +1389,29 @@ mod tests {
         assert!(
             resolved.candidates.iter().any(|c| c.url.contains(".m3u8")),
             "xb6v candidate should be an HLS stream"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live upstream access"]
+    async fn resolves_live_xb6v_pathid3_play_page_to_hls() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+        let play_url =
+            "https://www.xb6v.com/e/DownSys/play/?classid=2&id=28522&pathid3=0&bf=2";
+
+        let resolved = resolve_playback_for_input(&storage, play_url, None)
+            .await
+            .expect("xb6v runtime should resolve play page");
+
+        println!("xb6v pathid3 resolved={resolved:#?}");
+        assert_eq!(
+            resolved.status,
+            "ready",
+            "xb6v pathid3 should resolve to a ready HLS stream, got: {resolved:#?}"
+        );
+        assert!(
+            resolved.candidates.iter().any(|c| c.url.contains(".m3u8")),
+            "xb6v pathid3 candidate should be an HLS stream"
         );
     }
 

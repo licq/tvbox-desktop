@@ -29,7 +29,11 @@ impl PlaybackResolver {
             return Ok(external_required("当前资源需要交给外部网盘工具处理", input));
         }
 
-        if looks_like_xb6v_play_page(input) || looks_like_ypanso_play_page(input) {
+        if looks_like_xb6v_play_page(input)
+            || looks_like_ypanso_play_page(input)
+            || looks_like_zxzj_play_page(input)
+            || looks_like_generic_play_page(input)
+        {
             return resolve_play_page(input).await;
         }
 
@@ -62,7 +66,11 @@ pub fn classify_playback_target(input: &str) -> &'static str {
         return "external";
     }
 
-    if looks_like_xb6v_play_page(input) || looks_like_ypanso_play_page(input) {
+    if looks_like_xb6v_play_page(input)
+        || looks_like_ypanso_play_page(input)
+        || looks_like_zxzj_play_page(input)
+        || looks_like_generic_play_page(input)
+    {
         return "resolvable";
     }
 
@@ -142,7 +150,29 @@ fn looks_like_ypanso_play_page(input: &str) -> bool {
 }
 
 pub fn looks_like_zxzj_play_page(input: &str) -> bool {
-    input.contains("zxzjys.com/vodplay/") || input.contains("zxzj.com/vodplay/")
+    input.contains("zxzjys.com/vodplay/")
+        || input.contains("zxzj.com/vodplay/")
+        || input.contains("zxzjhd.com/vodplay/")
+}
+
+fn looks_like_generic_play_page(input: &str) -> bool {
+    if input.contains(".m3u8")
+        || input.contains(".mp4")
+        || input.contains(".m4v")
+        || input.contains(".webm")
+        || input.contains(".mov")
+    {
+        return false;
+    }
+
+    input.contains("/play/")
+        || input.contains("/vodplay/")
+        || input.contains("/vod/play/")
+        || (input.contains("/vod/")
+            && !input.contains("/vod/detail/")
+            && !input.contains("/vodsearch/")
+            && !input.contains("/vodtype/")
+            && !input.contains("/vod/show/"))
 }
 
 fn looks_like_cloud_disk_link(input: &str) -> bool {
@@ -169,20 +199,26 @@ async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
         ));
     }
 
-    // Try 2: maccms player_aaaa / player_bbbb video JSON with url field
+    // Try 2: DPlayer video config (video: { url: '...' })
+    if let Some(video_url) = extract_dplayer_video_url(&body) {
+        eprintln!("[resolve_play] Found dplayer video url: {}", &video_url[..video_url.len().min(80)]);
+        return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url), referer));
+    }
+
+    // Try 3: maccms player_aaaa / player_bbbb video JSON with url field
     if let Some(video_url) = extract_maccms_player_url(&body) {
         eprintln!("[resolve_play] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
         let kind = detect_kind(&video_url);
         return Ok(ready_with_candidate(video_url, kind, referer));
     }
 
-    // Try 3: Direct <video> or <source> elements
+    // Try 4: Direct <video> or <source> elements
     if let Some(video_url) = extract_html_video_src(input, &body) {
         eprintln!("[resolve_play] Found video element src: {}", &video_url[..video_url.len().min(80)]);
         return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url), referer));
     }
 
-    // Try 4: iframe-based player (share page)
+    // Try 5: iframe-based player (share page)
     // We still attempt to resolve the share page for a direct URL, but we no longer
     // fall back to an embed candidate — iframe playback experience is poor.
     if let Some(iframe_url) = extract_iframe_src(input, &body) {
@@ -216,6 +252,33 @@ fn extract_maccms_player_url(body: &str) -> Option<String> {
         let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
         parsed.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
     })
+}
+
+/// Extract video URL from DPlayer configuration blocks.
+/// Supports patterns like:
+/// `video: { url: 'https://.../index.m3u8', type: 'hls' }`
+fn extract_dplayer_video_url(body: &str) -> Option<String> {
+    let patterns = [
+        r#"video\s*:\s*\{\s*url\s*:\s*'([^']+)'"#,
+        r#"video\s*:\s*\{\s*url\s*:\s*"([^"]+)""#,
+        r#"url\s*:\s*'([^']+\.m3u8[^']*)'"#,
+        r#"url\s*:\s*"([^"]+\.m3u8[^"]*)""#,
+    ];
+
+    for pattern in patterns {
+        if let Ok(regex) = Regex::new(pattern) {
+            if let Some(captures) = regex.captures(body) {
+                if let Some(value) = captures.get(1) {
+                    let url = value.as_str().trim();
+                    if !url.is_empty() {
+                        return Some(url.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Extract video source URL from <video> or <source> HTML elements.
@@ -258,6 +321,13 @@ async fn resolve_embedded_share_page(
     iframe_url: &str,
 ) -> Result<ResolvedPlayback, String> {
     let body = fetch_text(client, iframe_url).await?;
+    if let Some(video_url) = extract_dplayer_video_url(&body) {
+        return Ok(ready_with_candidate(
+            video_url.clone(),
+            detect_kind(&video_url),
+            Some(iframe_url),
+        ));
+    }
     let share_url_regex = Regex::new(r#"const\s+url\s*=\s*"([^"]+)""#).unwrap();
     let Some(source_url) = share_url_regex.captures(&body).and_then(|captures| {
         captures
@@ -291,7 +361,6 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 
 pub(crate) fn build_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .no_proxy()
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(20))
         .build()
@@ -418,7 +487,8 @@ async fn probe_binary_resource_result(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    let response = match apply_request_headers(request, headers).send().await {
+    let request_headers = build_hls_request_headers(headers, None);
+    let response = match apply_request_headers(request, request_headers.as_ref()).send().await {
         Ok(response) => response,
         Err(error) => return PlaybackProbeResult::failed(error.to_string(), None),
     };
@@ -500,7 +570,8 @@ async fn fetch_text_with_headers(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    let response = apply_request_headers(request, headers)
+    let request_headers = build_hls_request_headers(headers, None);
+    let response = apply_request_headers(request, request_headers.as_ref())
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -523,7 +594,8 @@ async fn fetch_hls_playlist_with_headers(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    let response = apply_request_headers(request, headers)
+    let request_headers = build_hls_request_headers(headers, None);
+    let response = apply_request_headers(request, request_headers.as_ref())
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -549,7 +621,8 @@ async fn fetch_hls_playlist_with_headers_no_cors(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    let response = apply_request_headers(request, headers)
+    let request_headers = build_hls_request_headers(headers, None);
+    let response = apply_request_headers(request, request_headers.as_ref())
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -559,26 +632,6 @@ async fn fetch_hls_playlist_with_headers_no_cors(
     }
 
     response.text().await.map_err(|e| e.to_string())
-}
-
-/// Fetches arbitrary URL content (for proxying segment requests).
-/// Does not require CORS headers, returns raw bytes as base64 string.
-async fn proxy_url(client: &reqwest::Client, url: &str) -> Result<String, String> {
-    use base64::Engine;
-    let request = client
-        .get(url)
-        .header(
-            reqwest::header::USER_AGENT,
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        );
-    let response = request.send().await.map_err(|e| e.to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("proxy request failed: {status}"));
-    }
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-    // Encode as base64 so we can send binary over JSON
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 /// Rewrite relative URLs in an HLS playlist to absolute URLs based on the base URL.
@@ -676,32 +729,37 @@ async fn fetch_hls_playlist_with_headers_no_cors_and_retry(
 async fn proxy_url_with_retry(
     client: &reqwest::Client,
     url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
     referer: Option<&str>,
 ) -> Result<String, String> {
-    match proxy_url(client, url).await {
+    let request_headers = build_hls_request_headers(headers, referer);
+    match proxy_url_with_headers(client, url, request_headers.as_ref()).await {
         Ok(body) => Ok(body),
         Err(e) if referer.is_some() && looks_like_auth_failure(&e) => {
-            proxy_url_with_referer(client, url, referer.unwrap()).await
+            let retry_headers = build_hls_request_headers(headers, referer);
+            proxy_url_with_headers(client, url, retry_headers.as_ref()).await
         }
         Err(e) => Err(e),
     }
 }
 
-/// Proxy a URL with an explicit Referer header.
-async fn proxy_url_with_referer(
+/// Proxy a URL with explicit headers.
+async fn proxy_url_with_headers(
     client: &reqwest::Client,
     url: &str,
-    referer: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<String, String> {
     use base64::Engine;
     let request = client
         .get(url)
-        .header("Referer", referer)
         .header(
             reqwest::header::USER_AGENT,
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         );
-    let response = request.send().await.map_err(|e| e.to_string())?;
+    let response = apply_request_headers(request, headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let status = response.status();
     if !status.is_success() {
         return Err(format!("proxy request failed: {status}"));
@@ -715,14 +773,17 @@ pub(crate) async fn fetch_hls_manifest_internal(
     headers: Option<&std::collections::HashMap<String, String>>,
     referer: Option<&str>,
 ) -> Result<String, String> {
+    let request_headers = build_hls_request_headers(headers, referer);
+
     // For non-manifest URLs (segments), use binary proxy
     if !url.contains(".m3u8") {
         let client = build_client()?;
-        return proxy_url_with_retry(&client, url, referer).await;
+        return proxy_url_with_retry(&client, url, request_headers.as_ref(), referer).await;
     }
 
     let client = build_client()?;
-    let body = fetch_hls_playlist_with_headers_no_cors_and_retry(&client, url, headers, referer).await?;
+    let body =
+        fetch_hls_playlist_with_headers_no_cors_and_retry(&client, url, request_headers.as_ref(), referer).await?;
 
     // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
     if body.contains("#EXT-X-STREAM-INF") {
@@ -732,7 +793,13 @@ pub(crate) async fn fetch_hls_manifest_internal(
         };
 
         // Fetch the variant playlist with retry
-        let variant_body = fetch_hls_playlist_with_headers_no_cors_and_retry(&client, &variant_url, headers, referer).await?;
+        let variant_body = fetch_hls_playlist_with_headers_no_cors_and_retry(
+            &client,
+            &variant_url,
+            request_headers.as_ref(),
+            referer,
+        )
+        .await?;
 
         // Normalize the master playlist with embedded variant
         let normalized = normalize_master_playlist(&body, url, &variant_body, &variant_url);
@@ -761,13 +828,60 @@ fn apply_request_headers(
     request
 }
 
+fn build_hls_request_headers(
+    headers: Option<&std::collections::HashMap<String, String>>,
+    referer: Option<&str>,
+) -> Option<std::collections::HashMap<String, String>> {
+    let mut merged = headers.cloned().unwrap_or_default();
+    let existing_referer = find_header_value(&merged, "referer").map(str::to_string);
+    if let Some(referer_value) = referer.or(existing_referer.as_deref()) {
+        if find_header_value(&merged, "referer").is_none() {
+            merged.insert("Referer".to_string(), referer_value.to_string());
+        }
+        if find_header_value(&merged, "origin").is_none() {
+            if let Some(origin) = infer_origin_from_referer(referer_value) {
+                merged.insert("Origin".to_string(), origin);
+            }
+        }
+    }
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
+fn find_header_value<'a>(
+    headers: &'a std::collections::HashMap<String, String>,
+    name: &str,
+) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn infer_origin_from_referer(referer: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(referer).ok()?;
+    let host = parsed.host_str()?;
+    let mut origin = format!("{}://{}", parsed.scheme(), host);
+    if let Some(port) = parsed.port() {
+        origin.push(':');
+        origin.push_str(&port.to_string());
+    }
+    Some(origin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_playback_target, detect_kind, looks_like_cloud_disk_link,
-        looks_like_xb6v_play_page, looks_like_ypanso_play_page, map_target_kind_to_probe_gate,
+        build_hls_request_headers, classify_playback_target, detect_kind, extract_dplayer_video_url,
+        infer_origin_from_referer, looks_like_cloud_disk_link, looks_like_xb6v_play_page,
+        looks_like_ypanso_play_page, looks_like_zxzj_play_page, map_target_kind_to_probe_gate,
         PlaybackResolver,
     };
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn marks_hls_url_as_ready_candidate() {
@@ -813,9 +927,87 @@ mod tests {
     }
 
     #[test]
+    fn zxzj_play_pages_are_resolvable() {
+        assert!(looks_like_zxzj_play_page(
+            "https://www.zxzjhd.com/vodplay/4627-1-1.html"
+        ));
+        assert_eq!(
+            classify_playback_target("https://www.zxzjhd.com/vodplay/4627-1-1.html"),
+            "resolvable"
+        );
+    }
+
+    #[test]
+    fn generic_play_pages_are_resolvable() {
+        assert_eq!(
+            classify_playback_target("https://www.fan.com/play/4627-1-1.html"),
+            "resolvable"
+        );
+        assert_eq!(
+            classify_playback_target("https://www.cc.com/vod/4627-1-1.html"),
+            "resolvable"
+        );
+        assert_eq!(
+            classify_playback_target("https://www.kkss.com/vod/play/4627-1-1.html"),
+            "resolvable"
+        );
+    }
+
+    #[test]
     fn cloud_disk_links_are_external() {
         assert!(looks_like_cloud_disk_link("https://pan.baidu.com/s/abc"));
         assert!(looks_like_cloud_disk_link("https://pan.quark.cn/s/abc"));
         assert!(!looks_like_cloud_disk_link("https://example.com/video.mp4"));
     }
+
+    #[test]
+    fn infers_origin_from_referer_for_hls_requests() {
+        assert_eq!(
+            infer_origin_from_referer("https://www.ypanso.com/vod/play/id/12345/sid/1/nid/1.html"),
+            Some("https://www.ypanso.com".to_string())
+        );
+    }
+
+    #[test]
+    fn merges_referer_and_origin_into_hls_headers() {
+        let mut headers = HashMap::new();
+        headers.insert("User-Agent".to_string(), "TVBox".to_string());
+
+        let merged = build_hls_request_headers(
+            Some(&headers),
+            Some("https://www.ypanso.com/vod/play/id/12345/sid/1/nid/1.html"),
+        )
+        .expect("headers should be present");
+
+        assert_eq!(
+            merged.get("Referer").map(String::as_str),
+            Some("https://www.ypanso.com/vod/play/id/12345/sid/1/nid/1.html")
+        );
+        assert_eq!(
+            merged.get("Origin").map(String::as_str),
+            Some("https://www.ypanso.com")
+        );
+        assert_eq!(merged.get("User-Agent").map(String::as_str), Some("TVBox"));
+    }
+
+    #[test]
+    fn extracts_dplayer_video_url_from_config() {
+        let body = r#"
+        <script>
+        const dp = new DPlayer({
+          container: document.getElementById('dplayer'),
+          autoplay: true,
+          video: {
+            url: 'https://hn.bfvvs.com/play/bDk9mYAa/index.m3u8',
+            type: 'hls',
+          },
+        });
+        </script>
+        "#;
+        assert_eq!(
+            extract_dplayer_video_url(body).as_deref(),
+            Some("https://hn.bfvvs.com/play/bDk9mYAa/index.m3u8")
+        );
+    }
+
 }

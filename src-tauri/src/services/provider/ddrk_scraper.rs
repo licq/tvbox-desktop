@@ -39,7 +39,7 @@ impl DdrkScraper {
             episode_id: None,
             source_key: "低端".to_string(),
             target_url: play_url.to_string(),
-            target_kind: PlaybackTargetKind::Direct,
+            target_kind: PlaybackTargetKind::Resolvable,
             resolver_key: None,
             headers: None,
             sort_hint: 0,
