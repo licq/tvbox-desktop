@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useSubscriptionStore } from '@/stores/subscription'
 import type { SourceSubscription } from '@/types'
 
@@ -8,7 +8,21 @@ const subStore = useSubscriptionStore()
 const showAddForm = ref(false)
 const newName = ref('')
 const newUrl = ref('')
-const refreshing = ref<number | null>(null)
+const refreshingId = ref<number | null>(null)
+
+const subscriptions = computed(() => subStore.subscriptions)
+const totalSubscriptions = computed(() => subscriptions.value.length)
+const enabledSubscriptions = computed(() => subscriptions.value.filter((sub) => sub.enabled).length)
+const disabledSubscriptions = computed(() => totalSubscriptions.value - enabledSubscriptions.value)
+const activeRefreshSubscription = computed(() =>
+  refreshingId.value === null
+    ? null
+    : subscriptions.value.find((sub) => sub.id === refreshingId.value) ?? null,
+)
+const activeRefreshCount = computed(() => (subStore.isRefreshing ? 1 : 0))
+const activeRefreshLabel = computed(() =>
+  activeRefreshSubscription.value ? activeRefreshSubscription.value.name : '当前没有刷新任务',
+)
 
 onMounted(async () => {
   try {
@@ -19,9 +33,12 @@ onMounted(async () => {
 })
 
 async function handleAdd() {
-  if (!newName.value || !newUrl.value) return
+  const name = newName.value.trim()
+  const url = newUrl.value.trim()
+  if (!name || !url) return
+
   try {
-    await subStore.addSubscription(newName.value, newUrl.value)
+    await subStore.addSubscription(name, url)
     newName.value = ''
     newUrl.value = ''
     showAddForm.value = false
@@ -31,6 +48,7 @@ async function handleAdd() {
 }
 
 async function handleRefresh(sub: SourceSubscription) {
+  refreshingId.value = sub.id
   subStore.setRefreshing(sub.name, 1, 1)
   try {
     await subStore.refreshSubscription(sub.id)
@@ -38,6 +56,7 @@ async function handleRefresh(sub: SourceSubscription) {
     alert('刷新失败: ' + e)
   } finally {
     subStore.clearRefreshing()
+    refreshingId.value = null
   }
 }
 
@@ -51,6 +70,7 @@ async function handleToggle(sub: SourceSubscription) {
 
 async function handleDelete(sub: SourceSubscription) {
   if (!confirm(`确定删除订阅 "${sub.name}" 吗？`)) return
+
   try {
     await subStore.deleteSubscription(sub.id)
   } catch (e) {
@@ -60,98 +80,213 @@ async function handleDelete(sub: SourceSubscription) {
 </script>
 
 <template>
-  <div class="subscriptions-page min-h-screen bg-gray-900 text-white p-4">
-    <div v-if="subStore.isRefreshing" class="mb-4 flex items-center gap-3 rounded-lg bg-white/10 px-4 py-2">
-      <div class="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
-      <span>刷新 {{ subStore.refreshingName }} 中...</span>
-    </div>
-
-    <header class="mb-6 flex items-center justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <RouterLink to="/library/live" class="px-3 py-2 bg-gray-700 rounded hover:bg-gray-600 transition">
-          ← 返回主页
-        </RouterLink>
-        <h1 class="text-2xl font-bold">📡 订阅管理</h1>
+  <div class="app-shell subscriptions-page">
+    <header class="page-hero">
+      <div class="page-hero-copy">
+        <p class="eyebrow">订阅任务</p>
+        <h1 class="page-hero-title">订阅管理</h1>
+        <p class="page-hero-subtitle">
+          在这里维护订阅源、查看启用状态和刷新任务。页面保持单一任务流，方便快速添加、更新或清理订阅。
+        </p>
       </div>
-      <button
-        class="px-4 py-2 bg-primary rounded hover:bg-blue-600 transition"
-        @click="showAddForm = !showAddForm"
-      >
-        {{ showAddForm ? '取消' : '+ 添加订阅' }}
-      </button>
+
+      <div class="page-hero-actions">
+        <RouterLink to="/library/live" class="action-button action-button-secondary">
+          ← 返回
+        </RouterLink>
+        <button
+          class="action-button action-button-primary"
+          type="button"
+          @click="showAddForm = !showAddForm"
+        >
+          {{ showAddForm ? '收起表单' : '添加订阅' }}
+        </button>
+      </div>
     </header>
 
-    <!-- Add Form -->
-    <div v-if="showAddForm" class="bg-gray-800 p-4 rounded-lg mb-6">
-      <div class="mb-4">
-        <label class="block text-sm text-gray-400 mb-1">名称</label>
-        <input
-          v-model="newName"
-          type="text"
-          class="w-full bg-gray-700 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-primary"
-          placeholder="例如: 我的收藏"
-        />
+    <section class="task-summary-strip">
+      <article class="task-summary-card">
+        <p class="panel-kicker">Total</p>
+        <div class="task-summary-value">{{ totalSubscriptions }}</div>
+        <p class="mt-2 text-sm leading-6 text-white/55">订阅总数</p>
+      </article>
+
+      <article class="task-summary-card">
+        <p class="panel-kicker">Enabled</p>
+        <div class="task-summary-value">{{ enabledSubscriptions }}</div>
+        <p class="mt-2 text-sm leading-6 text-white/55">当前启用</p>
+      </article>
+
+      <article class="task-summary-card">
+        <p class="panel-kicker">Disabled</p>
+        <div class="task-summary-value">{{ disabledSubscriptions }}</div>
+        <p class="mt-2 text-sm leading-6 text-white/55">当前停用</p>
+      </article>
+
+      <article class="task-summary-card">
+        <p class="panel-kicker">Refreshing</p>
+        <div class="task-summary-value">{{ activeRefreshCount }}</div>
+        <p class="mt-2 text-sm leading-6 text-white/55">{{ activeRefreshLabel }}</p>
+      </article>
+    </section>
+
+    <section v-if="showAddForm" class="surface-panel mt-4 rounded-[2rem] p-5 md:p-6">
+      <div class="panel-header">
+        <div class="panel-header-copy">
+          <p class="panel-kicker">Create</p>
+          <h2 class="panel-header-title">添加订阅</h2>
+          <p class="panel-header-subtitle">输入订阅名称和地址，保存后会立刻加入任务列表。</p>
+        </div>
       </div>
-      <div class="mb-4">
-        <label class="block text-sm text-gray-400 mb-1">订阅地址 (JSON)</label>
-        <input
-          v-model="newUrl"
-          type="text"
-          class="w-full bg-gray-700 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-primary"
-          placeholder="https://example.com/subscription.json"
-        />
-      </div>
-      <button
-        class="px-4 py-2 bg-primary rounded hover:bg-blue-600 transition"
-        @click="handleAdd"
-      >
-        添加
-      </button>
-    </div>
 
-    <!-- Subscription List -->
-    <div v-if="subStore.loading" class="flex justify-center py-8">
-      <div class="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full"></div>
-    </div>
-
-    <div v-else-if="subStore.subscriptions.length === 0" class="text-center py-8 text-gray-400">
-      暂无订阅
-    </div>
-
-    <div v-else class="space-y-3">
-      <div
-        v-for="sub in subStore.subscriptions"
-        :key="sub.id"
-        class="bg-gray-800 p-4 rounded-lg flex items-center justify-between"
-      >
-        <div class="flex items-center gap-3">
-          <button
-            :class="['w-12 h-6 rounded-full transition', sub.enabled ? 'bg-primary' : 'bg-gray-600']"
-            @click="handleToggle(sub)"
-          >
-            <div :class="['w-5 h-5 bg-white rounded-full transition transform', sub.enabled ? 'translate-x-6' : 'translate-x-0.5']"></div>
-          </button>
+      <form class="space-y-4" @submit.prevent="handleAdd">
+        <div class="field-row">
           <div>
-            <div class="font-medium">{{ sub.name }}</div>
-            <div class="text-sm text-gray-400 truncate max-w-md">{{ sub.url }}</div>
+            <label class="field-label" for="subscription-name">名称</label>
+            <p class="field-help">用于在任务面板中识别这条订阅。</p>
+          </div>
+          <input
+            id="subscription-name"
+            v-model="newName"
+            class="field-control"
+            type="text"
+            placeholder="例如: 我的收藏"
+          />
+        </div>
+
+        <div class="field-row">
+          <div>
+            <label class="field-label" for="subscription-url">订阅地址</label>
+            <p class="field-help">支持 JSON 或 TVBox 订阅地址，保持和后端现有逻辑一致。</p>
+          </div>
+          <input
+            id="subscription-url"
+            v-model="newUrl"
+            class="field-control"
+            type="text"
+            placeholder="https://example.com/subscription.json"
+          />
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 pt-1">
+          <button class="action-button action-button-primary" type="submit">
+            添加订阅
+          </button>
+          <button
+            class="action-button action-button-secondary"
+            type="button"
+            @click="showAddForm = false"
+          >
+            取消
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="surface-panel mt-4 rounded-[2rem] p-5 md:p-6">
+      <div class="panel-header">
+        <div class="panel-header-copy">
+          <p class="panel-kicker">Tasks</p>
+          <h2 class="panel-header-title">订阅列表</h2>
+          <p class="panel-header-subtitle">每条记录都可以单独启用、刷新或删除，刷新中的任务会被高亮显示。</p>
+        </div>
+      </div>
+
+      <div v-if="subStore.loading" class="flex min-h-[220px] items-center justify-center">
+        <div
+          class="h-10 w-10 animate-spin rounded-full border-2 border-[rgba(216,154,87,0.95)] border-t-transparent"
+        ></div>
+      </div>
+
+      <div v-else-if="subscriptions.length === 0" class="empty-panel">
+        <p class="panel-kicker">Empty</p>
+        <h3 class="text-lg font-semibold text-[var(--text-strong)]">暂无订阅</h3>
+        <p class="max-w-md text-sm leading-7 text-[var(--text-soft)]">
+          添加一个订阅后，这里会显示任务卡片、启用状态和刷新操作。
+        </p>
+        <button
+          class="action-button action-button-primary"
+          type="button"
+          @click="showAddForm = true"
+        >
+          添加订阅
+        </button>
+      </div>
+
+      <div v-else class="space-y-3">
+        <div
+          v-for="sub in subscriptions"
+          :key="sub.id"
+          class="task-row transition"
+          :class="
+            refreshingId === sub.id
+              ? 'border-[rgba(240,179,107,0.42)] bg-[rgba(216,154,87,0.1)] shadow-[0_18px_48px_rgba(216,154,87,0.08)]'
+              : ''
+          "
+        >
+          <div class="task-row-main">
+            <div class="flex flex-wrap items-center gap-3">
+              <h3 class="task-row-title">{{ sub.name }}</h3>
+              <span
+                class="rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]"
+                :class="
+                  sub.enabled
+                    ? 'border-[rgba(120,200,140,0.24)] bg-[rgba(120,200,140,0.1)] text-[#c9f3d0]'
+                    : 'border-white/10 bg-white/5 text-white/55'
+                "
+              >
+                {{ sub.enabled ? '启用' : '停用' }}
+              </span>
+              <span
+                v-if="refreshingId === sub.id"
+                class="inline-flex items-center gap-2 rounded-full border border-[rgba(240,179,107,0.22)] bg-[rgba(240,179,107,0.08)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#ffd8aa]"
+              >
+                <span class="h-2 w-2 rounded-full bg-current animate-pulse"></span>
+                刷新中
+              </span>
+            </div>
+            <p class="task-row-subtitle">{{ sub.url }}</p>
+          </div>
+
+          <div class="task-row-actions">
+            <button
+              type="button"
+              class="inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 transition hover:border-white/20 hover:bg-white/10"
+              :aria-pressed="sub.enabled"
+              :title="sub.enabled ? '停用订阅' : '启用订阅'"
+              @click="handleToggle(sub)"
+            >
+              <span
+                class="relative inline-flex h-6 w-11 items-center rounded-full border border-white/10 transition"
+                :class="sub.enabled ? 'bg-[rgba(216,154,87,0.18)]' : 'bg-white/10'"
+              >
+                <span
+                  class="h-4 w-4 rounded-full bg-white shadow-sm transition-transform"
+                  :class="sub.enabled ? 'translate-x-5' : 'translate-x-1'"
+                ></span>
+              </span>
+              <span class="font-medium">{{ sub.enabled ? '已启用' : '已停用' }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="action-button action-button-secondary"
+              :disabled="refreshingId === sub.id"
+              @click="handleRefresh(sub)"
+            >
+              {{ refreshingId === sub.id ? '刷新中…' : '刷新' }}
+            </button>
+
+            <button
+              type="button"
+              class="danger-button action-button"
+              @click="handleDelete(sub)"
+            >
+              删除
+            </button>
           </div>
         </div>
-        <div class="flex gap-2">
-          <button
-            :disabled="refreshing === sub.id"
-            class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition disabled:opacity-50"
-            @click="handleRefresh(sub)"
-          >
-            {{ refreshing === sub.id ? '刷新中...' : '🔄 刷新' }}
-          </button>
-          <button
-            class="px-3 py-1 bg-red-600 rounded hover:bg-red-700 transition"
-            @click="handleDelete(sub)"
-          >
-            🗑️
-          </button>
-        </div>
       </div>
-    </div>
+    </section>
   </div>
 </template>
