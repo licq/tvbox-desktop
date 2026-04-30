@@ -14,7 +14,7 @@ describe('playback ad blocking helpers', () => {
   })
 
   it('flags obvious ad resources but not player assets', () => {
-    expect(isPlaybackAdResource('https://ads.example.com/banner.js')).toBe(true)
+    expect(isPlaybackAdResource('https://ads.example.com/adservice.js')).toBe(true)
     expect(isPlaybackAdResource('https://cdn.example.com/hls.js')).toBe(false)
   })
 
@@ -23,7 +23,7 @@ describe('playback ad blocking helpers', () => {
       <div id="player-stage">
         <div class="player-controls"></div>
         <div class="banner-ad"></div>
-        <iframe src="https://ads.example.com/ad.html"></iframe>
+        <iframe src="https://ads.example.com/ad/frame.html"></iframe>
       </div>
     `
 
