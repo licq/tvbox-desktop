@@ -1289,6 +1289,10 @@ async function initHlsPlayer(source: PlayerSource) {
             parsing: { start: 0, end: 0 },
             buffering: { start: 0, end: 0 },
           }
+          if (isPlaybackAdResource(url)) {
+            callbacks.onError({ code: 0, text: 'blocked playback ad resource' }, context, null, stats)
+            return
+          }
           const requestKind = classifyPlaybackRequest(url)
           // All manifest and segment requests go through Rust proxy for ad filtering,
           // CORS bypass, and automatic Referer retry for auth-blocking CDNs.
@@ -1310,10 +1314,6 @@ async function initHlsPlayer(source: PlayerSource) {
                 }
                 callbacks.onError({ code: 0, text: String(err) }, context, null, stats)
               })
-            return
-          }
-          if (isPlaybackAdResource(url)) {
-            callbacks.onError({ code: 0, text: 'blocked playback ad resource' }, context, null, stats)
             return
           }
           // Default behavior for other URLs
