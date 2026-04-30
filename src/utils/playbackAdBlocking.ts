@@ -24,7 +24,7 @@ const AD_SELECTORS: readonly string[] = [
 export function classifyPlaybackRequest(url: string): PlaybackRequestKind {
   const cleanUrl: string = url.split('?')[0].split('#')[0].toLowerCase()
 
-  if (cleanUrl.includes('.m3u8')) {
+  if (cleanUrl.endsWith('.m3u8')) {
     return 'manifest'
   }
 
@@ -42,7 +42,7 @@ export function classifyPlaybackRequest(url: string): PlaybackRequestKind {
 }
 
 export function isPlaybackAdResource(url: string): boolean {
-  const cleanUrl: string = url.toLowerCase()
+  const cleanUrl: string = url.split('?')[0].split('#')[0].toLowerCase()
   return AD_RESOURCE_MARKERS.some((marker: string) => cleanUrl.includes(marker))
 }
 
