@@ -46,6 +46,9 @@ export const useLibraryStore = defineStore('library', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const hero = computed(() => featured.value[0] ?? latestUpdates.value[0] ?? continueWatching.value[0] ?? null)
+  let homeHydrationPromise: Promise<void> | null = null
+  let doubanHotRefreshPromise: Promise<void> | null = null
+  const doubanHotTypeRefreshPromises = new Map<string, Promise<DoubanHot[]>>()
 
   function applyHomePayload(payload: HomePayloadInput) {
     continueWatching.value = normalizeCards(payload.continue_watching ?? payload.continueWatching)
@@ -66,6 +69,20 @@ export const useLibraryStore = defineStore('library', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  async function hydrateHome() {
+    if (homeHydrationPromise) {
+      return homeHydrationPromise
+    }
+
+    homeHydrationPromise = (async () => {
+      await fetchHome()
+    })().finally(() => {
+      homeHydrationPromise = null
+    })
+
+    return homeHydrationPromise
   }
 
   async function fetchCatalog(itemType?: string, keyword?: string) {
@@ -100,56 +117,71 @@ export const useLibraryStore = defineStore('library', () => {
       ? Date.now() - Number(cached.updated_at) > 24 * 60 * 60 * 1000
       : true
 
-    if (cached && !isStale) {
+    if (cached && cached.items.length > 0 && !isStale) {
       return cached.items
     }
 
-    try {
-      const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType })
-      // If empty and no prior cache, seed the database immediately
-      if (items.length === 0 && !cached) {
-        await fetchAllDoubanHot()
-        const freshItems = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType })
-        doubanHotByType.value[itemType] = {
-          items: freshItems,
-          updated_at: String(Date.now())
-        }
-        return freshItems
-      }
-      doubanHotByType.value[itemType] = {
-        items,
-        updated_at: String(Date.now())
-      }
-      // Sync into doubanHot so detail pages can look up by id without fetchHome()
-      const existingIds = new Set(doubanHot.value.map(h => h.id))
-      for (const item of items) {
-        if (!existingIds.has(item.id)) {
-          doubanHot.value.push(item)
-        }
-      }
-      return items
-    } catch (e) {
-      console.error('[fetchDoubanHotByType] Error:', e)
-      if (isStale) {
-        fetchAllDoubanHot().catch(console.error)
-      }
-      return cached?.items ?? []
+    const inFlight = doubanHotTypeRefreshPromises.get(itemType)
+    if (inFlight) {
+      return inFlight
     }
-  }
 
-  async function fetchAllDoubanHot() {
-    try {
-      await invoke<DoubanHot[]>('fetch_all_douban_hot')
-      for (const type of ['movie', 'series', 'variety', 'anime']) {
-        const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType: type })
-        doubanHotByType.value[type] = {
+    const refreshPromise = (async () => {
+      try {
+        const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType })
+        if (items.length === 0) {
+          return cached?.items ?? []
+        }
+
+        doubanHotByType.value[itemType] = {
           items,
           updated_at: String(Date.now())
         }
+        // Sync into doubanHot so detail pages can look up by id without fetchHome()
+        const existingIds = new Set(doubanHot.value.map(h => h.id))
+        for (const item of items) {
+          if (!existingIds.has(item.id)) {
+            doubanHot.value.push(item)
+          }
+        }
+        return items
+      } catch (e) {
+        console.error('[fetchDoubanHotByType] Error:', e)
+        return cached?.items ?? []
+      } finally {
+        doubanHotTypeRefreshPromises.delete(itemType)
       }
-    } catch (e) {
-      console.error('fetchAllDoubanHot failed:', e)
+    })()
+
+    doubanHotTypeRefreshPromises.set(itemType, refreshPromise)
+    return refreshPromise
+  }
+
+  async function fetchAllDoubanHot() {
+    if (doubanHotRefreshPromise) {
+      return doubanHotRefreshPromise
     }
+
+    doubanHotRefreshPromise = (async () => {
+      try {
+        await invoke<DoubanHot[]>('fetch_all_douban_hot')
+        const allItems = await invoke<DoubanHot[]>('get_douban_hot')
+        doubanHot.value = normalizeDoubanHot(allItems)
+        for (const type of ['movie', 'series', 'variety', 'anime']) {
+          const items = await invoke<DoubanHot[]>('get_douban_hot_by_type', { itemType: type })
+          doubanHotByType.value[type] = {
+            items,
+            updated_at: String(Date.now())
+          }
+        }
+      } catch (e) {
+        console.error('fetchAllDoubanHot failed:', e)
+      }
+    })().finally(() => {
+      doubanHotRefreshPromise = null
+    })
+
+    return doubanHotRefreshPromise
   }
 
   function getDoubanHotByType(type: string): DoubanHot[] {
@@ -168,6 +200,7 @@ export const useLibraryStore = defineStore('library', () => {
     error,
     applyHomePayload,
     fetchHome,
+    hydrateHome,
     fetchCatalog,
     fetchDoubanHotByType,
     fetchAllDoubanHot,

@@ -32,6 +32,7 @@ fn main() {
             tvbox_lib::commands::douban::fetch_douban_hot,
             tvbox_lib::commands::douban::get_matched_hot_list,
             tvbox_lib::commands::douban::fetch_all_douban_hot,
+            tvbox_lib::commands::douban::fetch_douban_hot_by_type,
             tvbox_lib::commands::douban::search_vod_sources,
             tvbox_lib::commands::douban::get_douban_hot_by_type,
             tvbox_lib::commands::douban::proxy_image,

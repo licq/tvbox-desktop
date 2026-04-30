@@ -967,8 +967,24 @@ impl Storage {
              LIMIT 12",
             [],
         )?;
-
-        let douban_hot = self.get_douban_hot()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, year, poster, rating, rank, updated_at, item_type
+             FROM douban_hot ORDER BY rank LIMIT 100"
+        )?;
+        let douban_hot = stmt
+            .query_map([], |row| {
+                Ok(DoubanHot {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    year: row.get(2)?,
+                    poster: row.get(3)?,
+                    rating: row.get(4)?,
+                    rank: row.get(5)?,
+                    updated_at: row.get(6)?,
+                    item_type: row.get(7)?,
+                })
+            })?
+            .collect::<SqliteResult<Vec<_>>>()?;
 
         Ok(HomePayload {
             continue_watching,
@@ -1520,6 +1536,36 @@ impl Storage {
     pub fn clear_douban_hot(&self) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM douban_hot", [])?;
+        Ok(())
+    }
+
+    pub fn replace_douban_hot_by_type(&self, item_type: &str, items: &[DoubanHot]) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        tx.execute(
+            "DELETE FROM douban_hot WHERE item_type = ?1",
+            rusqlite::params![item_type],
+        )?;
+
+        for item in items {
+            tx.execute(
+                "INSERT OR REPLACE INTO douban_hot (name, year, poster, rating, rank, updated_at, item_type, id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    item.name,
+                    item.year,
+                    item.poster,
+                    item.rating,
+                    item.rank,
+                    item.updated_at,
+                    item.item_type,
+                    item.id,
+                ],
+            )?;
+        }
+
+        tx.commit()?;
         Ok(())
     }
 

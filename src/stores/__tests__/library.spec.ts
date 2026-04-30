@@ -1,8 +1,19 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { invoke } from '@tauri-apps/api/core'
 import { useLibraryStore } from '@/stores/library'
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn()
+}))
+
+const invokeMock = vi.mocked(invoke)
+
 describe('library store', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+  })
+
   it('normalizes home payload into store-owned copies and replaces prior state', () => {
     setActivePinia(createPinia())
     const store = useLibraryStore()
@@ -146,5 +157,166 @@ describe('library store', () => {
         featured: []
       })
     ).toThrow('Catalog card item type is required')
+  })
+
+  it('hydrates the home payload without forcing douban hot batch refresh', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
+    let homeFetchCount = 0
+    invokeMock.mockImplementation(async (command: string) => {
+      switch (command) {
+        case 'get_library_home':
+          homeFetchCount += 1
+          return { continue_watching: [], latest_updates: [], featured: [], douban_hot: [] }
+        default:
+          return []
+      }
+    })
+
+    await store.hydrateHome()
+
+    expect(homeFetchCount).toBe(1)
+    expect(store.doubanHot).toHaveLength(0)
+  })
+
+  it('fetches douban hot by type on demand and caches the result', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
+    const hotItems = [
+      {
+        id: 1,
+        name: 'Movie A',
+        year: 2025,
+        poster: null,
+        rating: 9.1,
+        rank: 1,
+        updated_at: '2026-04-30 10:00:00',
+        item_type: 'movie' as const
+      }
+    ]
+
+    invokeMock.mockImplementation(async (command: string, args?: unknown) => {
+      const itemType = typeof args === 'object' && args !== null && 'itemType' in args
+        ? (args as { itemType?: string }).itemType
+        : undefined
+
+      switch (command) {
+        case 'get_douban_hot_by_type':
+          return itemType === 'movie' ? hotItems : []
+        default:
+          return []
+      }
+    })
+
+    const items = await store.fetchDoubanHotByType('movie')
+
+    expect(items).toEqual(hotItems)
+    expect(store.getDoubanHotByType('movie')).toEqual(hotItems)
+    expect(store.doubanHot).toEqual(hotItems)
+  })
+
+  it('does not cache empty douban hot responses as fresh data', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
+    let callCount = 0
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'get_douban_hot_by_type') {
+        callCount += 1
+        return []
+      }
+      return []
+    })
+
+    await store.fetchDoubanHotByType('movie')
+    await store.fetchDoubanHotByType('movie')
+
+    expect(callCount).toBe(2)
+    expect(store.getDoubanHotByType('movie')).toHaveLength(0)
+  })
+
+  it('deduplicates concurrent douban hot requests by type', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
+    let callCount = 0
+    invokeMock.mockImplementation(async (command: string, args?: unknown) => {
+      if (command !== 'get_douban_hot_by_type') {
+        return []
+      }
+
+      callCount += 1
+      const itemType = typeof args === 'object' && args !== null && 'itemType' in args
+        ? (args as { itemType?: string }).itemType
+        : undefined
+
+      return itemType === 'movie'
+        ? [
+            {
+              id: 1,
+              name: 'Movie A',
+              year: 2025,
+              poster: null,
+              rating: 9.1,
+              rank: 1,
+              updated_at: '2026-04-30 10:00:00',
+              item_type: 'movie' as const
+            }
+          ]
+        : []
+    })
+
+    const [first, second] = await Promise.all([
+      store.fetchDoubanHotByType('movie'),
+      store.fetchDoubanHotByType('movie')
+    ])
+
+    expect(callCount).toBe(1)
+    expect(first).toEqual(second)
+    expect(store.getDoubanHotByType('movie')).toHaveLength(1)
+  })
+
+  it('deduplicates concurrent douban hot refreshes', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+
+    const hotItems = [
+      {
+        id: 1,
+        name: 'Movie A',
+        year: 2025,
+        poster: null,
+        rating: 9.1,
+        rank: 1,
+        updated_at: '2026-04-30 10:00:00',
+        item_type: 'movie' as const
+      }
+    ]
+
+    let fetchAllCount = 0
+    invokeMock.mockImplementation(async (command: string, args?: unknown) => {
+      const itemType = typeof args === 'object' && args !== null && 'itemType' in args
+        ? (args as { itemType?: string }).itemType
+        : undefined
+
+      switch (command) {
+        case 'fetch_all_douban_hot':
+          fetchAllCount += 1
+          return hotItems
+        case 'get_douban_hot':
+          return hotItems
+        case 'get_douban_hot_by_type':
+          return itemType === 'movie' ? hotItems : []
+        default:
+          return []
+      }
+    })
+
+    await Promise.all([store.fetchAllDoubanHot(), store.fetchAllDoubanHot()])
+
+    expect(fetchAllCount).toBe(1)
+    expect(store.doubanHot).toEqual(hotItems)
   })
 })

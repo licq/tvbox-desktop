@@ -1,4 +1,5 @@
 use crate::models::DoubanHot;
+use serde::de::Deserializer;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
@@ -25,6 +26,7 @@ struct DoubanJsonItem {
     id: String,
     title: String,
     cover: String,
+    #[serde(deserialize_with = "deserialize_optional_f64")]
     rate: Option<f64>,
     #[allow(dead_code)]
     episodes_info: Option<String>,
@@ -57,9 +59,22 @@ impl DoubanCrawler {
 
         let resp = self.client.get(&url).send().await
             .map_err(|e| format!("Request failed: {}", e))?;
+        let status = resp.status();
+        let body = resp.text().await
+            .map_err(|e| format!("Failed to read response body: {}", e))?;
 
-        let json: DoubanJsonResponse = resp.json().await
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        let json: DoubanJsonResponse = serde_json::from_str(&body)
+            .map_err(|e| {
+                let preview = body.chars().take(240).collect::<String>();
+                format!(
+                    "Failed to parse JSON for type={} tag={} status={}: {} | body={}",
+                    category.type_param,
+                    category.tag,
+                    status,
+                    e,
+                    preview
+                )
+            })?;
 
         let mut items = Vec::new();
         for (rank, item) in json.subjects.iter().enumerate() {
@@ -234,6 +249,35 @@ fn chrono_now() -> String {
 impl Default for DoubanCrawler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn deserialize_optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(serde_json::Value::Number(number)) => number
+            .as_f64()
+            .ok_or_else(|| serde::de::Error::custom("invalid numeric rate"))
+            .map(Some),
+        Some(serde_json::Value::String(text)) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                trimmed
+                    .parse::<f64>()
+                    .map(Some)
+                    .map_err(|e| serde::de::Error::custom(format!("invalid rate string: {}", e)))
+            }
+        }
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "unsupported rate value: {}",
+            other
+        ))),
     }
 }
 
@@ -596,4 +640,35 @@ fn extract_info_text<'a>(info_text: &'a str, field: &str) -> Option<&'a str> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DoubanJsonResponse;
+
+    #[test]
+    fn parses_rate_as_string_or_number() {
+        let json = r#"{
+            "subjects": [
+                {
+                    "id": "1",
+                    "title": "示例",
+                    "cover": "https://img.example/1.jpg",
+                    "rate": "9.2",
+                    "episodes_info": ""
+                },
+                {
+                    "id": "2",
+                    "title": "示例2",
+                    "cover": "https://img.example/2.jpg",
+                    "rate": 8.8
+                }
+            ]
+        }"#;
+
+        let parsed: DoubanJsonResponse = serde_json::from_str(json).expect("response should parse");
+        assert_eq!(parsed.subjects.len(), 2);
+        assert_eq!(parsed.subjects[0].rate, Some(9.2));
+        assert_eq!(parsed.subjects[1].rate, Some(8.8));
+    }
 }

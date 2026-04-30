@@ -6,10 +6,10 @@ import { useSubscriptionStore } from '@/stores/subscription'
 import { useLibraryStore } from '@/stores/library'
 import { invoke } from '@tauri-apps/api/core'
 import ChannelCard from '@/components/ChannelCard.vue'
-import VodCard from '@/components/VodCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import MediaCard from '@/components/media/MediaCard.vue'
+import VodCard from '@/components/VodCard.vue'
 import type { CatalogItemType, DoubanHot, LiveChannel, SourceSearchResult, ProviderCatalogItem } from '@/types'
 
 type HomeTabKey = 'live' | CatalogItemType | 'search'
@@ -104,6 +104,12 @@ async function hydrateSources() {
 
   // Minimal data fetch only (skip subscription refresh to avoid blocking)
   try {
+    await libraryStore.hydrateHome()
+  } catch {
+    console.error('[hydrateSources] hydrateHome failed')
+  }
+
+  try {
     await libraryStore.fetchCatalog()
   } catch {
     console.error('[hydrateSources] fetchCatalog failed')
@@ -115,8 +121,12 @@ async function hydrateSources() {
     console.error('[hydrateSources] fetchGroups failed')
   }
 
-  if (activeTab.value !== 'live') {
-    await libraryStore.fetchDoubanHotByType(activeTab.value)
+  try {
+    for (const type of ['movie', 'series', 'variety', 'anime'] as const) {
+      await libraryStore.fetchDoubanHotByType(type)
+    }
+  } catch {
+    console.error('[hydrateSources] prefetch douban hot failed')
   }
 }
 
@@ -213,8 +223,8 @@ function handlePlayChannel(channel: LiveChannel, _sourceUrl?: string) {
   router.push(`/player/live/${channel.id}`)
 }
 
-function handleHotClick(hot: DoubanHot) {
-  router.push(`/detail/${hot.id}?douban=1`)
+function handleDoubanHotClick(item: DoubanHot) {
+  router.push(`/detail/${item.id}?douban=1`)
 }
 
 function toggleChannelExpansion(category: string) {
@@ -261,21 +271,6 @@ function toggleChannelExpansion(category: string) {
             刷新 {{ subStore.refreshingName }} ({{ subStore.refreshingIndex }}/{{ subStore.refreshingTotal }})
           </span>
         </div>
-
-        <section v-if="libraryStore.doubanHot.length" class="hot-section mb-8">
-          <div class="flex items-center gap-2 mb-4">
-            <span class="text-xl">🔥</span>
-            <span class="text-lg font-semibold text-white">豆瓣热播</span>
-          </div>
-          <div class="flex gap-4 overflow-x-auto pb-4">
-            <VodCard
-              v-for="hot in libraryStore.doubanHot.slice(0, 10)"
-              :key="hot.id"
-              :item="(hot as any)"
-              @click="handleHotClick(hot)"
-            />
-          </div>
-        </section>
 
         <section class="home-secondary-browser">
           <div v-if="activeTab === 'search'" class="home-secondary-search">
@@ -398,11 +393,11 @@ function toggleChannelExpansion(category: string) {
                   v-for="hot in displayedHotItems"
                   :key="hot.id"
                   :item="(hot as any)"
-                  @click="handleHotClick(hot)"
+                  class="cursor-pointer"
+                  @click="handleDoubanHotClick(hot)"
                 />
               </div>
-
-              </div>
+            </div>
           </div>
         </section>
       </main>
