@@ -351,7 +351,18 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
     })
     if (targets.length > 0) {
       const target = targets[0]
-      router.push(`/player/vod/0?episode=${encodeURIComponent(target.target_url)}&source=${source.source}&detailUrl=${encodeURIComponent(source.detail_url)}&episodeLabel=${encodeURIComponent(episode.episode_label)}`)
+      router.push({
+        name: 'player',
+        params: { mode: 'vod', id: 0 },
+        query: {
+          episode: target.target_url,
+          source: source.source,
+          detailUrl: source.detail_url,
+          episodeLabel: episode.episode_label,
+          episodeReferer: target.referer ?? undefined,
+          episodeHeaders: target.headers ? JSON.stringify(target.headers) : undefined,
+        },
+      })
     } else {
       searchError.value = '播放地址获取失败'
     }
@@ -594,4 +605,3 @@ function handlePlay(ue: UnifiedEpisode) {
     </div>
   </div>
 </template>
-

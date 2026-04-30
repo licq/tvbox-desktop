@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { describeMediaErrorCode, describePlaybackFailure, formatPlayerTitle, isAutoplayBlocked } from '@/utils/player'
+import {
+  describeMediaErrorCode,
+  describePlaybackFailure,
+  formatPlayerTitle,
+  isAutoplayBlocked,
+  isProviderDirectPlaybackRoute,
+  parsePlaybackHeaders,
+} from '@/utils/player'
 
 describe('player utils', () => {
   it('detects autoplay blocking errors', () => {
@@ -31,5 +38,35 @@ describe('player title formatting', () => {
 
   it('uses source label only as a final fallback', () => {
     expect(formatPlayerTitle({ sourceLabel: '非凡线路' })).toBe('非凡线路')
+  })
+})
+
+describe('provider playback routing', () => {
+  it('detects a provider direct playback route', () => {
+    expect(isProviderDirectPlaybackRoute({
+      mode: 'vod',
+      itemId: 0,
+      source: 'ypanso',
+      detailUrl: 'https://example.com/detail',
+      episodeUrl: 'https://example.com/video/index.m3u8',
+    })).toBe(true)
+  })
+
+  it('does not treat a normal vod route as provider direct playback', () => {
+    expect(isProviderDirectPlaybackRoute({
+      mode: 'vod',
+      itemId: 123,
+      source: 'ypanso',
+      detailUrl: 'https://example.com/detail',
+      episodeUrl: 'https://example.com/video/index.m3u8',
+    })).toBe(false)
+  })
+
+  it('parses provider playback headers from JSON', () => {
+    expect(parsePlaybackHeaders('{"Referer":"https://example.com","Origin":"https://example.com"}')).toEqual({
+      Referer: 'https://example.com',
+      Origin: 'https://example.com',
+    })
+    expect(parsePlaybackHeaders('{bad json')).toBeNull()
   })
 })

@@ -48,3 +48,43 @@ export function formatPlayerTitle(input: PlayerTitleInput) {
   if (sourceLabel) return sourceLabel
   return 'TVBox'
 }
+
+export interface ProviderPlaybackRouteInput {
+  mode: string
+  itemId: number
+  source?: string | null
+  detailUrl?: string | null
+  episodeUrl?: string | null
+}
+
+export function isProviderDirectPlaybackRoute(input: ProviderPlaybackRouteInput): boolean {
+  return (
+    input.mode === 'vod' &&
+    input.itemId === 0 &&
+    typeof input.source === 'string' &&
+    input.source.trim().length > 0 &&
+    typeof input.detailUrl === 'string' &&
+    input.detailUrl.trim().length > 0 &&
+    typeof input.episodeUrl === 'string' &&
+    input.episodeUrl.trim().length > 0
+  )
+}
+
+export function parsePlaybackHeaders(raw?: string | null): Record<string, string> | null {
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+
+    const headers: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (key.trim().length === 0 || typeof value !== 'string') continue
+      headers[key] = value
+    }
+
+    return Object.keys(headers).length > 0 ? headers : null
+  } catch {
+    return null
+  }
+}

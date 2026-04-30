@@ -10,7 +10,14 @@ import { useDetailStore } from '@/stores/detail'
 import PlaybackDrawer from '@/components/player/PlaybackDrawer.vue'
 import type { CatalogEpisodeGroup, PlaybackTarget, UnifiedEpisode } from '@/types'
 import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
-import { describeMediaErrorCode, describePlaybackFailure, formatPlayerTitle, isAutoplayBlocked } from '@/utils/player'
+import {
+  describeMediaErrorCode,
+  describePlaybackFailure,
+  formatPlayerTitle,
+  isAutoplayBlocked,
+  isProviderDirectPlaybackRoute,
+  parsePlaybackHeaders,
+} from '@/utils/player'
 import { mergeEpisodes } from '@/utils/episode'
 import {
   createEpisodePlaybackSession,
@@ -88,6 +95,8 @@ const episodeId = computed(() => {
 })
 const providerDetailUrl = computed(() => route.query.detailUrl as string | undefined)
 const episodeLabelFromQuery = computed(() => route.query.episodeLabel as string | undefined)
+const episodeReferer = computed(() => route.query.episodeReferer as string | undefined)
+const episodeHeaders = computed(() => parsePlaybackHeaders(route.query.episodeHeaders as string | undefined))
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
 const itemType = computed(() => {
   if (detailStore.item?.item_type) return detailStore.item.item_type
@@ -187,6 +196,27 @@ async function loadSourceDetail() {
   }
 }
 
+async function loadProviderDirectPlayback() {
+  playbackSession.value = null
+  invalidateSessionFailover()
+  if (!episodeUrl.value || !sourceName.value) {
+    errorMsg.value = '缺少播放地址参数'
+    return
+  }
+
+  const url = decodeURIComponent(episodeUrl.value)
+  sources.value = [{
+    url,
+    label: sourceTitle.value || sourceName.value || '来源',
+    kind: url.includes('.m3u8') ? 'hls' : 'http',
+    headers: episodeHeaders.value ?? undefined,
+    referer: episodeReferer.value ?? undefined,
+  }]
+  currentSourceIndex.value = 0
+  failedSourceIndexes.value = []
+  await playSource(sources.value[0]!)
+}
+
 async function loadProviderEpisodes() {
   if (!providerDetailUrl.value || !sourceName.value) return
   try {
@@ -274,6 +304,18 @@ onMounted(async () => {
         await playUnifiedEpisode(pending)
       } catch (e) {
         console.error('[PlayerPage] playUnifiedEpisode failed:', e)
+      }
+    } else if (episodeUrl.value && isProviderDirectPlaybackRoute({
+      mode: mode.value,
+      itemId: itemId.value,
+      source: sourceName.value,
+      detailUrl: providerDetailUrl.value,
+      episodeUrl: episodeUrl.value,
+    })) {
+      try {
+        await loadProviderDirectPlayback()
+      } catch (e) {
+        console.error('[PlayerPage] loadProviderDirectPlayback failed:', e)
       }
     } else if (episodeUrl.value) {
       try {
