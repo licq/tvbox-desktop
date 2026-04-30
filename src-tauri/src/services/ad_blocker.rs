@@ -73,6 +73,7 @@ const AD_PATTERNS: &[&str] = &[
     "/adserve/",                // Ad serving path
     "/adserver/",               // Ad server path
     ".ads.",                    // Generic ad subdomain (e.g. ads.cdn.com)
+    "ads.",                     // Generic ad subdomain prefix (e.g. ads.example.com)
 
     // === URL path patterns ===
     "/ad/",                     // Common ad path
@@ -101,7 +102,8 @@ impl HlsAdBlocker {
     /// is also removed.
     ///
     /// Master playlists (containing `#EXT-X-STREAM-INF`) are passed through
-    /// unchanged -- they contain variant URLs, not segment URLs.
+    /// unchanged here; embedded variants are cleaned before normalization in
+    /// the resolver.
     pub fn filter_playlist(playlist: &str) -> String {
         if playlist.is_empty() {
             return String::new();

@@ -619,13 +619,13 @@ fn rewrite_relative_urls(body: &str, base_url: &str) -> String {
 /// and rewriting all relative URLs to absolute URLs.
 fn normalize_master_playlist(master_body: &str, master_url: &str, variant_body: &str, variant_url: &str) -> String {
     use base64::Engine;
-    // Rewrite relative URLs in variant playlist to absolute
+    // Rewrite relative URLs in variant playlist to absolute.
     let normalized_variant = rewrite_relative_urls(variant_body, variant_url);
-    // Encode the variant playlist as base64
+    // Encode the variant playlist as base64.
     let variant_b64 = base64::engine::general_purpose::STANDARD.encode(normalized_variant.as_bytes());
     let data_uri = format!("data:application/vnd.apple.mpegurl;base64,{}", variant_b64);
 
-    // Rewrite master playlist lines, replacing the variant URL with the data URI
+    // Rewrite master playlist lines, replacing the variant URL with the data URI.
     let mut result_lines = Vec::new();
     let mut found_variant = false;
     for line in master_body.lines() {
@@ -634,7 +634,7 @@ fn normalize_master_playlist(master_body: &str, master_url: &str, variant_body: 
             // This is the first non-comment, non-empty line - the variant URL
             let absolutized = absolutize_url(master_url, trimmed);
             if absolutized == variant_url || absolutized == absolutize_url(master_url, variant_url) {
-                // Replace this with the data URI
+                // Replace this with the cleaned variant data URI.
                 result_lines.push(format!("#EXT-X-EMBEDDED-variant:{}\n{}", data_uri, trimmed));
                 found_variant = true;
                 continue;
@@ -643,7 +643,7 @@ fn normalize_master_playlist(master_body: &str, master_url: &str, variant_body: 
         result_lines.push(line.to_string());
     }
 
-    // If we didn't find the variant URL by matching, just append the data URI as a comment
+    // If we didn't find the variant URL by matching, just append the data URI as a comment.
     if !found_variant {
         result_lines.insert(0, format!("#EXT-X-EMBEDDED-variant:{}\n#EXT-X-EMBEDDED-variant-PLAYLIST", data_uri));
     }
@@ -760,13 +760,15 @@ pub(crate) async fn fetch_hls_manifest_internal(
         )
         .await?;
 
+        let rewritten_variant = rewrite_relative_urls(&variant_body, &variant_url);
+        let cleaned_variant = HlsAdBlocker::filter_playlist(&rewritten_variant);
+
         // Normalize the master playlist with embedded variant
-        let normalized = normalize_master_playlist(&body, url, &variant_body, &variant_url);
+        let normalized = normalize_master_playlist(&body, url, &cleaned_variant, &variant_url);
 
         // Rewrite relative URLs in the normalized master to absolute
         let rewritten = rewrite_relative_urls(&normalized, url);
-        // Filter ad segments from the playlist
-        return Ok(HlsAdBlocker::filter_playlist(&rewritten));
+        return Ok(rewritten);
     }
 
     // It's not a media playlist, rewrite relative URLs to absolute then filter ads
@@ -835,10 +837,10 @@ fn infer_origin_from_referer(referer: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hls_request_headers, classify_playback_target, detect_kind, extract_dplayer_video_url,
-        infer_origin_from_referer, looks_like_cloud_disk_link, looks_like_xb6v_play_page,
-        looks_like_ypanso_play_page, looks_like_zxzj_play_page, map_target_kind_to_probe_gate,
-        PlaybackResolver,
+        build_hls_request_headers, classify_playback_target, detect_kind,
+        extract_dplayer_video_url, fetch_hls_manifest_internal, infer_origin_from_referer,
+        looks_like_cloud_disk_link, looks_like_xb6v_play_page, looks_like_ypanso_play_page,
+        looks_like_zxzj_play_page, map_target_kind_to_probe_gate, PlaybackResolver,
     };
     use std::collections::HashMap;
 
@@ -888,6 +890,63 @@ mod tests {
         server.await.expect("server task should finish");
 
         assert_eq!(probe.status, PlaybackProbeStatus::Playable);
+    }
+
+    #[tokio::test]
+    async fn fetch_hls_manifest_internal_filters_ads_inside_master_playlist() {
+        use base64::Engine;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let master_body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1280000\n/variant.m3u8\n";
+        let variant_body = "#EXTM3U\n#EXTINF:10.0,\nhttps://ads.example.com/ad1.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n";
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("listener should expose addr");
+
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.expect("request should arrive");
+                let mut buf = [0_u8; 4096];
+                let n = socket.read(&mut buf).await.expect("request should read");
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let body = if request.contains("/variant.m3u8") {
+                    variant_body
+                } else {
+                    master_body
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response should write");
+            }
+        });
+
+        let url = format!("http://{}/master.m3u8", addr);
+        let result = fetch_hls_manifest_internal(&url, None, None)
+            .await
+            .expect("manifest should resolve");
+
+        let embedded_variant_line = result
+            .lines()
+            .find(|line| line.starts_with("#EXT-X-EMBEDDED-variant:data:application/vnd.apple.mpegurl;base64,"))
+            .expect("master playlist should embed a variant data uri");
+        let encoded_variant = embedded_variant_line
+            .trim_start_matches("#EXT-X-EMBEDDED-variant:data:application/vnd.apple.mpegurl;base64,");
+        let decoded_variant = base64::engine::general_purpose::STANDARD
+            .decode(encoded_variant)
+            .expect("embedded variant should decode");
+        let decoded_variant = String::from_utf8(decoded_variant).expect("decoded variant should be utf8");
+
+        assert!(!decoded_variant.contains("ad1.ts"));
+        assert!(decoded_variant.contains("seg1.ts"));
     }
 
     #[tokio::test]
