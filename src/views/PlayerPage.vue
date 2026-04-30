@@ -21,6 +21,11 @@ import {
   isPlaybackPageUrl,
   shouldFallbackToBrowserHls,
 } from '@/utils/player'
+import {
+  applyPlaybackAdCleanup,
+  classifyPlaybackRequest,
+  isPlaybackAdResource,
+} from '@/utils/playbackAdBlocking'
 import { mergeEpisodes } from '@/utils/episode'
 import {
   createEpisodePlaybackSession,
@@ -310,9 +315,27 @@ let hlsInstance: Hls | null = null
 let hlsConstructorPromise: Promise<typeof import('hls.js').default> | null = null
 let progressUpdateInterval: number | null = null
 let fullscreenChangeHandler: (() => void) | null = null
+let adCleanupObserver: MutationObserver | null = null
 
 const controlsVisible = ref(true)
 let hideTimer: number | null = null
+
+function startAdCleanupObserver() {
+  if (adCleanupObserver) {
+    adCleanupObserver.disconnect()
+  }
+
+  adCleanupObserver = new MutationObserver(() => {
+    applyPlaybackAdCleanup(document)
+  })
+
+  adCleanupObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  })
+
+  applyPlaybackAdCleanup(document)
+}
 
 function startHideTimer() {
   if (hideTimer) {
@@ -352,6 +375,7 @@ function handleOverlayPointerMove(event: PointerEvent) {
 }
 
 onMounted(async () => {
+  startAdCleanupObserver()
   isInitialLoading.value = true
   try {
     if (route.name === 'player-source') {
@@ -438,6 +462,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (adCleanupObserver) {
+    adCleanupObserver.disconnect()
+    adCleanupObserver = null
+  }
   if (progressUpdateInterval) {
     window.clearInterval(progressUpdateInterval)
   }
@@ -1250,19 +1278,29 @@ async function initHlsPlayer(source: PlayerSource) {
       const CustomLoader = class extends Hls.DefaultConfig.loader {
         load(context: any, config: any, callbacks: any) {
           const url = context.url
+          const stats = {
+            aborted: false,
+            loaded: 0,
+            retry: 0,
+            total: 0,
+            chunkCount: 0,
+            bwEstimate: 0,
+            loading: { start: 0, first: 0, end: 0 },
+            parsing: { start: 0, end: 0 },
+            buffering: { start: 0, end: 0 },
+          }
+          const requestKind = classifyPlaybackRequest(url)
           // All manifest and segment requests go through Rust proxy for ad filtering,
           // CORS bypass, and automatic Referer retry for auth-blocking CDNs.
-          const cleanUrl = url.split('?')[0].split('#')[0]
-          const isManifest = cleanUrl.includes('.m3u8')
-          const isSegment = cleanUrl.endsWith('.ts') || cleanUrl.endsWith('.mp4')
-          if (isManifest || isSegment) {
+          if (requestKind === 'manifest' || requestKind === 'segment') {
             invoke<string>('fetch_hls_manifest', { url, headers, referer })
               .then((data) => {
-                const finalData: string | ArrayBuffer = isSegment
+                const finalData: string | ArrayBuffer = requestKind === 'segment'
                   ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
                   : data
                 const finalLength = typeof finalData === 'string' ? finalData.length : finalData.byteLength
-                const stats = { aborted: false, loaded: finalLength, retry: 0, total: finalLength, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } }
+                stats.loaded = finalLength
+                stats.total = finalLength
                 callbacks.onSuccess({ data: finalData, url, code: 200 }, stats, context, null)
               })
               .catch((err) => {
@@ -1270,8 +1308,12 @@ async function initHlsPlayer(source: PlayerSource) {
                   ;(super.load as any)(context, config, callbacks)
                   return
                 }
-                callbacks.onError({ code: 0, text: String(err) }, context, null, { aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0, loading: { start: 0, first: 0, end: 0 }, parsing: { start: 0, end: 0 }, buffering: { start: 0, end: 0 } })
+                callbacks.onError({ code: 0, text: String(err) }, context, null, stats)
               })
+            return
+          }
+          if (isPlaybackAdResource(url)) {
+            callbacks.onError({ code: 0, text: 'blocked playback ad resource' }, context, null, stats)
             return
           }
           // Default behavior for other URLs
