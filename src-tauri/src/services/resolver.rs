@@ -407,7 +407,7 @@ async fn probe_hls_playlist_result(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
 ) -> PlaybackProbeResult {
-    let body = match fetch_hls_playlist_with_headers(client, url, headers).await {
+    let body = match fetch_hls_playlist_with_headers_no_cors(client, url, headers).await {
         Ok(body) => body,
         Err(error) => { return PlaybackProbeResult::failed(error, None); }
     };
@@ -420,7 +420,7 @@ async fn probe_hls_playlist_result(
             Some(url) => url,
             None => return failed_hls_probe("master playlist missing variant url", Some(200), true, false),
         };
-        let variant_body = match fetch_hls_playlist_with_headers(client, &variant_url, headers).await {
+        let variant_body = match fetch_hls_playlist_with_headers_no_cors(client, &variant_url, headers).await {
             Ok(body) => body,
             Err(error) => { return PlaybackProbeResult::failed(error, None); }
         };
@@ -495,23 +495,9 @@ async fn probe_binary_resource_result(
     let http_status = Some(i64::from(response.status().as_u16()));
 
     if response.status().is_success() || response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
-        if !has_browser_cors(&response) {
-            // m3u8 URLs are always fetched through the Rust proxy (fetch_hls_manifest)
-            // which bypasses browser CORS entirely, so a missing CORS header is
-            // not a failure for HLS playlists.
-            if url.contains(".m3u8") {
-                let mut probe = PlaybackProbeResult::playable();
-                probe.http_status = http_status;
-                return probe;
-            }
-            let mut probe =
-                PlaybackProbeResult::failed("resource probe missing browser CORS headers", http_status);
-            probe.manifest_ok = true;
-            probe.segment_ok = true;
-            return probe;
-        }
         let mut probe = PlaybackProbeResult::playable();
         probe.http_status = http_status;
+        probe.cors_ok = has_browser_cors(&response);
         probe
     } else {
         let mut probe =
@@ -578,33 +564,6 @@ async fn fetch_text_with_headers(
     let status = response.status();
     if !status.is_success() {
         return Err(format!("request failed: {status}"));
-    }
-
-    response.text().await.map_err(|e| e.to_string())
-}
-
-async fn fetch_hls_playlist_with_headers(
-    client: &reqwest::Client,
-    input: &str,
-    headers: Option<&std::collections::HashMap<String, String>>,
-) -> Result<String, String> {
-    let request = client
-        .get(input)
-        .header(
-            reqwest::header::USER_AGENT,
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        );
-    let request_headers = build_hls_request_headers(headers, None);
-    let response = apply_request_headers(request, request_headers.as_ref())
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("playlist request failed: {status}"));
-    }
-    if !has_browser_cors(&response) {
-        return Err("playlist missing browser CORS headers".to_string());
     }
 
     response.text().await.map_err(|e| e.to_string())
@@ -890,6 +849,45 @@ mod tests {
             "direct"
         );
         assert_eq!(detect_kind("https://example.com/live.m3u8"), "hls");
+    }
+
+    #[tokio::test]
+    async fn probes_hls_playlists_without_browser_cors_headers_as_playable() {
+        use crate::services::playback_types::PlaybackProbeStatus;
+        use super::{build_client, probe_hls_playlist_result};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener should bind");
+        let addr = listener.local_addr().expect("listener should expose addr");
+
+        let server = tokio::spawn(async move {
+            let playlist_body = "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nsegment.ts\n";
+            let playlist_response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                playlist_body.len(),
+                playlist_body
+            );
+            let segment_response = "HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nContent-Length: 4\r\nConnection: close\r\n\r\nDATA".to_string();
+
+            for response in [playlist_response, segment_response] {
+                let (mut socket, _) = listener.accept().await.expect("request should arrive");
+                let mut request = [0u8; 2048];
+                let _ = socket.read(&mut request).await.expect("request should read");
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response should write");
+            }
+        });
+
+        let client = build_client().expect("client should build");
+        let url = format!("http://{addr}/playlist.m3u8");
+        let probe = probe_hls_playlist_result(&client, &url, None).await;
+
+        server.await.expect("server task should finish");
+
+        assert_eq!(probe.status, PlaybackProbeStatus::Playable);
     }
 
     #[tokio::test]

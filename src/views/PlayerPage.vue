@@ -66,6 +66,7 @@ const fullscreen = ref(false)
 const fullscreenError = ref('')
 const errorMsg = ref('')
 const pendingAutoplay = ref(false)
+const isInitialLoading = ref(true)
 
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
@@ -266,15 +267,44 @@ async function loadProviderEpisodes() {
   }
 }
 const playerStatusText = computed(() => {
-  if (errorMsg.value) return '需要处理'
+  if (isInitialLoading.value) return '加载中'
   if (pendingAutoplay.value) return '等待播放'
+  if (playbackStore.status === 'resolving') return '正在解析播放源'
+  if (currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')) return '正在解析本集线路'
+  if (errorMsg.value || playbackStore.errorMessage) return playbackStore.status === 'failed' ? '播放失败' : '播放异常'
   if (playing.value) return '播放中'
-  if (currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')) return '解析中'
-  if (playbackStore.status === 'resolving') return '解析中'
-  return playbackStore.status === 'idle' ? '就绪' : playbackStore.status
+  if (playbackStore.status === 'external_required') return '需要外部播放器'
+  return '就绪'
+})
+const topbarStatusText = computed(() => {
+  if (playerStatusText.value === '播放中' || playerStatusText.value === '就绪') {
+    return ''
+  }
+  return playerStatusText.value
+})
+const playerStatusTone = computed(() => {
+  if (isInitialLoading.value) return 'neutral'
+  if (playbackStore.status === 'failed' || !!errorMsg.value || !!playbackStore.errorMessage) return 'danger'
+  if (playbackStore.status === 'resolving' || currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')) {
+    return 'cool'
+  }
+  return 'warm'
 })
 const playerModeLabel = computed(() => mode.value === 'live' ? '直播' : '点播')
 const noticeTone = computed(() => playbackStore.status === 'failed' ? 'danger' : 'warning')
+const drawerLoading = computed(() =>
+  isInitialLoading.value ||
+  detailStore.loading ||
+  playbackStore.status === 'resolving' ||
+  currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')
+)
+const topbarLoading = computed(() => isInitialLoading.value)
+const shouldShowPlaybackNotice = computed(() =>
+  !isInitialLoading.value &&
+  !!errorMsg.value &&
+  playbackStore.status !== 'failed'
+)
+const isCompactFullscreenControls = computed(() => fullscreen.value && playing.value)
 
 let hlsInstance: Hls | null = null
 let hlsConstructorPromise: Promise<typeof import('hls.js').default> | null = null
@@ -305,85 +335,106 @@ function handleUserInteraction() {
   showControls()
 }
 
+function handleOverlayPointerMove(event: PointerEvent) {
+  if (!fullscreen.value || controlsVisible.value) {
+    showControls()
+    return
+  }
+
+  const overlay = event.currentTarget as HTMLElement | null
+  if (!overlay) return
+
+  const rect = overlay.getBoundingClientRect()
+  const hotzoneHeight = Math.min(140, Math.max(96, rect.height * 0.18))
+  if (event.clientY >= rect.bottom - hotzoneHeight) {
+    showControls()
+  }
+}
+
 onMounted(async () => {
-  if (route.name === 'player-source') {
-    await loadSourceDetail()
-  } else if (mode.value === 'live') {
-    playbackSession.value = null
-    invalidateSessionFailover()
-    await liveStore.fetchChannels()
-    const channel = liveStore.channels.find(channel => channel.id === itemId.value)
-    if (channel && channel.sources.length > 0) {
-      sources.value = channel.sources.map((source, index) => ({
-        url: source.url,
-        label: `直播线路 ${index + 1}`,
-        kind: source.url.includes('.m3u8') ? 'hls' : 'http'
-      }))
-      currentSourceIndex.value = 0
-      await playSource(sources.value[0])
+  isInitialLoading.value = true
+  try {
+    if (route.name === 'player-source') {
+      await loadSourceDetail()
+    } else if (mode.value === 'live') {
+      playbackSession.value = null
+      invalidateSessionFailover()
+      await liveStore.fetchChannels()
+      const channel = liveStore.channels.find(channel => channel.id === itemId.value)
+      if (channel && channel.sources.length > 0) {
+        sources.value = channel.sources.map((source, index) => ({
+          url: source.url,
+          label: `直播线路 ${index + 1}`,
+          kind: source.url.includes('.m3u8') ? 'hls' : 'http'
+        }))
+        currentSourceIndex.value = 0
+        await playSource(sources.value[0])
+      } else {
+        errorMsg.value = '当前频道没有可用线路'
+      }
+    } else if (mode.value === 'vod') {
+      const pending = playerStore.pendingUnifiedEpisode
+      if (pending) {
+        playerStore.setPendingUnifiedEpisode(null)
+        try {
+          await playUnifiedEpisode(pending)
+        } catch (e) {
+          console.error('[PlayerPage] playUnifiedEpisode failed:', e)
+        }
+      } else if (episodeUrl.value && isProviderDirectPlaybackRoute({
+        mode: mode.value,
+        itemId: itemId.value,
+        source: sourceName.value,
+        detailUrl: providerDetailUrl.value,
+        episodeUrl: episodeUrl.value,
+      })) {
+        try {
+          await loadProviderDirectPlayback()
+        } catch (e) {
+          console.error('[PlayerPage] loadProviderDirectPlayback failed:', e)
+        }
+      } else if (episodeUrl.value) {
+        try {
+          await initVodPlayback(episodeUrl.value, episodeId.value)
+        } catch (e) {
+          console.error('[PlayerPage] initVodPlayback failed:', e)
+        }
+      }
+
+      if (itemId.value) {
+        try {
+          await detailStore.fetchDetail(itemId.value)
+          const group = detailStore.episodeGroups.find(g =>
+            g.episodes.some(e => e.id === episodeId.value)
+          )
+          activeGroup.value = group ?? null
+        } catch {
+          activeGroup.value = null
+        }
+      } else if (providerDetailUrl.value && sourceName.value) {
+        await loadProviderEpisodes()
+      }
     } else {
-      errorMsg.value = '当前频道没有可用线路'
-    }
-  } else if (mode.value === 'vod') {
-    const pending = playerStore.pendingUnifiedEpisode
-    if (pending) {
-      playerStore.setPendingUnifiedEpisode(null)
-      try {
-        await playUnifiedEpisode(pending)
-      } catch (e) {
-        console.error('[PlayerPage] playUnifiedEpisode failed:', e)
-      }
-    } else if (episodeUrl.value && isProviderDirectPlaybackRoute({
-      mode: mode.value,
-      itemId: itemId.value,
-      source: sourceName.value,
-      detailUrl: providerDetailUrl.value,
-      episodeUrl: episodeUrl.value,
-    })) {
-      try {
-        await loadProviderDirectPlayback()
-      } catch (e) {
-        console.error('[PlayerPage] loadProviderDirectPlayback failed:', e)
-      }
-    } else if (episodeUrl.value) {
-      try {
-        await initVodPlayback(episodeUrl.value, episodeId.value)
-      } catch (e) {
-        console.error('[PlayerPage] initVodPlayback failed:', e)
-      }
+      errorMsg.value = '缺少播放地址'
     }
 
-    if (itemId.value) {
-      try {
-        await detailStore.fetchDetail(itemId.value)
-        const group = detailStore.episodeGroups.find(g =>
-          g.episodes.some(e => e.id === episodeId.value)
-        )
-        activeGroup.value = group ?? null
-      } catch {
-        activeGroup.value = null
-      }
-    } else if (providerDetailUrl.value && sourceName.value) {
-      await loadProviderEpisodes()
+    if (videoRef.value) {
+      videoRef.value.volume = volume.value
     }
-  } else {
-    errorMsg.value = '缺少播放地址'
-  }
 
-  if (videoRef.value) {
-    videoRef.value.volume = volume.value
-  }
+    progressUpdateInterval = window.setInterval(() => {
+      if (!videoRef.value) return
+      currentTime.value = videoRef.value.currentTime
+      duration.value = videoRef.value.duration || 0
+    }, 1000)
 
-  progressUpdateInterval = window.setInterval(() => {
-    if (!videoRef.value) return
-    currentTime.value = videoRef.value.currentTime
-    duration.value = videoRef.value.duration || 0
-  }, 1000)
-
-  fullscreenChangeHandler = () => {
-    fullscreen.value = !!document.fullscreenElement
+    fullscreenChangeHandler = () => {
+      fullscreen.value = !!document.fullscreenElement
+    }
+    document.addEventListener('fullscreenchange', fullscreenChangeHandler)
+  } finally {
+    isInitialLoading.value = false
   }
-  document.addEventListener('fullscreenchange', fullscreenChangeHandler)
 })
 
 onUnmounted(() => {
@@ -1366,19 +1417,33 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
         <button class="action-button action-button-secondary" type="button" @click="router.back()">
           返回
         </button>
-        <div class="player-title">
-          <strong>{{ pageTitle }}</strong>
-        </div>
-        <div class="player-context">
-          <span>{{ playerModeLabel }}</span>
-          <span>{{ sourceLabel }}</span>
-          <span>{{ playerStatusText }}</span>
-        </div>
+        <template v-if="topbarLoading">
+          <div class="player-topbar-loading player-topbar-loading-title"></div>
+          <div class="player-topbar-loading player-topbar-loading-context">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="player-title">
+            <strong>{{ pageTitle }}</strong>
+          </div>
+          <div class="player-context">
+            <span>{{ playerModeLabel }}</span>
+            <span>{{ sourceLabel }}</span>
+            <span v-if="topbarStatusText">{{ topbarStatusText }}</span>
+          </div>
+        </template>
       </header>
 
       <div class="player-layout">
         <section class="player-stage">
-          <div class="player-video-wrap" ref="videoWrapRef">
+          <div
+            class="player-video-wrap"
+            :class="{ 'player-video-wrap-fullscreen-idle': fullscreen && !controlsVisible }"
+            ref="videoWrapRef"
+          >
             <video
               ref="videoRef"
               class="player-video"
@@ -1394,16 +1459,19 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
 
             <div
               class="player-overlay"
-              @mouseenter="showControls"
+              @pointermove="handleOverlayPointerMove"
               @mouseleave="startHideTimer"
             >
-              <PlaybackNotice v-if="errorMsg" :message="errorMsg" :tone="noticeTone" />
+              <PlaybackNotice v-if="shouldShowPlaybackNotice" :message="errorMsg" :tone="noticeTone" />
 
               <div
                 class="player-controls"
-                :class="{ 'controls-hidden': !controlsVisible }"
+                :class="{
+                  'controls-hidden': !controlsVisible,
+                  'player-controls-compact': isCompactFullscreenControls,
+                }"
               >
-                <div class="player-progress">
+                <div v-if="mode !== 'live' && !isCompactFullscreenControls" class="player-progress">
                   <span>{{ formatTime(currentTime) }}</span>
                   <input
                     type="range"
@@ -1429,8 +1497,8 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
                     {{ fullscreenError }}
                   </div>
 
-                  <label class="player-volume">
-                    <span>Volume</span>
+                  <label :class="['player-volume', { 'player-volume-compact': isCompactFullscreenControls }]">
+                    <span v-if="!isCompactFullscreenControls">Volume</span>
                     <input
                       type="range"
                       :value="volume"
@@ -1452,7 +1520,9 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
           :current-index="currentSourceIndex"
           :failed-indexes="failedSourceIndexes"
           :status="playerStatusText"
-          :error-message="errorMsg || playbackStore.errorMessage"
+          :status-tone="playerStatusTone"
+          :error-message="shouldShowPlaybackNotice ? (errorMsg || playbackStore.errorMessage) : null"
+          :loading="drawerLoading"
           :unified-episodes="unifiedEpisodes"
           :current-normalized-index="currentNormalizedIndex"
           :item-type="itemType"

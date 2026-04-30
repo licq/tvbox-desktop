@@ -49,6 +49,10 @@ const currentDetail = computed(() => {
   return props.sourceDetails?.[selectedSourceKey.value]
 })
 
+const hasResolvedCurrentDetail = computed(() => {
+  return currentDetail.value !== undefined
+})
+
 const currentEpisodes = computed(() => currentDetail.value?.episodes ?? [])
 
 const isLoadingCurrent = computed(() => {
@@ -91,6 +95,10 @@ const isLoadingAnyMovieSource = computed(() => {
   return props.sources.some(s =>
     props.loadingSources?.includes(s.source)
   )
+})
+
+const hasResolvedAnyMovieSource = computed(() => {
+  return props.sources.some(src => props.sourceDetails?.[src.source])
 })
 
 interface MovieEpisodeButton {
@@ -147,8 +155,11 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
       <!-- Movie mode: episode buttons directly -->
       <template v-if="isMovie">
         <div class="source-action-area">
-          <div v-if="isLoadingAnyMovieSource" class="loading-placeholder">
-            加载中…
+          <div v-if="isLoadingAnyMovieSource || !hasResolvedAnyMovieSource" class="loading-placeholder loading-placeholder-movie">
+            <div class="loading-line loading-line-wide"></div>
+            <div class="loading-grid">
+              <div class="loading-chip" v-for="index in 3" :key="index"></div>
+            </div>
           </div>
           <div v-else class="source-selector-row">
             <button
@@ -162,7 +173,7 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
             </button>
           </div>
           <div
-            v-if="!isLoadingAnyMovieSource && movieEpisodeButtons.length === 0"
+            v-if="hasResolvedAnyMovieSource && !isLoadingAnyMovieSource && movieEpisodeButtons.length === 0"
             class="load-episodes-btn"
           >
             暂无播放链接
@@ -191,13 +202,16 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
             @play="(ep) => emit('play-episode', ep, selectedSourceKey)"
           />
           <div
-            v-else-if="isLoadingCurrent"
-            class="loading-placeholder"
+            v-else-if="isLoadingCurrent || !hasResolvedCurrentDetail"
+            class="loading-placeholder loading-placeholder-series"
           >
-            加载中…
+            <div class="loading-line loading-line-title"></div>
+            <div class="loading-grid">
+              <div class="loading-chip" v-for="index in 8" :key="index"></div>
+            </div>
           </div>
           <div
-            v-else
+            v-else-if="hasResolvedCurrentDetail"
             class="load-episodes-btn"
           >
             暂无播放链接
@@ -210,18 +224,20 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
 
 <style scoped>
 .search-result-card {
-  border-radius: 0.8rem;
+  border-radius: 1rem;
   background: linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(10, 14, 21, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 0.75rem 1rem;
   display: flex;
   gap: 0.75rem;
   align-items: stretch;
-  transition: transform 200ms ease, border-color 200ms ease;
+  overflow: hidden;
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
 }
 .search-result-card:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
 }
 .card-left {
   display: flex;
@@ -327,6 +343,44 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
 .loading-placeholder {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.loading-placeholder-movie,
+.loading-placeholder-series {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+}
+
+.loading-line,
+.loading-chip {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+
+.loading-line {
+  height: 0.75rem;
+}
+
+.loading-line-wide {
+  width: 6rem;
+}
+
+.loading-line-title {
+  width: 5rem;
+}
+
+.loading-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr));
+  gap: 0.35rem;
+}
+
+.loading-chip {
+  height: 1.8rem;
+  border-radius: 0.55rem;
 }
 
 @media (max-width: 768px) {

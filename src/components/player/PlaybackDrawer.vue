@@ -8,11 +8,13 @@ const props = defineProps<{
   currentIndex: number
   failedIndexes: number[]
   status: string
+  statusTone?: 'warm' | 'cool' | 'neutral' | 'danger'
   errorMessage?: string | null
   unifiedEpisodes?: UnifiedEpisode[]
   currentNormalizedIndex?: number
   itemType: CatalogItemType
   episodeSourceAttempts?: PlaybackSourceAttempt[]
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -44,12 +46,20 @@ const isSeries = computed(() =>
 )
 
 function attemptStatusLabel(status: PlaybackSourceAttempt['status']) {
-  if (status === 'playing') return '当前播放'
   if (status === 'resolving') return '解析中'
   if (status === 'failed') return '本次失败'
   if (status === 'skipped') return '最近失败'
-  if (status === 'playable') return '可播放'
   return '待探测'
+}
+
+function attemptDisplayLabel(attempt: PlaybackSourceAttempt): string | null {
+  if (attempt.failureReason && attempt.failureReason !== '当前源没有可用候选线路') {
+    return attempt.failureReason
+  }
+  if (attempt.status === 'playing' || attempt.status === 'playable' || attempt.status === 'skipped') {
+    return null
+  }
+  return attemptStatusLabel(attempt.status)
 }
 
 const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
@@ -59,23 +69,43 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
   <aside class="playback-drawer">
     <!-- PlaybackHeader -->
     <div class="playback-header">
-      <div class="playback-header-title">
-        <template v-if="isSeries && currentNormalizedIndex !== undefined && unifiedEpisodes?.length">
-          <span class="eyebrow">正在播放</span>
-          <h2>{{ unifiedEpisodes.find(e => e.normalizedIndex === currentNormalizedIndex)?.displayLabel || '选集' }}</h2>
-        </template>
-        <template v-else>
-          <span class="eyebrow">播放线路</span>
-          <h2>{{ currentSource?.label || '选择线路' }}</h2>
-        </template>
-      </div>
-      <SourceBadge :label="status" :tone="status === 'failed' ? 'danger' : 'warm'" />
+      <template v-if="loading">
+        <div class="playback-header-title playback-header-title-loading">
+          <div class="skeleton-line skeleton-line-title"></div>
+          <div class="skeleton-line skeleton-line-subtitle"></div>
+        </div>
+        <div class="skeleton-pill"></div>
+      </template>
+      <template v-else>
+        <div class="playback-header-title">
+          <template v-if="isSeries && currentNormalizedIndex !== undefined && unifiedEpisodes?.length">
+            <span class="eyebrow">正在播放</span>
+            <h2>{{ unifiedEpisodes.find(e => e.normalizedIndex === currentNormalizedIndex)?.displayLabel || '选集' }}</h2>
+          </template>
+          <template v-else>
+            <span class="eyebrow">播放线路</span>
+            <h2>{{ currentSource?.label || '选择线路' }}</h2>
+          </template>
+        </div>
+        <SourceBadge
+          v-if="statusTone !== 'danger'"
+          :label="status"
+          :tone="statusTone ?? 'warm'"
+        />
+      </template>
     </div>
 
     <!-- EpisodeSection (scrollable) -->
     <div class="episode-section">
+      <div v-if="loading" class="playback-loading">
+        <div class="playback-loading-title"></div>
+        <div class="playback-loading-grid">
+          <div class="skeleton-card" v-for="index in 8" :key="index"></div>
+        </div>
+      </div>
+
       <!-- Series mode: episode grid -->
-      <div v-if="isSeries && unifiedEpisodes?.length" class="episode-grid">
+      <div v-else-if="isSeries && unifiedEpisodes?.length" class="episode-grid">
         <button
           v-for="ue in unifiedEpisodes"
           :key="ue.normalizedIndex"
@@ -113,7 +143,7 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
       <div v-else class="playback-empty">没有可用线路</div>
 
       <!-- Episode source list (series mode) -->
-      <div v-if="isSeries && episodeSourceAttempts?.length" class="episode-source-list">
+      <div v-if="!loading && isSeries && episodeSourceAttempts?.length" class="episode-source-list">
         <div class="episode-source-title">本集播放源</div>
         <button
           v-for="attempt in episodeSourceAttempts"
@@ -128,8 +158,8 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
           @click="emit('switchEpisodeSource', attempt.source.sourceKey)"
         >
           <span class="source-row-label">{{ attempt.source.sourceName }}</span>
-          <span class="source-row-meta">
-            {{ attempt.failureReason || attemptStatusLabel(attempt.status) }}
+          <span v-if="attemptDisplayLabel(attempt)" class="source-row-meta">
+            {{ attemptDisplayLabel(attempt) }}
           </span>
         </button>
       </div>
@@ -138,7 +168,7 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
     <!-- LinkInfoPanel (fixed bottom) -->
     <div class="link-info-panel">
       <!-- LineSwitcher -->
-      <div v-if="sources.length > 1" class="line-switcher">
+      <div v-if="!loading && sources.length > 1" class="line-switcher">
         <button
           v-for="(_, index) in sources"
           :key="index"
@@ -156,7 +186,7 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
 
       <!-- UrlDisplay -->
       <div
-        v-if="currentSource?.url"
+        v-if="!loading && currentSource?.url"
         :class="['url-display', { 'url-display-copied': copied }]"
         @click="copyUrl(currentSource.url)"
         title="点击复制 URL"
@@ -166,7 +196,7 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
       </div>
 
       <!-- ErrorDisplay -->
-      <div v-if="errorMessage" class="error-display">
+      <div v-if="!loading && errorMessage" class="error-display">
         {{ errorMessage }}
       </div>
     </div>
@@ -186,6 +216,70 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
   color: var(--text-muted);
   text-align: center;
   font-size: 0.875rem;
+}
+
+.playback-loading {
+  min-height: 12rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.playback-loading-title,
+.skeleton-line,
+.skeleton-pill,
+.skeleton-card {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.playback-loading-title {
+  height: 1.05rem;
+  width: 42%;
+  border-radius: 999px;
+}
+
+.playback-loading-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 0.55rem;
+}
+
+.skeleton-line::after,
+.skeleton-pill::after,
+.skeleton-card::after,
+.playback-loading-title::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  animation: playback-skeleton-shimmer 1.35s infinite;
+}
+
+.skeleton-line {
+  height: 0.8rem;
+  border-radius: 999px;
+}
+
+.skeleton-line-title {
+  width: 72%;
+}
+
+.skeleton-line-subtitle {
+  width: 48%;
+}
+
+.skeleton-pill {
+  width: 3.4rem;
+  height: 1.35rem;
+  border-radius: 999px;
+}
+
+.skeleton-card {
+  height: 2.1rem;
+  border-radius: 0.85rem;
 }
 
 /* PlaybackHeader */

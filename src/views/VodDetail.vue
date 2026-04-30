@@ -358,6 +358,7 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
           episode: target.target_url,
           source: source.source,
           detailUrl: source.detail_url,
+          title: item.title,
           episodeLabel: episode.episode_label,
           episodeReferer: target.referer ?? undefined,
           episodeHeaders: target.headers ? JSON.stringify(target.headers) : undefined,
@@ -398,7 +399,7 @@ async function loadDetail() {
 
     // OPTIMIZATION 2: Start source search IMMEDIATELY (we have title now)
     if (hotItem.value?.name) {
-      searchSources(cleanTitle(hotItem.value.name))
+      await searchSources(cleanTitle(hotItem.value.name))
     }
 
     // Also fetch enriched Douban metadata in background for director/actors/summary
@@ -419,7 +420,7 @@ async function loadDetail() {
   if (isSearch.value) {
     const keyword = route.query.keyword as string
     if (keyword) {
-      searchSources(keyword)
+      await searchSources(keyword)
       // Try to get Douban metadata for the top panel (use cleaned keyword)
       const cleanKeyword = cleanTitle(keyword)
       loadingDouban.value = true
@@ -490,10 +491,8 @@ async function searchSources(title: string) {
         results,
       }))
 
-    // Preload first source detail for each dedup result
-    for (const item of dedupSearchItems.value) {
-      preloadAllSources(item)
-    }
+    // Preload first source detail for each dedup result before releasing the loading state.
+    await Promise.all(dedupSearchItems.value.map(item => preloadAllSources(item)))
   } catch (e) {
     console.error('[VodDetail] searchSources failed:', e)
     searchError.value = String(e)
@@ -513,7 +512,14 @@ function handlePlay(ue: UnifiedEpisode) {
   if (ue.sources.length === 0) return
   playerStore.setPendingUnifiedEpisode(ue)
   const episode = ue.sources[0].episode
-  router.push(`/player/vod/${itemId.value}?episode=${encodeURIComponent(episode.play_url)}&episodeId=${episode.id}`)
+  router.push({
+    path: `/player/vod/${itemId.value}`,
+    query: {
+      episode: episode.play_url,
+      episodeId: String(episode.id),
+      title: detailStore.item?.title ?? undefined,
+    },
+  })
 }
 
 </script>
@@ -583,7 +589,7 @@ function handlePlay(ue: UnifiedEpisode) {
 
         <!-- Bottom: all source lists -->
         <section v-if="detailStore.loading && detailStore.item" class="space-y-4">
-          <EpisodeGroupSkeleton :count="8" />
+          <EpisodeGroupSkeleton :count="12" />
         </section>
 
         <section v-else-if="detailStore.episodeGroups.length" class="source-list space-y-4">

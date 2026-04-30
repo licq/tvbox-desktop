@@ -2497,7 +2497,7 @@ mod tests {
     }
 
     #[test]
-    fn catalog_detail_hides_embedded_and_external_lines_and_sorts_playable_first() {
+    fn catalog_detail_keeps_resolvable_lines_visible_hides_external_lines_and_sorts_playable_first() {
         let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
         let subscription = storage
             .add_subscription("tvbox", "https://example.com/tvbox.json")
@@ -2541,16 +2541,18 @@ mod tests {
             .get_catalog_detail(201)
             .expect("catalog detail should query");
 
-        assert_eq!(detail.episode_groups.len(), 2);
+        assert_eq!(detail.episode_groups.len(), 3);
         assert_eq!(detail.episode_groups[0].source_name, "直链线路");
         assert_eq!(
             detail.episode_groups[0].episodes[0].play_url,
             "https://media.example.com/demo/index.m3u8"
         );
         assert_eq!(detail.episode_groups[1].source_name, "可解析线路");
-        assert!(detail.episode_groups.iter().all(
-            |group| !group.source_name.contains("嵌入") && !group.source_name.contains("外部")
-        ));
+        assert_eq!(detail.episode_groups[2].source_name, "嵌入线路");
+        assert!(detail
+            .episode_groups
+            .iter()
+            .all(|group| !group.source_name.contains("外部")));
     }
 
     fn seed_live_source(

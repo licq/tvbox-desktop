@@ -117,11 +117,12 @@ const remainingCount = computed(() => {
   background: linear-gradient(180deg, rgba(18, 24, 34, 0.94), rgba(10, 14, 21, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
-  transition: transform 200ms ease, border-color 200ms ease;
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
 }
 .source-group-card:hover {
   transform: translateY(-2px);
   border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
 }
 .source-group-header {
   display: flex;

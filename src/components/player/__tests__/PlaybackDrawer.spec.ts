@@ -45,9 +45,49 @@ describe('PlaybackDrawer', () => {
 
     expect(wrapper.text()).toContain('本集播放源')
     expect(wrapper.text()).toContain('非凡线路')
-    expect(wrapper.text()).toContain('当前播放')
     expect(wrapper.text()).toContain('量子线路')
     expect(wrapper.text()).toContain('manifest failed')
+    expect(wrapper.text()).not.toContain('当前播放')
+    expect(wrapper.text()).not.toContain('最近失败')
+  })
+
+  it('does not expose the raw empty-candidate failure reason in series mode', () => {
+    const wrapper = mount(PlaybackDrawer, {
+      props: {
+        sources: attempts[0]!.candidates,
+        currentIndex: 0,
+        failedIndexes: [],
+        status: '播放中',
+        unifiedEpisodes,
+        currentNormalizedIndex: 3,
+        itemType: 'series',
+        episodeSourceAttempts: [
+          {
+            ...attempts[0]!,
+            status: 'failed',
+            failureReason: '当前源没有可用候选线路',
+          },
+        ],
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('当前源没有可用候选线路')
+    expect(wrapper.text()).toContain('本次失败')
+  })
+
+  it('hides the status badge when the drawer is in a failed state', () => {
+    const wrapper = mount(PlaybackDrawer, {
+      props: {
+        sources: attempts[0]!.candidates,
+        currentIndex: 0,
+        failedIndexes: [],
+        status: '播放失败',
+        statusTone: 'danger',
+        itemType: 'movie',
+      },
+    })
+
+    expect(wrapper.find('.playback-header .source-badge').exists()).toBe(false)
   })
 
   it('emits switchEpisodeSource when clicking an episode source', async () => {
@@ -67,5 +107,24 @@ describe('PlaybackDrawer', () => {
     await wrapper.find('[data-testid="episode-source-b"]').trigger('click')
 
     expect(wrapper.emitted('switchEpisodeSource')?.[0]).toEqual(['b'])
+  })
+
+  it('shows loading state instead of empty playback text while loading', () => {
+    const wrapper = mount(PlaybackDrawer, {
+      props: {
+        sources: [],
+        currentIndex: 0,
+        failedIndexes: [],
+        status: '加载中',
+        errorMessage: '当前源没有可用候选线路',
+        itemType: 'movie',
+        loading: true,
+      },
+    })
+
+    expect(wrapper.find('.playback-loading').exists()).toBe(true)
+    expect(wrapper.findAll('.skeleton-card').length).toBeGreaterThan(0)
+    expect(wrapper.text()).not.toContain('没有可用线路')
+    expect(wrapper.text()).not.toContain('当前源没有可用候选线路')
   })
 })

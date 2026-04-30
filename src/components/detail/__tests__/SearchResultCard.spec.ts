@@ -82,6 +82,8 @@ describe('SearchResultCard', () => {
       },
     })
     expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
+    expect(wrapper.findAll('.loading-chip').length).toBeGreaterThan(0)
+    expect(wrapper.text()).not.toContain('加载中')
   })
 
   it('skips empty sources for movies', () => {
@@ -130,6 +132,32 @@ describe('SearchResultCard', () => {
       },
     })
     expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
+    expect(wrapper.findAll('.loading-chip').length).toBeGreaterThan(0)
+    expect(wrapper.text()).not.toContain('加载中')
+  })
+
+  it('keeps the series card in loading state until the current source is resolved', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'series',
+      },
+    })
+
+    expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('暂无播放链接')
+  })
+
+  it('keeps the movie card in loading state until at least one source resolves', () => {
+    const wrapper = mount(SearchResultCard, {
+      props: {
+        ...baseProps,
+        itemType: 'movie',
+      },
+    })
+
+    expect(wrapper.find('.loading-placeholder').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('暂无播放链接')
   })
 
   it('emits play-episode with sourceKey when EpisodeGrid plays (series)', async () => {
