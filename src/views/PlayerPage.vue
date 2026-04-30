@@ -13,7 +13,6 @@ import PlaybackNotice from '@/components/player/PlaybackNotice.vue'
 import { describeMediaErrorCode, describePlaybackFailure, formatPlayerTitle, isAutoplayBlocked } from '@/utils/player'
 import { mergeEpisodes } from '@/utils/episode'
 import {
-  attachCandidatesToActiveSource,
   createEpisodePlaybackSession,
   markCurrentCandidateFailed,
   markCurrentCandidatePlaying,
@@ -693,6 +692,26 @@ function syncActiveSessionAttempt(session: EpisodePlaybackSession) {
   }
 }
 
+function attachCandidatesToSessionAttempt(
+  session: EpisodePlaybackSession,
+  sourceIndex: number,
+  candidates: PlayerSource[]
+) {
+  const attempt = session.sourceAttempts[sourceIndex]
+  if (!attempt) return false
+
+  attempt.candidates = candidates
+  attempt.failedCandidateIndexes = []
+  attempt.status = candidates.length > 0 ? 'playable' : 'failed'
+  attempt.failureReason = candidates.length > 0 ? undefined : '当前源没有可用候选线路'
+
+  if (session.activeSourceIndex === sourceIndex) {
+    syncActiveSessionAttempt(session)
+  }
+
+  return true
+}
+
 function activeSessionFailureKey(session: EpisodePlaybackSession) {
   const attempt = session.sourceAttempts[session.activeSourceIndex]
   const candidate = attempt?.candidates[session.activeCandidateIndex]
@@ -710,17 +729,38 @@ function activeSessionCandidateUrl(session: EpisodePlaybackSession) {
   return attempt?.candidates[session.activeCandidateIndex]?.url ?? null
 }
 
-async function resolveActiveAttempt(session: EpisodePlaybackSession) {
-  const attempt = session.sourceAttempts[session.activeSourceIndex]
+async function resolveActiveAttempt(
+  session: EpisodePlaybackSession,
+  sourceIndex = session.activeSourceIndex,
+  expectedGeneration = sessionGeneration
+) {
+  const attempt = session.sourceAttempts[sourceIndex]
   if (!attempt) return false
 
   try {
+    if (
+      sessionGeneration !== expectedGeneration ||
+      playbackSession.value !== session ||
+      session.activeSourceIndex !== sourceIndex ||
+      session.sourceAttempts[sourceIndex] !== attempt
+    ) {
+      return false
+    }
+
     if (itemId.value > 0) {
       const resolved = await playbackStore.resolve(
         attempt.source.episode.play_url,
         attempt.source.episode.id
       )
-      attachCandidatesToActiveSource(session, resolved.candidates.map(toPlayerSource))
+      if (
+        sessionGeneration !== expectedGeneration ||
+        playbackSession.value !== session ||
+        session.activeSourceIndex !== sourceIndex ||
+        session.sourceAttempts[sourceIndex] !== attempt
+      ) {
+        return false
+      }
+      attachCandidatesToSessionAttempt(session, sourceIndex, resolved.candidates.map(toPlayerSource))
       return true
     }
 
@@ -730,14 +770,22 @@ async function resolveActiveAttempt(session: EpisodePlaybackSession) {
         flag: 'auto',
         playUrl: attempt.source.episode.play_url,
       })
+      if (
+        sessionGeneration !== expectedGeneration ||
+        playbackSession.value !== session ||
+        session.activeSourceIndex !== sourceIndex ||
+        session.sourceAttempts[sourceIndex] !== attempt
+      ) {
+        return false
+      }
       const target = targets[0]
       if (!target) {
-        attachCandidatesToActiveSource(session, [])
+        attachCandidatesToSessionAttempt(session, sourceIndex, [])
         return true
       }
 
       if (target.target_kind === 'Direct') {
-        attachCandidatesToActiveSource(session, [{
+        attachCandidatesToSessionAttempt(session, sourceIndex, [{
           url: target.target_url,
           label: attempt.source.sourceName || sourceName.value || '来源',
           kind: target.target_url.includes('.m3u8') ? 'hls' : 'http',
@@ -748,13 +796,29 @@ async function resolveActiveAttempt(session: EpisodePlaybackSession) {
       }
 
       const resolved = await playbackStore.resolve(target.target_url, attempt.source.episode.id)
-      attachCandidatesToActiveSource(session, resolved.candidates.map(toPlayerSource))
+      if (
+        sessionGeneration !== expectedGeneration ||
+        playbackSession.value !== session ||
+        session.activeSourceIndex !== sourceIndex ||
+        session.sourceAttempts[sourceIndex] !== attempt
+      ) {
+        return false
+      }
+      attachCandidatesToSessionAttempt(session, sourceIndex, resolved.candidates.map(toPlayerSource))
       return true
     }
 
-    attachCandidatesToActiveSource(session, [])
+    attachCandidatesToSessionAttempt(session, sourceIndex, [])
     return true
   } catch (error) {
+    if (
+      sessionGeneration !== expectedGeneration ||
+      playbackSession.value !== session ||
+      session.activeSourceIndex !== sourceIndex ||
+      session.sourceAttempts[sourceIndex] !== attempt
+    ) {
+      return false
+    }
     markCurrentCandidateFailed(session, String(error))
     return false
   }
@@ -810,7 +874,7 @@ async function runSessionFailover(
       return
     }
 
-    const resolved = await resolveActiveAttempt(session)
+    const resolved = await resolveActiveAttempt(session, session.activeSourceIndex, expectedGeneration)
     if (sessionGeneration !== expectedGeneration) return
     if (playbackSession.value !== session) return
     if (!resolved) {
@@ -931,8 +995,12 @@ async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 
     return
   }
 
-  const resolved = await resolveActiveAttempt(session)
+  const expectedGeneration = sessionGeneration
+  const resolved = await resolveActiveAttempt(session, session.activeSourceIndex, expectedGeneration)
   if (!resolved) {
+    if (sessionGeneration !== expectedGeneration || playbackSession.value !== session) {
+      return
+    }
     await playNextFromSession()
     return
   }
@@ -969,8 +1037,12 @@ async function switchEpisodeSource(sourceKey: string) {
     return
   }
 
-  const resolved = await resolveActiveAttempt(session)
+  const expectedGeneration = sessionGeneration
+  const resolved = await resolveActiveAttempt(session, session.activeSourceIndex, expectedGeneration)
   if (!resolved) {
+    if (sessionGeneration !== expectedGeneration || playbackSession.value !== session) {
+      return
+    }
     errorMsg.value = attempt.failureReason ?? '解析失败'
     await playNextFromSession(attempt.failureReason ?? '解析失败')
     return
