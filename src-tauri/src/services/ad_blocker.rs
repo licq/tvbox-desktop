@@ -72,8 +72,8 @@ const AD_PATTERNS: &[&str] = &[
     "/vmap?",                   // VMAP ad protocol
     "/adserve/",                // Ad serving path
     "/adserver/",               // Ad server path
-    ".ads.",                    // Generic ad subdomain (e.g. ads.cdn.com)
-    "ads.",                     // Generic ad subdomain prefix (e.g. ads.example.com)
+    ".ads.",                    // Generic ad subdomain (e.g. x.ads.cdn.com)
+    "//ads.",                   // Host prefix (e.g. https://ads.example.com)
 
     // === URL path patterns ===
     "/ad/",                     // Common ad path
