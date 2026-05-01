@@ -297,18 +297,11 @@ const playerStatusTone = computed(() => {
 })
 const playerModeLabel = computed(() => mode.value === 'live' ? '直播' : '点播')
 const noticeTone = computed(() => playbackStore.status === 'failed' ? 'danger' : 'warning')
-const hasDrawerContent = computed(() =>
-  unifiedEpisodes.value.length > 0 ||
-  sources.value.length > 0 ||
-  currentEpisodeSourceAttempts.value.length > 0
-)
 const drawerLoading = computed(() =>
   isInitialLoading.value ||
-  (!hasDrawerContent.value && (
-    detailStore.loading ||
-    playbackStore.status === 'resolving' ||
-    currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')
-  ))
+  detailStore.loading ||
+  playbackStore.status === 'resolving' ||
+  currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')
 )
 const topbarLoading = computed(() => isInitialLoading.value)
 const shouldShowPlaybackNotice = computed(() =>
@@ -385,16 +378,6 @@ onMounted(async () => {
   startAdCleanupObserver()
   isInitialLoading.value = true
   try {
-    const pendingPlaybackDetail = playerStore.takePendingPlaybackDetail()
-    if (pendingPlaybackDetail) {
-      detailStore.item = pendingPlaybackDetail.item
-      detailStore.episodeGroups = pendingPlaybackDetail.episode_groups
-      detailStore.error = null
-      detailStore.loading = false
-      activeGroup.value = pendingPlaybackDetail.episode_groups[0] ?? null
-      isInitialLoading.value = false
-    }
-
     if (route.name === 'player-source') {
       await loadSourceDetail()
     } else if (mode.value === 'live') {
@@ -442,7 +425,7 @@ onMounted(async () => {
         }
       }
 
-      if (itemId.value && !pendingPlaybackDetail) {
+      if (itemId.value) {
         try {
           await detailStore.fetchDetail(itemId.value)
           const group = detailStore.episodeGroups.find(g =>
@@ -452,7 +435,7 @@ onMounted(async () => {
         } catch {
           activeGroup.value = null
         }
-      } else if (providerDetailUrl.value && sourceName.value && !pendingPlaybackDetail) {
+      } else if (providerDetailUrl.value && sourceName.value) {
         await loadProviderEpisodes()
       }
     } else {

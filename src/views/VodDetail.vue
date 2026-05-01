@@ -11,7 +11,7 @@ import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
 import SearchResultCard from '@/components/detail/SearchResultCard.vue'
-import type { CatalogDetail, CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult, UnifiedEpisode } from '@/types'
+import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult, UnifiedEpisode } from '@/types'
 
 interface DoubanSubjectMeta {
   doubanId: number
@@ -339,28 +339,6 @@ async function preloadSource(item: DedupSearchItem, sourceKey: string) {
   }
 }
 
-function buildPendingPlaybackDetail(item: DedupSearchItem, sourceKey: string): CatalogDetail | null {
-  const source = item.sources.find(s => s.source === sourceKey)
-  if (!source) return null
-
-  const detail = providerDetailCache.value.get(getCacheKey(item.title, sourceKey))
-  if (!detail) return null
-
-  return {
-    item: {
-      id: 0,
-      title: detail.title ?? item.title,
-      item_type: item.item_type === 'generic' ? 'movie' : item.item_type,
-      poster: detail.poster ?? item.poster,
-      summary: detail.summary ?? undefined,
-    },
-    episode_groups: [{
-      source_name: source.source_name,
-      episodes: detail.episodes,
-    }],
-  }
-}
-
 async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string, item: DedupSearchItem) {
   const source = item.sources.find(s => s.source === sourceKey)
   if (!source) return
@@ -373,10 +351,6 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
     })
     if (targets.length > 0) {
       const target = targets[0]
-      const pendingDetail = buildPendingPlaybackDetail(item, sourceKey)
-      if (pendingDetail) {
-        playerStore.setPendingPlaybackDetail(pendingDetail)
-      }
       router.push({
         name: 'player',
         params: { mode: 'vod', id: 0 },
@@ -536,12 +510,6 @@ onUnmounted(() => {
 
 function handlePlay(ue: UnifiedEpisode) {
   if (ue.sources.length === 0) return
-  if (detailStore.item) {
-    playerStore.setPendingPlaybackDetail({
-      item: detailStore.item,
-      episode_groups: detailStore.episodeGroups,
-    })
-  }
   playerStore.setPendingUnifiedEpisode(ue)
   const episode = ue.sources[0].episode
   router.push({

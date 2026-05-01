@@ -63,23 +63,13 @@ function attemptDisplayLabel(attempt: PlaybackSourceAttempt): string | null {
 }
 
 const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
-const hasContent = computed(() =>
-  props.sources.length > 0 ||
-  (props.unifiedEpisodes?.length ?? 0) > 0
-)
-const headerSwapKey = computed(() => {
-  if (isSeries.value && props.currentNormalizedIndex !== undefined && (props.unifiedEpisodes?.length ?? 0) > 0) {
-    return `episode-${props.currentNormalizedIndex}`
-  }
-  return `source-${currentSource.value?.label ?? 'default'}`
-})
 </script>
 
 <template>
   <aside class="playback-drawer">
     <!-- PlaybackHeader -->
     <div class="playback-header">
-      <template v-if="loading && !hasContent">
+      <template v-if="loading">
         <div class="playback-header-title playback-header-title-loading">
           <div class="skeleton-line skeleton-line-title"></div>
           <div class="skeleton-line skeleton-line-subtitle"></div>
@@ -87,8 +77,7 @@ const headerSwapKey = computed(() => {
         <div class="skeleton-pill"></div>
       </template>
       <template v-else>
-        <Transition name="drawer-fade" mode="out-in">
-          <div :key="headerSwapKey" class="playback-header-title">
+        <div class="playback-header-title">
           <template v-if="isSeries && currentNormalizedIndex !== undefined && unifiedEpisodes?.length">
             <span class="eyebrow">正在播放</span>
             <h2>{{ unifiedEpisodes.find(e => e.normalizedIndex === currentNormalizedIndex)?.displayLabel || '选集' }}</h2>
@@ -97,8 +86,7 @@ const headerSwapKey = computed(() => {
             <span class="eyebrow">播放线路</span>
             <h2>{{ currentSource?.label || '选择线路' }}</h2>
           </template>
-          </div>
-        </Transition>
+        </div>
         <SourceBadge
           v-if="statusTone !== 'danger'"
           :label="status"
@@ -109,7 +97,7 @@ const headerSwapKey = computed(() => {
 
     <!-- EpisodeSection (scrollable) -->
     <div class="episode-section">
-      <div v-if="loading && !hasContent" class="playback-loading">
+      <div v-if="loading" class="playback-loading">
         <div class="playback-loading-title"></div>
         <div class="playback-loading-grid">
           <div class="skeleton-card" v-for="index in 8" :key="index"></div>
@@ -155,7 +143,7 @@ const headerSwapKey = computed(() => {
       <div v-else class="playback-empty">没有可用线路</div>
 
       <!-- Episode source list (series mode) -->
-      <div v-if="isSeries && episodeSourceAttempts?.length" class="episode-source-list">
+      <div v-if="!loading && isSeries && episodeSourceAttempts?.length" class="episode-source-list">
         <div class="episode-source-title">本集播放源</div>
         <button
           v-for="attempt in episodeSourceAttempts"
@@ -180,7 +168,7 @@ const headerSwapKey = computed(() => {
     <!-- LinkInfoPanel (fixed bottom) -->
     <div class="link-info-panel">
       <!-- LineSwitcher -->
-      <div v-if="sources.length > 1" class="line-switcher">
+      <div v-if="!loading && sources.length > 1" class="line-switcher">
         <button
           v-for="(_, index) in sources"
           :key="index"
@@ -198,7 +186,7 @@ const headerSwapKey = computed(() => {
 
       <!-- UrlDisplay -->
       <div
-        v-if="currentSource?.url"
+        v-if="!loading && currentSource?.url"
         :class="['url-display', { 'url-display-copied': copied }]"
         @click="copyUrl(currentSource.url)"
         title="点击复制 URL"
@@ -208,7 +196,7 @@ const headerSwapKey = computed(() => {
       </div>
 
       <!-- ErrorDisplay -->
-      <div v-if="errorMessage && (!loading || hasContent)" class="error-display">
+      <div v-if="!loading && errorMessage" class="error-display">
         {{ errorMessage }}
       </div>
     </div>
@@ -363,8 +351,6 @@ const headerSwapKey = computed(() => {
   color: var(--accent);
   font-weight: 600;
   border-color: rgba(216, 154, 87, 0.35);
-  transform: translateY(-1px) scale(1.01);
-  box-shadow: 0 8px 18px rgba(216, 154, 87, 0.08);
 }
 
 .source-count-badge {
@@ -540,16 +526,5 @@ const headerSwapKey = computed(() => {
   color: var(--text-muted);
   font-size: 0.7rem;
   text-align: right;
-}
-
-.drawer-fade-enter-active,
-.drawer-fade-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
-}
-
-.drawer-fade-enter-from,
-.drawer-fade-leave-to {
-  opacity: 0;
-  transform: translateY(2px);
 }
 </style>
