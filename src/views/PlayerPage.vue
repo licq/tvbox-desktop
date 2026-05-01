@@ -18,6 +18,7 @@ import {
   isAutoplayBlocked,
   isProviderDirectPlaybackRoute,
   parsePlaybackHeaders,
+  parsePlaybackTargets,
   isPlaybackPageUrl,
   shouldFallbackToBrowserHls,
 } from '@/utils/player'
@@ -29,6 +30,7 @@ import {
 import { mergeEpisodes } from '@/utils/episode'
 import {
   createEpisodePlaybackSession,
+  clearPlaybackHealth,
   markCurrentCandidateFailed,
   markCurrentCandidatePlaying,
   nextCandidateToPlay,
@@ -106,6 +108,7 @@ const providerDetailUrl = computed(() => route.query.detailUrl as string | undef
 const episodeLabelFromQuery = computed(() => route.query.episodeLabel as string | undefined)
 const episodeReferer = computed(() => route.query.episodeReferer as string | undefined)
 const episodeHeaders = computed(() => parsePlaybackHeaders(route.query.episodeHeaders as string | undefined))
+const episodeTargets = computed(() => parsePlaybackTargets(route.query.episodeTargets as string | undefined))
 const sourceLabel = computed(() => currentSource.value?.label ?? `线路 ${currentSourceIndex.value + 1}`)
 const itemType = computed(() => {
   if (detailStore.item?.item_type) return detailStore.item.item_type
@@ -114,6 +117,21 @@ const itemType = computed(() => {
   if (unifiedEpisodes.value.length > 1) return 'series'
   return 'movie'
 })
+
+function hydrateDetailFromPendingContext() {
+  const pendingDetail = playerStore.pendingVodDetail
+  if (!pendingDetail) return false
+
+  detailStore.item = pendingDetail.item
+  detailStore.episodeGroups = pendingDetail.episode_groups
+  playerStore.setPendingVodDetail(null)
+  return true
+}
+
+const hasCachedDetail = computed(() =>
+  detailStore.item?.id === itemId.value &&
+  detailStore.episodeGroups.length > 0
+)
 
 const currentEpisodeLabel = computed(() => {
   if (currentUnifiedEpisode.value?.displayLabel) return currentUnifiedEpisode.value.displayLabel
@@ -214,6 +232,15 @@ async function loadProviderDirectPlayback() {
   }
 
   const url = decodeURIComponent(episodeUrl.value)
+  const directTargets = episodeTargets.value.filter(target => target.target_kind === 'Direct')
+  if (directTargets.length > 0) {
+    sources.value = directTargets.map(toPlayerSourceFromTarget)
+    currentSourceIndex.value = 0
+    failedSourceIndexes.value = []
+    await playSource(sources.value[0]!)
+    return
+  }
+
   if (!isDirectMediaUrl(url)) {
     try {
       const resolved = await playbackStore.resolve(url, undefined)
@@ -258,6 +285,10 @@ async function loadProviderEpisodes() {
       source: sourceName.value,
       ids: providerDetailUrl.value,
     })
+    if (!detail || !Array.isArray(detail.episodes)) {
+      activeGroup.value = null
+      return
+    }
     activeGroup.value = {
       source_name: sourceName.value,
       episodes: detail.episodes.map((ep, index) => ({
@@ -272,7 +303,7 @@ async function loadProviderEpisodes() {
   }
 }
 const playerStatusText = computed(() => {
-  if (isInitialLoading.value) return '加载中'
+  if (isInitialLoading.value && !unifiedEpisodes.value.length && !detailStore.item) return '加载中'
   if (pendingAutoplay.value) return '等待播放'
   if (playbackStore.status === 'resolving') return '正在解析播放源'
   if (currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')) return '正在解析本集线路'
@@ -288,7 +319,7 @@ const topbarStatusText = computed(() => {
   return playerStatusText.value
 })
 const playerStatusTone = computed(() => {
-  if (isInitialLoading.value) return 'neutral'
+  if (isInitialLoading.value && !unifiedEpisodes.value.length && !detailStore.item) return 'neutral'
   if (playbackStore.status === 'failed' || !!errorMsg.value || !!playbackStore.errorMessage) return 'danger'
   if (playbackStore.status === 'resolving' || currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')) {
     return 'cool'
@@ -298,12 +329,15 @@ const playerStatusTone = computed(() => {
 const playerModeLabel = computed(() => mode.value === 'live' ? '直播' : '点播')
 const noticeTone = computed(() => playbackStore.status === 'failed' ? 'danger' : 'warning')
 const drawerLoading = computed(() =>
-  isInitialLoading.value ||
-  detailStore.loading ||
-  playbackStore.status === 'resolving' ||
-  currentEpisodeSourceAttempts.value.some(attempt => attempt.status === 'resolving')
+  (isInitialLoading.value && !detailStore.item && !unifiedEpisodes.value.length) ||
+  (detailStore.loading && !hasCachedDetail.value)
 )
-const topbarLoading = computed(() => isInitialLoading.value)
+const topbarLoading = computed(() =>
+  isInitialLoading.value &&
+  !detailStore.item &&
+  !sourceTitle.value &&
+  !currentEpisodeLabel.value
+)
 const shouldShowPlaybackNotice = computed(() =>
   !isInitialLoading.value &&
   !!errorMsg.value &&
@@ -397,6 +431,7 @@ onMounted(async () => {
         errorMsg.value = '当前频道没有可用线路'
       }
     } else if (mode.value === 'vod') {
+      hydrateDetailFromPendingContext()
       const pending = playerStore.pendingUnifiedEpisode
       if (pending) {
         playerStore.setPendingUnifiedEpisode(null)
@@ -425,7 +460,7 @@ onMounted(async () => {
         }
       }
 
-      if (itemId.value) {
+      if (itemId.value && !hasCachedDetail.value) {
         try {
           await detailStore.fetchDetail(itemId.value)
           const group = detailStore.episodeGroups.find(g =>
@@ -645,6 +680,10 @@ function isDrpyProtocol(url: string) {
 }
 
 function resetVideoElement() {
+  logPlaybackDebug('resetVideoElement', {
+    sessionId: playbackSession.value?.id ?? null,
+    activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
+  })
   if (hlsInstance) {
     hlsInstance.destroy()
     hlsInstance = null
@@ -671,6 +710,14 @@ async function getHlsConstructor() {
 function resetSessionFailoverState() {
   sessionFailoverPromise = null
   lastSessionFailureKey = null
+}
+
+function isActiveEpisodeSession(session: EpisodePlaybackSession) {
+  return playbackSession.value?.id === session.id
+}
+
+function logPlaybackDebug(step: string, payload: Record<string, unknown>) {
+  console.error('[playback-dbg]', step, payload)
 }
 
 function invalidateSessionFailover() {
@@ -819,6 +866,22 @@ function toPlayerSource(candidate: PlayerSource): PlayerSource {
   }
 }
 
+function toPlayerSourceFromTarget(target: PlaybackTarget): PlayerSource {
+  return {
+    url: target.target_url,
+    label: target.meta?.trim() || target.source_key || '来源',
+    kind: target.target_kind === 'Direct'
+      ? (target.target_url.includes('.m3u8') ? 'hls' : 'http')
+      : target.target_kind === 'Embedded'
+        ? 'embed'
+        : target.target_kind === 'ExternalRequired'
+          ? 'external'
+          : 'http',
+    headers: target.headers ?? undefined,
+    referer: target.referer ?? undefined,
+  }
+}
+
 function syncActiveSessionAttempt(session: EpisodePlaybackSession) {
   const attempt = session.sourceAttempts[session.activeSourceIndex]
   if (!attempt) {
@@ -881,32 +944,70 @@ function activeSessionCandidateUrl(session: EpisodePlaybackSession) {
 async function resolveActiveAttempt(
   session: EpisodePlaybackSession,
   sourceIndex = session.activeSourceIndex,
-  expectedGeneration = sessionGeneration
+  expectedGeneration = sessionGeneration,
+  forceRefresh = false
 ) {
   const attempt = session.sourceAttempts[sourceIndex]
   if (!attempt) return false
 
   try {
+    logPlaybackDebug('resolveActiveAttempt.enter', {
+      sessionId: session.id,
+      sourceIndex,
+      expectedGeneration,
+      sessionGeneration,
+      forceRefresh,
+      episodeIndex: session.episode.normalizedIndex,
+      playUrl: attempt.source.episode.play_url,
+      episodeId: attempt.source.episode.id,
+      sourceKey: attempt.source.sourceKey,
+      currentSessionId: playbackSession.value?.id ?? null,
+    })
     if (
       sessionGeneration !== expectedGeneration ||
-      playbackSession.value !== session ||
+      !isActiveEpisodeSession(session) ||
       session.activeSourceIndex !== sourceIndex ||
       session.sourceAttempts[sourceIndex] !== attempt
     ) {
+      logPlaybackDebug('resolveActiveAttempt.precheck-fail', {
+        sessionId: session.id,
+        currentSessionId: playbackSession.value?.id ?? null,
+        sourceIndex,
+        activeSourceIndex: session.activeSourceIndex,
+      })
       return false
     }
 
     if (itemId.value > 0) {
+      logPlaybackDebug('resolveActiveAttempt.playbackStore.resolve', {
+        sessionId: session.id,
+        playUrl: attempt.source.episode.play_url,
+        episodeId: attempt.source.episode.id,
+        forceRefresh,
+      })
       const resolved = await playbackStore.resolve(
         attempt.source.episode.play_url,
-        attempt.source.episode.id
+        attempt.source.episode.id,
+        forceRefresh
       )
+      logPlaybackDebug('resolveActiveAttempt.playbackStore.resolved', {
+        sessionId: session.id,
+        status: resolved.status,
+        candidates: resolved.candidates.length,
+        currentSessionId: playbackSession.value?.id ?? null,
+      })
       if (
         sessionGeneration !== expectedGeneration ||
-        playbackSession.value !== session ||
+        !isActiveEpisodeSession(session) ||
         session.activeSourceIndex !== sourceIndex ||
         session.sourceAttempts[sourceIndex] !== attempt
       ) {
+        logPlaybackDebug('resolveActiveAttempt.postcheck-fail', {
+          sessionId: session.id,
+          currentSessionId: playbackSession.value?.id ?? null,
+          sourceIndex,
+          activeSourceIndex: session.activeSourceIndex,
+        })
         return false
       }
       attachCandidatesToSessionAttempt(session, sourceIndex, resolved.candidates.map(toPlayerSource))
@@ -914,17 +1015,34 @@ async function resolveActiveAttempt(
     }
 
     if (sourceName.value) {
+      logPlaybackDebug('resolveActiveAttempt.provider_play', {
+        sessionId: session.id,
+        playUrl: attempt.source.episode.play_url,
+        source: sourceName.value,
+        forceRefresh,
+      })
       const targets = await invoke<PlaybackTarget[]>('provider_play', {
         source: sourceName.value,
         flag: 'auto',
         playUrl: attempt.source.episode.play_url,
       })
+      logPlaybackDebug('resolveActiveAttempt.provider_play.resolved', {
+        sessionId: session.id,
+        targets: targets.length,
+        currentSessionId: playbackSession.value?.id ?? null,
+      })
       if (
         sessionGeneration !== expectedGeneration ||
-        playbackSession.value !== session ||
+        !isActiveEpisodeSession(session) ||
         session.activeSourceIndex !== sourceIndex ||
         session.sourceAttempts[sourceIndex] !== attempt
       ) {
+        logPlaybackDebug('resolveActiveAttempt.provider-postcheck-fail', {
+          sessionId: session.id,
+          currentSessionId: playbackSession.value?.id ?? null,
+          sourceIndex,
+          activeSourceIndex: session.activeSourceIndex,
+        })
         return false
       }
       const target = targets[0]
@@ -944,13 +1062,30 @@ async function resolveActiveAttempt(
         return true
       }
 
-      const resolved = await playbackStore.resolve(target.target_url, attempt.source.episode.id)
+      const resolved = await playbackStore.resolve(
+        target.target_url,
+        attempt.source.episode.id,
+        forceRefresh
+      )
+      logPlaybackDebug('resolveActiveAttempt.target.resolve.resolved', {
+        sessionId: session.id,
+        status: resolved.status,
+        candidates: resolved.candidates.length,
+        targetUrl: target.target_url,
+        currentSessionId: playbackSession.value?.id ?? null,
+      })
       if (
         sessionGeneration !== expectedGeneration ||
-        playbackSession.value !== session ||
+        !isActiveEpisodeSession(session) ||
         session.activeSourceIndex !== sourceIndex ||
         session.sourceAttempts[sourceIndex] !== attempt
       ) {
+        logPlaybackDebug('resolveActiveAttempt.target-postcheck-fail', {
+          sessionId: session.id,
+          currentSessionId: playbackSession.value?.id ?? null,
+          sourceIndex,
+          activeSourceIndex: session.activeSourceIndex,
+        })
         return false
       }
       attachCandidatesToSessionAttempt(session, sourceIndex, resolved.candidates.map(toPlayerSource))
@@ -960,9 +1095,14 @@ async function resolveActiveAttempt(
     attachCandidatesToSessionAttempt(session, sourceIndex, [])
     return true
   } catch (error) {
+    logPlaybackDebug('resolveActiveAttempt.catch', {
+      sessionId: session.id,
+      error: String(error),
+      currentSessionId: playbackSession.value?.id ?? null,
+    })
     if (
       sessionGeneration !== expectedGeneration ||
-      playbackSession.value !== session ||
+      !isActiveEpisodeSession(session) ||
       session.activeSourceIndex !== sourceIndex ||
       session.sourceAttempts[sourceIndex] !== attempt
     ) {
@@ -1009,7 +1149,7 @@ async function runSessionFailover(
   const nextCandidate = nextCandidateToPlay(session)
   if (nextCandidate) {
     if (sessionGeneration !== expectedGeneration) return
-    if (playbackSession.value !== session) return
+    if (!isActiveEpisodeSession(session)) return
     syncActiveSessionAttempt(session)
     await playSource(nextCandidate)
     return
@@ -1025,7 +1165,7 @@ async function runSessionFailover(
 
     const resolved = await resolveActiveAttempt(session, session.activeSourceIndex, expectedGeneration)
     if (sessionGeneration !== expectedGeneration) return
-    if (playbackSession.value !== session) return
+    if (!isActiveEpisodeSession(session)) return
     if (!resolved) {
       continue
     }
@@ -1033,7 +1173,7 @@ async function runSessionFailover(
     const candidate = nextCandidateToPlay(session)
     if (candidate) {
       if (sessionGeneration !== expectedGeneration) return
-      if (playbackSession.value !== session) return
+      if (!isActiveEpisodeSession(session)) return
       syncActiveSessionAttempt(session)
       await playSource(candidate)
       return
@@ -1068,7 +1208,7 @@ async function playNextFromSession(reason?: string, expectedAttempt?: PlaybackAt
   if (sessionFailoverPromise) {
     await sessionFailoverPromise
     if (sessionGeneration !== expectedGeneration) return
-    if (playbackSession.value !== session) return
+    if (!isActiveEpisodeSession(session)) return
     if (expectedAttempt && !isCurrentPlaybackAttempt(expectedAttempt)) {
       return
     }
@@ -1120,7 +1260,22 @@ async function initVodPlayback(url: string, id?: number) {
   }
 }
 
-async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 0) {
+async function playUnifiedEpisode(
+  unifiedEpisode: UnifiedEpisode,
+  sourceIndex = 0,
+  forceRefresh = false
+) {
+  logPlaybackDebug('playUnifiedEpisode.start', {
+    currentEpisode: currentUnifiedEpisode.value?.normalizedIndex ?? null,
+    nextEpisode: unifiedEpisode.normalizedIndex,
+    sourceIndex,
+    forceRefresh,
+    sessionId: playbackSession.value?.id ?? null,
+  })
+  if (currentUnifiedEpisode.value?.normalizedIndex !== unifiedEpisode.normalizedIndex) {
+    clearPlaybackHealth()
+  }
+  resetVideoElement()
   currentUnifiedEpisode.value = unifiedEpisode
   currentUnifiedSourceIndex.value = sourceIndex
   failedSourceIndexes.value = []
@@ -1133,30 +1288,86 @@ async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 
   const session = createEpisodePlaybackSession(unifiedEpisode)
   playbackSession.value = session
   invalidateSessionFailover()
+  logPlaybackDebug('playUnifiedEpisode.session-created', {
+    sessionId: session.id,
+    episodeIndex: unifiedEpisode.normalizedIndex,
+    sourceOrder: session.sourceAttempts.map(attempt => ({
+      sourceKey: attempt.source.sourceKey,
+      episodeId: attempt.source.episode.id,
+      playUrl: attempt.source.episode.play_url,
+    })),
+    currentSessionId: playbackSession.value?.id ?? null,
+  })
 
   const preferredSource = unifiedEpisode.sources[sourceIndex]
-  const attempt = startNextSourceAttempt(session, {
+  let attempt = startNextSourceAttempt(session, {
     sourceKey: preferredSource?.sourceKey,
+    playUrl: preferredSource?.episode.play_url,
     manual: sourceIndex > 0,
   })
+  if (!attempt) {
+    attempt = startNextSourceAttempt(session, {
+      playUrl: preferredSource?.episode.play_url,
+      manual: sourceIndex > 0,
+    })
+  }
   if (!attempt) {
     errorMsg.value = session.lastError ?? '该集所有播放源均不可用'
     return
   }
 
   const expectedGeneration = sessionGeneration
-  const resolved = await resolveActiveAttempt(session, session.activeSourceIndex, expectedGeneration)
+  const resolved = await resolveActiveAttempt(
+    session,
+    session.activeSourceIndex,
+    expectedGeneration,
+    forceRefresh
+  )
+  logPlaybackDebug('playUnifiedEpisode.after-resolve', {
+    sessionId: session.id,
+    resolved,
+    currentSessionId: playbackSession.value?.id ?? null,
+    activeSourceIndex: session.activeSourceIndex,
+    activeCandidateIndex: session.activeCandidateIndex,
+    candidateCount: session.sourceAttempts[session.activeSourceIndex]?.candidates.length ?? null,
+  })
   if (!resolved) {
-    if (sessionGeneration !== expectedGeneration || playbackSession.value !== session) {
+    if (sessionGeneration !== expectedGeneration || !isActiveEpisodeSession(session)) {
+      logPlaybackDebug('playUnifiedEpisode.aborted-after-resolve', {
+        sessionId: session.id,
+        currentSessionId: playbackSession.value?.id ?? null,
+        sessionGeneration,
+        expectedGeneration,
+      })
       return
     }
     await playNextFromSession()
     return
   }
 
+  logPlaybackDebug('playUnifiedEpisode.before-next-candidate', {
+    sessionId: session.id,
+    activeSourceIndex: session.activeSourceIndex,
+    activeCandidateIndex: session.activeCandidateIndex,
+    candidateCount: session.sourceAttempts[session.activeSourceIndex]?.candidates.length ?? null,
+    failedCandidateIndexes: session.sourceAttempts[session.activeSourceIndex]?.failedCandidateIndexes ?? null,
+  })
   const candidate = nextCandidateToPlay(session)
+  logPlaybackDebug('playUnifiedEpisode.next-candidate', {
+    sessionId: session.id,
+    activeSourceIndex: session.activeSourceIndex,
+    activeCandidateIndex: session.activeCandidateIndex,
+    candidateUrl: candidate?.url ?? null,
+    candidateCount: session.sourceAttempts[session.activeSourceIndex]?.candidates.length ?? null,
+    failedCandidateIndexes: session.sourceAttempts[session.activeSourceIndex]?.failedCandidateIndexes ?? null,
+  })
   if (candidate) {
     syncActiveSessionAttempt(session)
+    logPlaybackDebug('playUnifiedEpisode.play-candidate', {
+      sessionId: session.id,
+      candidateUrl: candidate.url,
+      candidateKind: candidate.kind,
+    })
     await playSource(candidate)
     return
   }
@@ -1164,20 +1375,75 @@ async function playUnifiedEpisode(unifiedEpisode: UnifiedEpisode, sourceIndex = 
   await playNextFromSession('当前源没有可用候选线路')
 }
 
+function resolvePreferredEpisodeSourceIndex(unifiedEpisode: UnifiedEpisode) {
+  const activeSource = currentUnifiedEpisode.value?.sources[currentUnifiedSourceIndex.value]
+  if (activeSource) {
+    const exactIndex = unifiedEpisode.sources.findIndex(source =>
+      source.sourceKey === activeSource.sourceKey &&
+      source.episode.play_url === activeSource.episode.play_url
+    )
+    if (exactIndex >= 0) {
+      return exactIndex
+    }
+
+    const sourceKeyIndex = unifiedEpisode.sources.findIndex(source =>
+      source.sourceKey === activeSource.sourceKey
+    )
+    if (sourceKeyIndex >= 0) {
+      return sourceKeyIndex
+    }
+  }
+
+  if (currentUnifiedSourceIndex.value >= 0 && currentUnifiedSourceIndex.value < unifiedEpisode.sources.length) {
+    return currentUnifiedSourceIndex.value
+  }
+
+  return 0
+}
+
 async function switchToEpisode(unifiedEpisode: UnifiedEpisode) {
-  const firstSource = unifiedEpisode.sources[0]
-  if (!firstSource) return
+  const preferredSourceIndex = resolvePreferredEpisodeSourceIndex(unifiedEpisode)
+  const preferredSource = unifiedEpisode.sources[preferredSourceIndex] ?? unifiedEpisode.sources[0]
+  if (!preferredSource) return
+
+  logPlaybackDebug('switchToEpisode', {
+    fromEpisode: currentUnifiedEpisode.value?.normalizedIndex ?? null,
+    toEpisode: unifiedEpisode.normalizedIndex,
+    playUrl: preferredSource.episode.play_url,
+    episodeId: preferredSource.episode.id,
+    preferredSourceIndex,
+    routeBefore: route.fullPath,
+    sessionId: playbackSession.value?.id ?? null,
+  })
+
+  await playUnifiedEpisode(unifiedEpisode, preferredSourceIndex, true)
 
   router.replace(
-    `/player/vod/${itemId.value}?episode=${encodeURIComponent(firstSource.episode.play_url)}&episodeId=${firstSource.episode.id}`
+    {
+      path: `/player/vod/${itemId.value}`,
+      query: {
+        ...route.query,
+        episode: preferredSource.episode.play_url,
+        episodeId: String(preferredSource.episode.id),
+      },
+    }
   )
-
-  await playUnifiedEpisode(unifiedEpisode)
+  logPlaybackDebug('switchToEpisode.route-replaced', {
+    routeAfter: route.fullPath,
+    episodeId: preferredSource.episode.id,
+  })
 }
 
 async function switchEpisodeSource(sourceKey: string) {
   const session = playbackSession.value
   if (!session) return
+
+  logPlaybackDebug('switchEpisodeSource', {
+    sessionId: session.id,
+    sourceKey,
+    episodeIndex: session.episode.normalizedIndex,
+    currentSessionId: playbackSession.value?.id ?? null,
+  })
 
   invalidateSessionFailover()
   const attempt = startNextSourceAttempt(session, { sourceKey, manual: true })
@@ -1187,9 +1453,14 @@ async function switchEpisodeSource(sourceKey: string) {
   }
 
   const expectedGeneration = sessionGeneration
-  const resolved = await resolveActiveAttempt(session, session.activeSourceIndex, expectedGeneration)
+  const resolved = await resolveActiveAttempt(
+    session,
+    session.activeSourceIndex,
+    expectedGeneration,
+    true
+  )
   if (!resolved) {
-    if (sessionGeneration !== expectedGeneration || playbackSession.value !== session) {
+    if (sessionGeneration !== expectedGeneration || !isActiveEpisodeSession(session)) {
       return
     }
     errorMsg.value = attempt.failureReason ?? '解析失败'
@@ -1206,7 +1477,7 @@ async function switchEpisodeSource(sourceKey: string) {
 
   syncActiveSessionAttempt(session)
   errorMsg.value = ''
-  await playSource(candidate)
+  await playSource(candidate, true)
 }
 
 function markCurrentSourceFailed() {
@@ -1215,9 +1486,16 @@ function markCurrentSourceFailed() {
   }
 }
 
-async function playSource(source: PlayerSource) {
+async function playSource(source: PlayerSource, forceRefresh = false) {
   errorMsg.value = ''
   const url = source.url
+  logPlaybackDebug('playSource', {
+    url,
+    kind: source.kind,
+    forceRefresh,
+    isPlaybackPage: source.kind === 'http' && isPlaybackPageUrl(url),
+    currentSessionId: playbackSession.value?.id ?? null,
+  })
 
   if (isDrpyProtocol(url) || source.kind === 'external') {
     resetVideoElement()
@@ -1228,7 +1506,14 @@ async function playSource(source: PlayerSource) {
 
   if (source.kind === 'http' && isPlaybackPageUrl(url)) {
     try {
-      const resolved = await playbackStore.resolve(url, undefined)
+      logPlaybackDebug('playSource.resolve-play-page', { url, forceRefresh })
+      const resolved = await playbackStore.resolve(url, undefined, forceRefresh)
+      logPlaybackDebug('playSource.resolve-play-page.resolved', {
+        url,
+        forceRefresh,
+        status: resolved.status,
+        candidates: resolved.candidates.length,
+      })
       if (resolved.candidates.length > 0) {
         sources.value = resolved.candidates.map(candidate => ({
           url: candidate.url,
@@ -1377,12 +1662,26 @@ async function attemptPlayback(
   if (playbackAttempt && !isCurrentPlaybackAttempt(playbackAttempt)) return
 
   try {
+    logPlaybackDebug('attemptPlayback.start', {
+      playbackAttemptId: playbackAttempt?.id ?? null,
+      url: playbackAttempt?.url ?? null,
+      currentSessionId: playbackSession.value?.id ?? null,
+    })
     await videoRef.value.play()
     if (playbackAttempt && !isCurrentPlaybackAttempt(playbackAttempt)) return
     errorMsg.value = ''
     playing.value = true
     pendingAutoplay.value = false
+    logPlaybackDebug('attemptPlayback.ok', {
+      playbackAttemptId: playbackAttempt?.id ?? null,
+      currentSessionId: playbackSession.value?.id ?? null,
+    })
   } catch (error) {
+    logPlaybackDebug('attemptPlayback.catch', {
+      playbackAttemptId: playbackAttempt?.id ?? null,
+      currentSessionId: playbackSession.value?.id ?? null,
+      error: String(error),
+    })
     playing.value = false
     pendingAutoplay.value = false
     const message = describePlaybackFailure(error)
@@ -1397,11 +1696,20 @@ async function attemptPlayback(
 }
 
 function handleCanPlay() {
+  logPlaybackDebug('handleCanPlay', {
+    pendingAutoplay: pendingAutoplay.value,
+    currentSessionId: playbackSession.value?.id ?? null,
+    activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
+  })
   if (!pendingAutoplay.value) return
   void attemptPlayback(false, activePlaybackAttempt)
 }
 
 function handleVideoPlay() {
+  logPlaybackDebug('handleVideoPlay', {
+    currentSessionId: playbackSession.value?.id ?? null,
+    activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
+  })
   playing.value = true
   errorMsg.value = ''
   if (playbackSession.value) {
@@ -1411,6 +1719,10 @@ function handleVideoPlay() {
 }
 
 function handleVideoPause() {
+  logPlaybackDebug('handleVideoPause', {
+    currentSessionId: playbackSession.value?.id ?? null,
+    activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
+  })
   playing.value = false
   if (hideTimer) {
     window.clearTimeout(hideTimer)
@@ -1420,6 +1732,13 @@ function handleVideoPause() {
 }
 
 function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext) {
+  logPlaybackDebug('handleVideoError', {
+    playbackAttemptId: playbackAttempt.id,
+    currentSessionId: playbackSession.value?.id ?? null,
+    activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
+    eventTimeStamp: event.timeStamp,
+    startedAt: playbackAttempt.startedAt,
+  })
   if (event.timeStamp > 0 && event.timeStamp + 1 < playbackAttempt.startedAt) {
     return
   }

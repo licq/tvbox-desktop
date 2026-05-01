@@ -6,6 +6,7 @@ import {
   isAutoplayBlocked,
   isProviderDirectPlaybackRoute,
   parsePlaybackHeaders,
+  parsePlaybackTargets,
   isDirectMediaUrl,
   isPlaybackPageUrl,
   shouldFallbackToBrowserHls,
@@ -71,6 +72,35 @@ describe('provider playback routing', () => {
       Origin: 'https://example.com',
     })
     expect(parsePlaybackHeaders('{bad json')).toBeNull()
+  })
+
+  it('parses provider playback targets from JSON', () => {
+    expect(parsePlaybackTargets(JSON.stringify([
+      {
+        episode_id: 7,
+        source_key: 'demo',
+        target_url: 'https://cdn.example.com/movie.mp4',
+        target_kind: 'Direct',
+        resolver_key: null,
+        headers: null,
+        referer: null,
+        sort_hint: 0,
+        meta: null,
+      },
+    ]))).toEqual([
+      {
+        episode_id: 7,
+        source_key: 'demo',
+        target_url: 'https://cdn.example.com/movie.mp4',
+        target_kind: 'Direct',
+        resolver_key: null,
+        headers: null,
+        referer: null,
+        sort_hint: 0,
+        meta: null,
+      },
+    ])
+    expect(parsePlaybackTargets('[bad json')).toEqual([])
   })
 
   it('detects direct media urls but not play pages', () => {

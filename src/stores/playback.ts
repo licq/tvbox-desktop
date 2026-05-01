@@ -13,13 +13,14 @@ export const usePlaybackStore = defineStore('playback', () => {
 
   const currentCandidate = computed(() => candidates.value[currentIndex.value] ?? null)
 
-  async function resolve(input: string, episodeId?: number) {
+  async function resolve(input: string, episodeId?: number, forceRefresh = false) {
     status.value = 'resolving'
     errorMessage.value = null
     try {
       const resolved = await invoke<ResolvedPlayback>('resolve_playback', {
         input,
-        episodeId
+        episodeId,
+        forceRefresh,
       })
       applyResolved(resolved)
       return resolved

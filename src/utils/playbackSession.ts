@@ -24,6 +24,7 @@ export interface PlaybackHealthInput {
 }
 
 export interface EpisodePlaybackSession {
+  id: number
   episode: UnifiedEpisode
   sourceAttempts: PlaybackSourceAttempt[]
   activeSourceIndex: number
@@ -33,6 +34,7 @@ export interface EpisodePlaybackSession {
 }
 
 const playbackHealth = new Map<string, PlaybackHealthEntry>()
+let playbackSessionId = 0
 
 function healthMapKey(scope: HealthScope, key: string) {
   return `${scope}:${key}`
@@ -89,6 +91,7 @@ export function createEpisodePlaybackSession(episode: UnifiedEpisode): EpisodePl
     .map(({ attempt }) => attempt)
 
   return {
+    id: ++playbackSessionId,
     episode,
     sourceAttempts,
     activeSourceIndex: -1,
@@ -99,6 +102,7 @@ export function createEpisodePlaybackSession(episode: UnifiedEpisode): EpisodePl
 
 export interface StartSourceOptions {
   sourceKey?: string
+  playUrl?: string
   manual?: boolean
 }
 
@@ -106,8 +110,13 @@ export function startNextSourceAttempt(
   session: EpisodePlaybackSession,
   options: StartSourceOptions = {}
 ) {
-  const index = options.sourceKey
-    ? session.sourceAttempts.findIndex(attempt => attempt.source.sourceKey === options.sourceKey)
+  const index = options.playUrl
+    ? session.sourceAttempts.findIndex(attempt =>
+        attempt.source.episode.play_url === options.playUrl &&
+        (!options.sourceKey || attempt.source.sourceKey === options.sourceKey)
+      )
+    : options.sourceKey
+      ? session.sourceAttempts.findIndex(attempt => attempt.source.sourceKey === options.sourceKey)
     : session.sourceAttempts.findIndex((attempt, attemptIndex) =>
         attemptIndex > session.activeSourceIndex &&
         (options.manual || attempt.status !== 'failed') &&

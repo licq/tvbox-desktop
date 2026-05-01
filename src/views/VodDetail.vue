@@ -349,6 +349,15 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
       flag: 'auto',
       playUrl: episode.play_url,
     })
+    console.error('[playback-dbg][voddetail] handleCardEpisodePlay', {
+      title: item.title,
+      episodeId: episode.id,
+      episodeLabel: episode.episode_label,
+      playUrl: episode.play_url,
+      sourceKey: source.source,
+      targetCount: targets.length,
+      firstTargetUrl: targets[0]?.target_url ?? null,
+    })
     if (targets.length > 0) {
       const target = targets[0]
       router.push({
@@ -362,6 +371,7 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
           episodeLabel: episode.episode_label,
           episodeReferer: target.referer ?? undefined,
           episodeHeaders: target.headers ? JSON.stringify(target.headers) : undefined,
+          episodeTargets: JSON.stringify(targets),
         },
       })
     } else {
@@ -511,7 +521,21 @@ onUnmounted(() => {
 function handlePlay(ue: UnifiedEpisode) {
   if (ue.sources.length === 0) return
   playerStore.setPendingUnifiedEpisode(ue)
+  if (detailStore.item) {
+    playerStore.setPendingVodDetail({
+      item: detailStore.item,
+      episode_groups: detailStore.episodeGroups,
+    })
+  }
   const episode = ue.sources[0].episode
+  console.error('[playback-dbg][voddetail] handlePlay', {
+    itemId: itemId.value,
+    episodeId: episode.id,
+    episodeLabel: episode.episode_label,
+    playUrl: episode.play_url,
+    unifiedEpisode: ue.normalizedIndex,
+    sourceCount: ue.sources.length,
+  })
   router.push({
     path: `/player/vod/${itemId.value}`,
     query: {

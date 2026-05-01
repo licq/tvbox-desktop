@@ -38,10 +38,22 @@ pub async fn resolve_playback_for_input(
     storage: &Storage,
     input: &str,
     episode_id: Option<i64>,
+    force_refresh: bool,
 ) -> Result<ResolvedPlayback, String> {
+    eprintln!(
+        "[playback-dbg][backend] resolve_playback_for_input input={} episode_id={:?} force_refresh={}",
+        input,
+        episode_id,
+        force_refresh
+    );
     let client = build_client()?;
     let normalized = if let Some(episode_id) = episode_id {
         let cached = maybe_cached_targets_for_episode(storage, episode_id)?;
+        eprintln!(
+            "[playback-dbg][backend] maybe_cached_targets_for_episode episode_id={} cached_count={}",
+            episode_id,
+            cached.len()
+        );
         if cached.is_empty() {
             discover_initial_targets(input)
         } else {
@@ -50,7 +62,7 @@ pub async fn resolve_playback_for_input(
     } else {
         discover_initial_targets(input)
     };
-    let resolved = resolve_and_probe_targets(storage, &client, normalized).await?;
+    let resolved = resolve_and_probe_targets(storage, &client, normalized, force_refresh).await?;
     if let Some(episode_id) = episode_id {
         persist_runtime_targets_for_episode(storage, episode_id, &resolved)?;
     }
@@ -92,7 +104,7 @@ pub fn maybe_cached_targets_for_episode(
     storage: &Storage,
     episode_id: i64,
 ) -> Result<Vec<PlaybackTarget>, String> {
-    list_playback_targets(storage, episode_id)
+    let targets = list_playback_targets(storage, episode_id)
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|record| {
@@ -104,7 +116,7 @@ pub fn maybe_cached_targets_for_episode(
                 _ => record.resolver_key,
             };
 
-            Ok(PlaybackTarget {
+            Ok::<PlaybackTarget, String>(PlaybackTarget {
                 episode_id: Some(record.episode_id),
                 source_key: record.source_key,
                 target_url: record.target_url,
@@ -116,25 +128,41 @@ pub fn maybe_cached_targets_for_episode(
                 referer: None,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, String>>()?;
+
+    eprintln!(
+        "[playback-dbg][backend] maybe_cached_targets_for_episode restored episode_id={} targets={}",
+        episode_id,
+        targets.len()
+    );
+
+    Ok(targets)
 }
 
 pub async fn resolve_and_probe_targets(
     storage: &Storage,
     client: &reqwest::Client,
     targets: Vec<PlaybackTarget>,
+    force_refresh: bool,
 ) -> Result<Vec<RuntimeResolvedCandidate>, String> {
     let mut resolved = Vec::new();
 
     for target in targets {
         match target.target_kind {
             PlaybackTargetKind::Direct => {
-                let probe = cached_or_probed_result(storage, client, &target).await?;
+                let probe = cached_or_probed_result(storage, client, &target, force_refresh).await?;
                 resolved.push(RuntimeResolvedCandidate { target, probe });
             }
             PlaybackTargetKind::Resolvable => {
                 let playback = PlaybackResolver::resolve(&target.target_url).await?;
-                resolved.extend(expand_resolved_playback(storage, client, &target, playback).await?);
+                resolved.extend(expand_resolved_playback(
+                    storage,
+                    client,
+                    &target,
+                    playback,
+                    force_refresh,
+                )
+                .await?);
             }
             PlaybackTargetKind::Embedded | PlaybackTargetKind::ExternalRequired => {
                 // Known play pages (like zxzj) can be rendered in an iframe -
@@ -300,6 +328,7 @@ async fn expand_resolved_playback(
     client: &reqwest::Client,
     parent: &PlaybackTarget,
     resolved: ResolvedPlayback,
+    force_refresh: bool,
 ) -> Result<Vec<RuntimeResolvedCandidate>, String> {
     let mut expanded = Vec::new();
 
@@ -319,7 +348,7 @@ async fn expand_resolved_playback(
         };
 
         let probe = if target.is_desktop_playable_kind() && !is_known_cdn_url(&target.target_url) {
-            cached_or_probed_result(storage, client, &target).await?
+            cached_or_probed_result(storage, client, &target, force_refresh).await?
         } else if is_known_cdn_url(&target.target_url) {
             // Known CDNs work in browser (CORS headers present) but Rust's native-tls
             // probe may falsely fail due to CDN TLS fingerprint detection. Skip probe
@@ -386,16 +415,31 @@ async fn cached_or_probed_result(
     storage: &Storage,
     client: &reqwest::Client,
     target: &PlaybackTarget,
+    force_refresh: bool,
 ) -> Result<PlaybackProbeResult, String> {
     let target_hash = hash_playback_target(
         &target.target_url,
         target.headers.as_ref(),
         target.referer.as_deref(),
     );
-    if let Some(probe) = cached_probe_result(storage, &target_hash)? {
-        return Ok(probe);
+    if !force_refresh {
+        if let Some(probe) = cached_probe_result(storage, &target_hash)? {
+            eprintln!(
+                "[playback-dbg][backend] cached_or_probed_result cache-hit target={} episode_id={:?} status={:?}",
+                target.target_url,
+                target.episode_id,
+                probe.status
+            );
+            return Ok(probe);
+        }
     }
 
+    eprintln!(
+        "[playback-dbg][backend] cached_or_probed_result probe target={} episode_id={:?} force_refresh={}",
+        target.target_url,
+        target.episode_id,
+        force_refresh
+    );
     let probe = probe_candidate_for_runtime(client, &target.target_url, target.headers.as_ref()).await;
     persist_probe_result(storage, target, &target_hash, &probe)?;
     Ok(probe)
@@ -1395,6 +1439,7 @@ mod tests {
             &storage,
             "https://example.invalid/runtime-dead/index.m3u8",
             None,
+            false,
         )
         .await
         .expect("runtime should resolve");
@@ -1410,7 +1455,7 @@ mod tests {
         let play_url =
             "https://www.xb6v.com/e/DownSys/play/?classid=8&id=28379&pathid1=0&bf=0";
 
-        let resolved = resolve_playback_for_input(&storage, play_url, None)
+        let resolved = resolve_playback_for_input(&storage, play_url, None, false)
             .await
             .expect("xb6v runtime should resolve play page");
 
@@ -1430,7 +1475,7 @@ mod tests {
         let play_url =
             "https://www.xb6v.com/e/DownSys/play/?classid=2&id=28522&pathid3=0&bf=2";
 
-        let resolved = resolve_playback_for_input(&storage, play_url, None)
+        let resolved = resolve_playback_for_input(&storage, play_url, None, false)
             .await
             .expect("xb6v runtime should resolve play page");
 

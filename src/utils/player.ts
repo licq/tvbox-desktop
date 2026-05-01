@@ -1,3 +1,5 @@
+import type { PlaybackTarget } from '@/types'
+
 export function isAutoplayBlocked(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const maybeError = error as { name?: string; message?: string }
@@ -86,6 +88,27 @@ export function parsePlaybackHeaders(raw?: string | null): Record<string, string
     return Object.keys(headers).length > 0 ? headers : null
   } catch {
     return null
+  }
+}
+
+export function parsePlaybackTargets(raw?: string | null): PlaybackTarget[] {
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+
+    return parsed.filter((entry): entry is PlaybackTarget => {
+      if (!entry || typeof entry !== 'object') return false
+      const candidate = entry as Partial<PlaybackTarget>
+      return (
+        typeof candidate.target_url === 'string' &&
+        typeof candidate.source_key === 'string' &&
+        typeof candidate.target_kind === 'string'
+      )
+    })
+  } catch {
+    return []
   }
 }
 

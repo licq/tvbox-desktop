@@ -97,4 +97,32 @@ describe('playback session advancement', () => {
     expect(manual?.source.sourceKey).toBe('bad')
     expect(manual?.status).toBe('resolving')
   })
+
+  it('prefers the exact playUrl when multiple attempts share the same sourceKey', () => {
+    const ep: UnifiedEpisode = {
+      normalizedIndex: 4,
+      displayLabel: '第4集',
+      sources: [
+        {
+          sourceKey: 'same',
+          sourceName: '同源A',
+          episode: { id: 41, episode_label: '第04集', play_url: 'https://same.example/a', order_index: 0 },
+        },
+        {
+          sourceKey: 'same',
+          sourceName: '同源B',
+          episode: { id: 42, episode_label: '第04集', play_url: 'https://same.example/b', order_index: 1 },
+        },
+      ],
+    }
+
+    const session = createEpisodePlaybackSession(ep)
+    const attempt = startNextSourceAttempt(session, {
+      sourceKey: 'same',
+      playUrl: 'https://same.example/b',
+      manual: true,
+    })
+
+    expect(attempt?.source.episode.play_url).toBe('https://same.example/b')
+  })
 })
