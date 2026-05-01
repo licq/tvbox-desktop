@@ -162,7 +162,7 @@ async function clearDoubanSearchCache() {
             <div class="flex items-center justify-between gap-4">
               <div class="grid gap-1">
                 <p class="text-sm font-medium text-white/85">TVBox 影视仓</p>
-                <p class="text-sm text-white/50">v0.1.0</p>
+                <p class="text-sm text-white/50">v1.0.0</p>
               </div>
               <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-white/65">
                 Desktop
