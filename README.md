@@ -1,6 +1,6 @@
 # TVBox Desktop
 
-TVBox Desktop is a Tauri application for browsing and playing media from multiple Chinese streaming sources. It combines a Vue 3 frontend with a Rust backend and includes a Douban-powered discovery flow, provider search, live channels, playback, and local history/cache support.
+TVBox Desktop is a Tauri desktop app for browsing and playing media from multiple Chinese streaming sources. It combines a Vue 3 frontend with a Rust backend and includes Douban discovery, provider search, live channels, playback, and local history/cache support.
 
 ## Features
 
@@ -19,17 +19,30 @@ TVBox Desktop is a Tauri application for browsing and playing media from multipl
 
 ## Prerequisites
 
-- Node.js 18+ recommended
+- Node.js 18 or newer
 - Rust toolchain with Cargo
-- Tauri prerequisites for your platform
+- Platform-specific Tauri prerequisites for macOS, Windows, or Linux
 
-## Getting Started
+## Installation
 
 Install dependencies:
 
 ```bash
 npm install
 ```
+
+## Scripts
+
+- `npm run dev`: Start the frontend-only Vite dev server.
+- `npm run tauri -- dev`: Start the full desktop app in development.
+- `npm run build`: Type-check and build the frontend bundle.
+- `npm run tauri -- build`: Build the desktop app with Tauri.
+- `npm run tauri:macos`: Build a macOS `.app` bundle.
+- `npm run tauri:windows`: Build a Windows `nsis` installer.
+- `npm run tauri:linux`: Build Linux `deb` and `appimage` bundles.
+- `npm run test`: Run the Vitest suite.
+
+## Development
 
 Run the frontend-only dev server:
 
@@ -57,15 +70,25 @@ Tauri production build:
 npm run tauri -- build
 ```
 
+Platform-specific desktop bundles:
+
+```bash
+npm run tauri:macos
+npm run tauri:windows
+npm run tauri:linux
+```
+
+Bundle outputs are written under `src-tauri/target/release/bundle/` on supported platforms.
+
 ## Test
 
-Run the test suite:
+Run the full test suite:
 
 ```bash
 npm run test
 ```
 
-Run a single store test file:
+Run a single test file:
 
 ```bash
 npm run test -- --run src/stores/__tests__/library.spec.ts

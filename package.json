@@ -8,6 +8,9 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:macos": "tauri build --bundles app",
+    "tauri:windows": "tauri build --bundles nsis",
+    "tauri:linux": "tauri build --bundles deb,appimage",
     "test": "vitest run"
   },
   "dependencies": {
