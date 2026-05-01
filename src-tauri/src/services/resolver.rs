@@ -3,7 +3,6 @@ use crate::models::{PlaybackCandidate, ResolvedPlayback};
 use crate::services::ad_blocker::HlsAdBlocker;
 use crate::services::playback_types::{PlaybackProbeResult, PlaybackProbeStatus};
 use regex::Regex;
-
 pub struct PlaybackResolver;
 
 impl PlaybackResolver {
@@ -360,9 +359,30 @@ fn absolutize_url(base_url: &str, candidate: &str) -> String {
 }
 
 pub(crate) fn build_client() -> Result<reqwest::Client, String> {
+    let mut default_headers = reqwest::header::HeaderMap::new();
+    default_headers.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("*/*"),
+    );
+    default_headers.insert(
+        reqwest::header::ACCEPT_LANGUAGE,
+        reqwest::header::HeaderValue::from_static("en-US,en;q=0.9"),
+    );
+    default_headers.insert(
+        reqwest::header::CACHE_CONTROL,
+        reqwest::header::HeaderValue::from_static("no-cache"),
+    );
+    default_headers.insert(
+        reqwest::header::PRAGMA,
+        reqwest::header::HeaderValue::from_static("no-cache"),
+    );
+
     reqwest::Client::builder()
+        .default_headers(default_headers)
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(20))
+        .http1_only()
+        .no_proxy()
         .build()
         .map_err(|e| e.to_string())
 }
@@ -767,8 +787,7 @@ pub(crate) async fn fetch_hls_manifest_internal(
         let normalized = normalize_master_playlist(&body, url, &cleaned_variant, &variant_url);
 
         // Rewrite relative URLs in the normalized master to absolute
-        let rewritten = rewrite_relative_urls(&normalized, url);
-        return Ok(rewritten);
+        return Ok(rewrite_relative_urls(&normalized, url));
     }
 
     // It's not a media playlist, rewrite relative URLs to absolute then filter ads

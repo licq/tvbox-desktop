@@ -135,6 +135,21 @@ export function isPlaybackPageUrl(url: string): boolean {
   )
 }
 
+export function shouldPreferNativeHls(
+  url: string,
+  headers: Record<string, string> | null | undefined,
+  referer: string | null | undefined,
+  canPlayNativeHls: boolean,
+): boolean {
+  void referer
+  if (!canPlayNativeHls) return false
+  if (!url.toLowerCase().includes('.m3u8')) return false
+
+  const hasCustomHeaders = headers != null && Object.keys(headers).length > 0
+
+  return !hasCustomHeaders
+}
+
 export function shouldFallbackToBrowserHls(error: unknown): boolean {
   const message =
     error instanceof Error

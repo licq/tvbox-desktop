@@ -9,6 +9,7 @@ import {
   parsePlaybackTargets,
   isDirectMediaUrl,
   isPlaybackPageUrl,
+  shouldPreferNativeHls,
   shouldFallbackToBrowserHls,
 } from '@/utils/player'
 
@@ -106,6 +107,16 @@ describe('provider playback routing', () => {
   it('detects direct media urls but not play pages', () => {
     expect(isDirectMediaUrl('https://cdn.example.com/live/index.m3u8')).toBe(true)
     expect(isDirectMediaUrl('https://www.xb6v.com/e/DownSys/play/?classid=6&id=28451&pathid1=0&bf=0')).toBe(false)
+  })
+
+  it('prefers native hls for bare direct playlists when the platform supports it', () => {
+    expect(shouldPreferNativeHls('https://cdn.example.com/live/index.m3u8', null, null, true)).toBe(true)
+    expect(shouldPreferNativeHls('https://cdn.example.com/live/index.m3u8', null, 'https://cdn.example.com/live/index.m3u8', true)).toBe(true)
+    expect(shouldPreferNativeHls('https://cdn.example.com/live/index.m3u8', null, 'https://www.ypanso.com/vod/play/id/9CnHHHHR/sid/1/nid/1.html', true)).toBe(true)
+    expect(shouldPreferNativeHls('https://cdn.example.com/live/index.m3u8', { Referer: 'https://example.com' }, null, true)).toBe(false)
+    expect(shouldPreferNativeHls('https://cdn.example.com/live/index.m3u8', null, 'https://example.com', true)).toBe(true)
+    expect(shouldPreferNativeHls('https://cdn.example.com/live/index.m3u8', null, null, false)).toBe(false)
+    expect(shouldPreferNativeHls('https://example.com/video.mp4', null, null, true)).toBe(false)
   })
 
   it('detects play page urls', () => {

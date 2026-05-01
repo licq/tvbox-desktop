@@ -20,6 +20,7 @@ import {
   parsePlaybackHeaders,
   parsePlaybackTargets,
   isPlaybackPageUrl,
+  shouldPreferNativeHls,
   shouldFallbackToBrowserHls,
 } from '@/utils/player'
 import {
@@ -63,6 +64,8 @@ type PlaybackAttemptContext = {
   startedAt: number
 }
 
+type PlaybackEnginePhase = 'idle' | 'source' | 'init' | 'native' | 'hls.js'
+
 const videoRef = ref<HTMLVideoElement | null>(null)
 const videoWrapRef = ref<HTMLElement | null>(null)
 const playing = ref(false)
@@ -74,6 +77,7 @@ const fullscreenError = ref('')
 const errorMsg = ref('')
 const pendingAutoplay = ref(false)
 const isInitialLoading = ref(true)
+const playbackPhase = ref<PlaybackEnginePhase>('idle')
 
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
@@ -369,6 +373,12 @@ function startAdCleanupObserver() {
   })
 
   applyPlaybackAdCleanup(document)
+}
+
+function updatePlaybackDebugState(nextState: Record<string, unknown> & { phase?: PlaybackEnginePhase }) {
+  if (nextState.phase) {
+    playbackPhase.value = nextState.phase
+  }
 }
 
 function startHideTimer() {
@@ -717,7 +727,8 @@ function isActiveEpisodeSession(session: EpisodePlaybackSession) {
 }
 
 function logPlaybackDebug(step: string, payload: Record<string, unknown>) {
-  console.error('[playback-dbg]', step, payload)
+  void step
+  void payload
 }
 
 function invalidateSessionFailover() {
@@ -1489,6 +1500,13 @@ function markCurrentSourceFailed() {
 async function playSource(source: PlayerSource, forceRefresh = false) {
   errorMsg.value = ''
   const url = source.url
+  updatePlaybackDebugState({
+    phase: 'source',
+    url,
+    hasHeaders: !!source.headers && Object.keys(source.headers).length > 0,
+    referer: source.referer ?? null,
+    preferNativeHls: null,
+  })
   logPlaybackDebug('playSource', {
     url,
     kind: source.kind,
@@ -1539,10 +1557,22 @@ async function playSource(source: PlayerSource, forceRefresh = false) {
   await initHlsPlayer(source)
 }
 
-async function initHlsPlayer(source: PlayerSource) {
+async function initHlsPlayer(source: PlayerSource, forceBrowserHls = false) {
   if (!videoRef.value) return
   const video = videoRef.value
   const { url, headers, referer } = source
+  const hasCustomHeaders = !!headers && Object.keys(headers).length > 0
+  updatePlaybackDebugState({
+    phase: 'init',
+    url,
+    hasHeaders: hasCustomHeaders,
+    referer: referer ?? null,
+    canPlayNativeHls: video.canPlayType('application/vnd.apple.mpegurl') !== '',
+    engineEvent: null,
+    engineError: null,
+    mediaEvent: null,
+    mediaError: null,
+  })
 
   detachNativeVideoErrorHandler()
   activePlaybackAttempt = null
@@ -1554,15 +1584,37 @@ async function initHlsPlayer(source: PlayerSource) {
   const playbackAttempt = createPlaybackAttempt(source)
 
   if (url.includes('.m3u8')) {
+    const canPlayNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== ''
+    const preferNativeHls = !forceBrowserHls && shouldPreferNativeHls(
+      url,
+      headers,
+      referer,
+      canPlayNativeHls,
+    )
+    updatePlaybackDebugState({
+      phase: preferNativeHls ? 'native' : 'hls.js',
+      url,
+      hasHeaders: hasCustomHeaders,
+      referer: referer ?? null,
+      canPlayNativeHls,
+      preferNativeHls,
+      engineEvent: null,
+      engineError: null,
+      mediaEvent: null,
+      mediaError: null,
+    })
+    if (preferNativeHls) {
+      startNativeHlsPlayback(video, url, playbackAttempt)
+      return
+    }
+
     const Hls = await getHlsConstructor()
     if (playbackAttempt.generation !== sessionGeneration) return
 
     if (Hls.isSupported()) {
-      // Custom loader to bypass CORS for CDN URLs
-      // Custom loader for ad filtering and CORS bypass
       const CustomLoader = class extends Hls.DefaultConfig.loader {
         load(context: any, config: any, callbacks: any) {
-          const url = context.url
+          const requestUrl = context.url
           const stats = {
             aborted: false,
             loaded: 0,
@@ -1574,40 +1626,47 @@ async function initHlsPlayer(source: PlayerSource) {
             parsing: { start: 0, end: 0 },
             buffering: { start: 0, end: 0 },
           }
-          if (isPlaybackAdResource(url)) {
+          if (isPlaybackAdResource(requestUrl)) {
             callbacks.onError({ code: 0, text: 'blocked playback ad resource' }, context, null, stats)
             return
           }
-          const requestKind = classifyPlaybackRequest(url)
-          // All manifest and segment requests go through Rust proxy for ad filtering,
-          // CORS bypass, and automatic Referer retry for auth-blocking CDNs.
+          const requestKind = classifyPlaybackRequest(requestUrl)
           if (requestKind === 'manifest' || requestKind === 'segment') {
-            invoke<string>('fetch_hls_manifest', { url, headers, referer })
-              .then((data) => {
-                const finalData: string | ArrayBuffer = requestKind === 'segment'
-                  ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
-                  : data
+                  invoke<string>('fetch_hls_manifest', { url: requestUrl, headers, referer })
+                    .then((data) => {
+                      const finalData: string | ArrayBuffer = requestKind === 'segment'
+                        ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
+                        : data
                 const finalLength = typeof finalData === 'string' ? finalData.length : finalData.byteLength
                 stats.loaded = finalLength
                 stats.total = finalLength
-                callbacks.onSuccess({ data: finalData, url, code: 200 }, stats, context, null)
+                callbacks.onSuccess({ data: finalData, url: requestUrl, code: 200 }, stats, context, null)
               })
               .catch((err) => {
-                if (shouldFallbackToBrowserHls(err)) {
-                  ;(super.load as any)(context, config, callbacks)
-                  return
-                }
+                      if (shouldFallbackToBrowserHls(err)) {
+                        startNativeHlsPlayback(video, requestUrl, playbackAttempt)
+                        return
+                      }
                 callbacks.onError({ code: 0, text: String(err) }, context, null, stats)
               })
             return
           }
-          // Default behavior for other URLs
           ;(super.load as any)(context, config, callbacks)
         }
       }
 
       const hls = new Hls({ loader: CustomLoader as any })
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        updatePlaybackDebugState({
+          engineEvent: 'media_attached',
+          engineError: null,
+        })
+      })
       hls.on(Hls.Events.ERROR, (_event, data) => {
+        updatePlaybackDebugState({
+          engineEvent: 'error',
+          engineError: data.error?.message ?? data.details ?? data.type,
+        })
         if (!data.fatal) return
         if (playbackSession.value) {
           void playNextFromSession(data.error?.message || 'HLS 播放失败', playbackAttempt)
@@ -1629,6 +1688,10 @@ async function initHlsPlayer(source: PlayerSource) {
       })
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        updatePlaybackDebugState({
+          engineEvent: 'manifest_parsed',
+          engineError: null,
+        })
         void attemptPlayback(false, playbackAttempt)
       })
 
@@ -1648,6 +1711,23 @@ async function initHlsPlayer(source: PlayerSource) {
     }
   }
 
+  video.src = url
+  video.load()
+  activatePlaybackAttempt(playbackAttempt)
+  pendingAutoplay.value = true
+}
+
+function startNativeHlsPlayback(video: HTMLVideoElement, url: string, playbackAttempt: PlaybackAttemptContext) {
+  updatePlaybackDebugState({
+    phase: 'native',
+    url,
+    preferNativeHls: true,
+    canPlayNativeHls: video.canPlayType('application/vnd.apple.mpegurl') !== '',
+    engineEvent: null,
+    engineError: null,
+    mediaEvent: null,
+    mediaError: null,
+  })
   video.src = url
   video.load()
   activatePlaybackAttempt(playbackAttempt)
@@ -1696,6 +1776,10 @@ async function attemptPlayback(
 }
 
 function handleCanPlay() {
+  updatePlaybackDebugState({
+    mediaEvent: 'canplay',
+    mediaError: videoRef.value?.error?.code ?? null,
+  })
   logPlaybackDebug('handleCanPlay', {
     pendingAutoplay: pendingAutoplay.value,
     currentSessionId: playbackSession.value?.id ?? null,
@@ -1706,6 +1790,10 @@ function handleCanPlay() {
 }
 
 function handleVideoPlay() {
+  updatePlaybackDebugState({
+    mediaEvent: 'play',
+    mediaError: videoRef.value?.error?.code ?? null,
+  })
   logPlaybackDebug('handleVideoPlay', {
     currentSessionId: playbackSession.value?.id ?? null,
     activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
@@ -1719,6 +1807,10 @@ function handleVideoPlay() {
 }
 
 function handleVideoPause() {
+  updatePlaybackDebugState({
+    mediaEvent: 'pause',
+    mediaError: videoRef.value?.error?.code ?? null,
+  })
   logPlaybackDebug('handleVideoPause', {
     currentSessionId: playbackSession.value?.id ?? null,
     activePlaybackAttemptId: activePlaybackAttempt?.id ?? null,
@@ -1732,6 +1824,10 @@ function handleVideoPause() {
 }
 
 function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext) {
+  updatePlaybackDebugState({
+    mediaEvent: 'error',
+    mediaError: videoRef.value?.error?.code ?? null,
+  })
   logPlaybackDebug('handleVideoError', {
     playbackAttemptId: playbackAttempt.id,
     currentSessionId: playbackSession.value?.id ?? null,
@@ -1748,6 +1844,35 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
 
   pendingAutoplay.value = false
   const mediaError = videoRef.value?.error
+  logPlaybackDebug('handleVideoError.branch-check', {
+    phase: playbackPhase.value,
+    mediaCode: mediaError?.code ?? null,
+    currentSourceKind: currentSource.value?.kind ?? null,
+    currentSourceUrl: currentSource.value?.url ?? null,
+    isHlsUrl: currentSource.value?.url.includes('.m3u8') ?? false,
+  })
+  if (
+    mediaError?.code === 4 &&
+    playbackPhase.value === 'native' &&
+    currentSource.value?.kind === 'hls' &&
+    currentSource.value.url.includes('.m3u8')
+  ) {
+    logPlaybackDebug('handleVideoError.retry-browser-hls', {
+      phase: playbackPhase.value,
+      mediaCode: mediaError.code,
+      currentSourceUrl: currentSource.value.url,
+    })
+    updatePlaybackDebugState({
+      phase: 'hls.js',
+      preferNativeHls: false,
+      engineEvent: 'retry_browser_hls',
+      engineError: null,
+      mediaError: mediaError.code,
+    })
+    void initHlsPlayer(currentSource.value, true)
+    return
+  }
+
   const message = describeMediaErrorCode(mediaError?.code)
   if (playbackSession.value) {
     void playNextFromSession(message, playbackAttempt)

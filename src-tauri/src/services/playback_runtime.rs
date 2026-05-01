@@ -40,20 +40,9 @@ pub async fn resolve_playback_for_input(
     episode_id: Option<i64>,
     force_refresh: bool,
 ) -> Result<ResolvedPlayback, String> {
-    eprintln!(
-        "[playback-dbg][backend] resolve_playback_for_input input={} episode_id={:?} force_refresh={}",
-        input,
-        episode_id,
-        force_refresh
-    );
     let client = build_client()?;
     let normalized = if let Some(episode_id) = episode_id {
         let cached = maybe_cached_targets_for_episode(storage, episode_id)?;
-        eprintln!(
-            "[playback-dbg][backend] maybe_cached_targets_for_episode episode_id={} cached_count={}",
-            episode_id,
-            cached.len()
-        );
         if cached.is_empty() {
             discover_initial_targets(input)
         } else {
@@ -129,12 +118,6 @@ pub fn maybe_cached_targets_for_episode(
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-
-    eprintln!(
-        "[playback-dbg][backend] maybe_cached_targets_for_episode restored episode_id={} targets={}",
-        episode_id,
-        targets.len()
-    );
 
     Ok(targets)
 }
@@ -267,10 +250,10 @@ pub fn filter_presentable_targets(
         .into_iter()
         .filter(|candidate| {
             candidate.target.is_desktop_playable_kind()
-                && matches!(candidate.probe.status, PlaybackProbeStatus::Playable)
+                && (matches!(candidate.probe.status, PlaybackProbeStatus::Playable)
+                    || should_trust_bare_direct_hls(&candidate.target))
         })
         .collect();
-
     let Some(best_source_rank) = visible
         .iter()
         .map(|candidate| playback_source_rank(&candidate.target.source_key))
@@ -287,6 +270,29 @@ pub fn filter_presentable_targets(
         .collect();
 
     dedupe_presentable_targets(source_filtered)
+}
+
+fn should_trust_bare_direct_hls(target: &PlaybackTarget) -> bool {
+    if !matches!(target.target_kind, PlaybackTargetKind::Direct) {
+        return false;
+    }
+    if !target.target_url.to_ascii_lowercase().contains(".m3u8") {
+        return false;
+    }
+
+    let has_headers = target
+        .headers
+        .as_ref()
+        .is_some_and(|headers| !headers.is_empty());
+    let has_referer = target
+        .referer
+        .as_ref()
+        .is_some_and(|referer| {
+            let normalized = referer.trim();
+            !normalized.is_empty() && normalized != target.target_url
+        });
+
+    !has_headers && !has_referer
 }
 
 pub fn to_resolved_playback(candidates: Vec<RuntimeResolvedCandidate>) -> ResolvedPlayback {
@@ -424,22 +430,10 @@ async fn cached_or_probed_result(
     );
     if !force_refresh {
         if let Some(probe) = cached_probe_result(storage, &target_hash)? {
-            eprintln!(
-                "[playback-dbg][backend] cached_or_probed_result cache-hit target={} episode_id={:?} status={:?}",
-                target.target_url,
-                target.episode_id,
-                probe.status
-            );
             return Ok(probe);
         }
     }
 
-    eprintln!(
-        "[playback-dbg][backend] cached_or_probed_result probe target={} episode_id={:?} force_refresh={}",
-        target.target_url,
-        target.episode_id,
-        force_refresh
-    );
     let probe = probe_candidate_for_runtime(client, &target.target_url, target.headers.as_ref()).await;
     persist_probe_result(storage, target, &target_hash, &probe)?;
     Ok(probe)
@@ -870,6 +864,60 @@ mod tests {
     }
 
     #[test]
+    fn trusts_bare_direct_hls_candidates_even_when_probe_fails() {
+        let candidates = vec![RuntimeResolvedCandidate {
+            target: target(
+                PlaybackTargetKind::Direct,
+                "demo",
+                "https://cdn.example.com/live/index.m3u8",
+            ),
+            probe: PlaybackProbeResult::failed("request failed: 404", Some(404)),
+        }];
+
+        let resolved = to_resolved_playback(candidates);
+
+        assert_eq!(resolved.status, "ready");
+        assert_eq!(resolved.candidates.len(), 1);
+        assert_eq!(resolved.candidates[0].url, "https://cdn.example.com/live/index.m3u8");
+    }
+
+    #[test]
+    fn still_requires_probe_for_direct_hls_candidates_with_referer() {
+        let mut direct = target(
+            PlaybackTargetKind::Direct,
+            "demo",
+            "https://cdn.example.com/live/index.m3u8",
+        );
+        direct.referer = Some("https://example.com/player".to_string());
+
+        let resolved = to_resolved_playback(vec![RuntimeResolvedCandidate {
+            target: direct,
+            probe: PlaybackProbeResult::failed("request failed: 404", Some(404)),
+        }]);
+
+        assert_eq!(resolved.status, "failed");
+        assert!(resolved.candidates.is_empty());
+    }
+
+    #[test]
+    fn trusts_bare_direct_hls_candidates_with_self_referer() {
+        let mut direct = target(
+            PlaybackTargetKind::Direct,
+            "demo",
+            "https://cdn.example.com/live/index.m3u8",
+        );
+        direct.referer = Some("https://cdn.example.com/live/index.m3u8".to_string());
+
+        let resolved = to_resolved_playback(vec![RuntimeResolvedCandidate {
+            target: direct,
+            probe: PlaybackProbeResult::failed("request failed: 404", Some(404)),
+        }]);
+
+        assert_eq!(resolved.status, "ready");
+        assert_eq!(resolved.candidates.len(), 1);
+    }
+
+    #[test]
     fn dedupes_presentable_candidates_with_same_url_and_headers() {
         let candidates = vec![
             RuntimeResolvedCandidate {
@@ -1022,12 +1070,15 @@ mod tests {
 
     #[test]
     fn summarizes_dead_link_failures_for_failed_runtime_result() {
+        let mut direct = target(
+            PlaybackTargetKind::Direct,
+            "jianpian",
+            "https://cdn.example.com/dead/index.m3u8",
+        );
+        direct.referer = Some("https://example.com/player".to_string());
+
         let candidates = vec![RuntimeResolvedCandidate {
-            target: target(
-                PlaybackTargetKind::Direct,
-                "jianpian",
-                "https://cdn.example.com/dead/index.m3u8",
-            ),
+            target: direct,
             probe: PlaybackProbeResult::failed("manifest failed", Some(404)),
         }];
 

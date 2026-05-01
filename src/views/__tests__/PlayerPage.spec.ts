@@ -4,6 +4,12 @@ import { nextTick } from 'vue'
 import type { CatalogDetailItem, CatalogEpisodeGroup, UnifiedEpisode } from '@/types'
 import { clearPlaybackHealth, markPlaybackHealth } from '@/utils/playbackSession'
 
+const hlsState = {
+  supported: false,
+}
+
+const invokeMock = vi.fn(async () => null)
+
 const route = {
   name: 'player-vod',
   params: {
@@ -83,7 +89,7 @@ vi.mock('@/stores/live', () => ({
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(async () => null),
+  invoke: invokeMock,
 }))
 
 vi.mock('@tauri-apps/plugin-shell', () => ({
@@ -106,18 +112,64 @@ vi.mock('@/components/player/PlaybackNotice.vue', () => ({
 }))
 
 vi.mock('hls.js', () => ({
-  default: {
-    isSupported: () => false,
-    Events: {},
-    DefaultConfig: { loader: class {} },
+  default: class HlsMock {
+    static Events = {
+      ERROR: 'ERROR',
+      MANIFEST_PARSED: 'MANIFEST_PARSED',
+      MEDIA_ATTACHED: 'MEDIA_ATTACHED',
+    }
+
+    static DefaultConfig = {
+      loader: class {
+        load() {}
+      },
+    }
+
+    static isSupported() {
+      return hlsState.supported
+    }
+
+    private readonly listeners = new Map<string, Array<(...args: any[]) => void>>()
+
+    constructor(private readonly options?: { loader?: new () => { load: (...args: any[]) => void } }) {}
+
+    on(event: string, callback: (...args: any[]) => void) {
+      const callbacks = this.listeners.get(event) ?? []
+      callbacks.push(callback)
+      this.listeners.set(event, callbacks)
+    }
+
+    private emit(event: string, ...args: any[]) {
+      for (const callback of this.listeners.get(event) ?? []) {
+        callback(...args)
+      }
+    }
+
+    loadSource(url: string) {
+      const Loader = this.options?.loader
+      if (Loader) {
+        const loader = new Loader()
+        loader.load({ url }, {}, { onError() {}, onSuccess() {} })
+      }
+      this.emit(HlsMock.Events.MEDIA_ATTACHED)
+      this.emit(HlsMock.Events.MANIFEST_PARSED)
+    }
+
+    attachMedia() {}
+
+    destroy() {}
   },
 }))
 
 describe('PlayerPage fullscreen controls', () => {
   let loadSpy: ReturnType<typeof vi.spyOn> | null = null
   let pauseSpy: ReturnType<typeof vi.spyOn> | null = null
+  let canPlaySpy: any = null
 
   beforeEach(() => {
+    hlsState.supported = false
+    invokeMock.mockReset()
+    invokeMock.mockResolvedValue(null)
     route.params.mode = 'vod'
     route.params.id = '0'
     route.query.episode = encodeURIComponent('https://cdn.example.com/movie.mp4')
@@ -141,6 +193,7 @@ describe('PlayerPage fullscreen controls', () => {
     document.body.removeAttribute('style')
     pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
     loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
+    canPlaySpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('')
   })
 
   afterEach(() => {
@@ -148,6 +201,8 @@ describe('PlayerPage fullscreen controls', () => {
     pauseSpy = null
     loadSpy?.mockRestore()
     loadSpy = null
+    canPlaySpy?.mockRestore()
+    canPlaySpy = null
   })
 
   it('keeps the VOD progress bar visible in fullscreen playback', async () => {
@@ -177,6 +232,83 @@ describe('PlayerPage fullscreen controls', () => {
 
     expect(wrapper.find('.player-video-wrap').attributes('style')).toContain('position: fixed')
     expect(wrapper.find('.player-progress').exists()).toBe(true)
+  })
+
+  it('prefers native hls for supported m3u8 playback', async () => {
+    hlsState.supported = true
+    route.query.episode = encodeURIComponent('https://cdn.example.com/live/index.m3u8')
+    playbackStore.resolve.mockResolvedValue({
+      status: 'ready',
+      candidates: [
+        {
+          url: 'https://cdn.example.com/live/index.m3u8',
+          label: '线路 1',
+          kind: 'hls',
+        },
+      ],
+      errorMessage: null,
+    })
+    invokeMock.mockRejectedValueOnce(new Error('A network error (status 0) occurred while loading manifest'))
+    canPlaySpy?.mockRestore()
+    canPlaySpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably')
+
+    const { default: PlayerPage } = await import('@/views/PlayerPage.vue')
+    const wrapper = mount(PlayerPage, {
+      global: {
+        stubs: {
+          SourceBadge: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.find('video').element.getAttribute('src')).toContain('https://cdn.example.com/live/index.m3u8')
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it('retries native hls playback through browser hls when the media decoder rejects the stream', async () => {
+    hlsState.supported = true
+    route.query.episode = encodeURIComponent('https://cdn.example.com/live/index.m3u8')
+    playbackStore.resolve.mockResolvedValue({
+      status: 'ready',
+      candidates: [
+        {
+          url: 'https://cdn.example.com/live/index.m3u8',
+          label: '线路 1',
+          kind: 'hls',
+          referer: 'https://www.ypanso.com/vod/play/id/9CnHHHHR/sid/1/nid/1.html',
+        } as any,
+      ],
+      errorMessage: null,
+    })
+    canPlaySpy?.mockRestore()
+    canPlaySpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably')
+
+    const { default: PlayerPage } = await import('@/views/PlayerPage.vue')
+    const wrapper = mount(PlayerPage, {
+      global: {
+        stubs: {
+          SourceBadge: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await nextTick()
+
+    Object.defineProperty(wrapper.find('video').element, 'error', {
+      value: { code: 4 },
+      configurable: true,
+    })
+    await wrapper.find('video').trigger('error')
+    await flushPromises()
+    await nextTick()
+
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('video').element.getAttribute('src')).toContain('https://cdn.example.com/live/index.m3u8')
+    expect(invokeMock).toHaveBeenCalled()
   })
 
   it('reuses cached detail data instead of refetching on player entry', async () => {
