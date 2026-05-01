@@ -1513,7 +1513,7 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
                   'player-controls-compact': isCompactFullscreenControls,
                 }"
               >
-                <div v-if="mode !== 'live' && !isCompactFullscreenControls" class="player-progress">
+                <div v-if="mode !== 'live'" class="player-progress">
                   <span>{{ formatTime(currentTime) }}</span>
                   <input
                     type="range"
