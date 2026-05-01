@@ -12,6 +12,13 @@ import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
 import SearchResultCard from '@/components/detail/SearchResultCard.vue'
 import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult, UnifiedEpisode } from '@/types'
+import {
+  getVodDetailSearchSnapshot,
+  normalizeVodDetailSearchKey,
+  setVodDetailSearchSnapshot,
+  type VodDetailProviderDetail,
+  type VodDetailSearchGroup,
+} from '@/utils/vodDetailSearchCache'
 
 interface DoubanSubjectMeta {
   doubanId: number
@@ -28,11 +35,6 @@ interface DoubanSubjectMeta {
   runtime: string | null
   summary: string | null
   poster: string | null
-}
-
-interface GroupedSearchResults {
-  source_name: string
-  results: SearchResult[]
 }
 
 interface DedupSearchItem {
@@ -176,9 +178,10 @@ const fallbackMeta = computed<DoubanSubjectMeta | null>(() => {
 })
 
 const loadingDouban = ref(false)
-const searchResults = ref<GroupedSearchResults[]>([])
+const searchResults = ref<VodDetailSearchGroup[]>([])
 const loadingSearch = ref(false)
 const searchError = ref<string | null>(null)
+const searchRequestVersion = ref(0)
 
 // Prefer more specific types over generic/movie when sources disagree on the same title.
 function itemTypePriority(t: SearchResult['item_type']): number {
@@ -299,17 +302,32 @@ const visibleDedupSearchItems = computed<DedupSearchItem[]>(() => {
   })
 })
 
-interface ProviderDetailResult {
-  title: string | null
-  poster: string | null
-  summary: string | null
-  episodes: CatalogEpisode[]
-}
-const providerDetailCache = ref(new Map<string, ProviderDetailResult>())
+const providerDetailCache = ref(new Map<string, VodDetailProviderDetail>())
 const preloadingKeys = ref(new Set<string>())
 
 function getCacheKey(title: string, source: string): string {
   return `${title}-${source}`
+}
+
+function restoreSearchSnapshot(snapshot: {
+  searchResults: VodDetailSearchGroup[]
+  providerDetailEntries: Array<[string, VodDetailProviderDetail]>
+}) {
+  searchResults.value = snapshot.searchResults.map(group => ({
+    source_name: group.source_name,
+    results: group.results.map(result => ({ ...result })),
+  }))
+  providerDetailCache.value = new Map(
+    snapshot.providerDetailEntries.map(([key, detail]) => [
+      key,
+      {
+        title: detail.title,
+        poster: detail.poster,
+        summary: detail.summary,
+        episodes: detail.episodes.map(episode => ({ ...episode })),
+      },
+    ]),
+  )
 }
 
 async function preloadAllSources(item: DedupSearchItem) {
@@ -327,7 +345,7 @@ async function preloadSource(item: DedupSearchItem, sourceKey: string) {
 
   preloadingKeys.value.add(key)
   try {
-    const detail = await invoke<ProviderDetailResult>('provider_detail', {
+    const detail = await invoke<VodDetailProviderDetail>('provider_detail', {
       source: source.source,
       ids: source.detail_url,
     })
@@ -383,8 +401,8 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
   }
 }
 
-function getSourceDetailsForItem(item: DedupSearchItem): Record<string, ProviderDetailResult> {
-  const result: Record<string, ProviderDetailResult> = {}
+function getSourceDetailsForItem(item: DedupSearchItem): Record<string, VodDetailProviderDetail> {
+  const result: Record<string, VodDetailProviderDetail> = {}
   for (const src of item.sources) {
     const key = getCacheKey(item.title, src.source)
     const detail = providerDetailCache.value.get(key)
@@ -471,12 +489,22 @@ async function loadDetail() {
 }
 
 async function searchSources(title: string) {
+  const requestVersion = ++searchRequestVersion.value
   loadingSearch.value = true
   searchError.value = null
+
+  const cachedSnapshot = getVodDetailSearchSnapshot(title)
+  if (cachedSnapshot) {
+    restoreSearchSnapshot(cachedSnapshot)
+    loadingSearch.value = false
+    return
+  }
+
   providerDetailCache.value.clear()
   preloadingKeys.value.clear()
   try {
     const results = await invoke<SourceSearchResult[]>('search_all_sources', { keyword: title })
+    if (requestVersion !== searchRequestVersion.value) return
     const grouped: Record<string, SearchResult[]> = {}
     for (const r of results) {
       for (const item of r.items) {
@@ -501,14 +529,24 @@ async function searchSources(title: string) {
         results,
       }))
 
-    // Preload first source detail for each dedup result before releasing the loading state.
+    loadingSearch.value = false
+
+    // Preload source details in the background so cached cards can render immediately.
     await Promise.all(dedupSearchItems.value.map(item => preloadAllSources(item)))
+    if (requestVersion !== searchRequestVersion.value) return
+    setVodDetailSearchSnapshot(normalizeVodDetailSearchKey(title), {
+      searchResults: searchResults.value,
+      providerDetailEntries: Array.from(providerDetailCache.value.entries()),
+    })
   } catch (e) {
+    if (requestVersion !== searchRequestVersion.value) return
     console.error('[VodDetail] searchSources failed:', e)
     searchError.value = String(e)
     searchResults.value = []
   } finally {
-    loadingSearch.value = false
+    if (requestVersion === searchRequestVersion.value) {
+      loadingSearch.value = false
+    }
   }
 }
 
