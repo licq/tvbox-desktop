@@ -25,6 +25,7 @@ pub struct PlaybackTargetRecord {
     pub target_kind: String,
     pub resolver_key: Option<String>,
     pub headers_json: Option<String>,
+    pub referer: Option<String>,
     pub meta_text: Option<String>,
     pub sort_hint: i32,
 }
@@ -52,9 +53,10 @@ pub fn replace_playback_targets(
                 target_kind,
                 resolver_key,
                 headers_json,
+                referer,
                 meta_text,
                 sort_hint
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 episode_id,
@@ -63,6 +65,7 @@ pub fn replace_playback_targets(
                 target.target_kind,
                 target.resolver_key,
                 target.headers_json,
+                target.referer,
                 target.meta_text,
                 target.sort_hint,
             ],
@@ -162,7 +165,7 @@ pub fn list_playback_targets(
 ) -> SqliteResult<Vec<PlaybackTargetRecord>> {
     let conn = storage.conn.lock().unwrap();
     let mut stmt = conn.prepare(
-        "SELECT episode_id, source_key, target_url, target_kind, resolver_key, headers_json, meta_text, sort_hint
+        "SELECT episode_id, source_key, target_url, target_kind, resolver_key, headers_json, referer, meta_text, sort_hint
          FROM playback_targets
          WHERE episode_id = ?1
          ORDER BY sort_hint ASC, id ASC",
@@ -176,8 +179,9 @@ pub fn list_playback_targets(
             target_kind: row.get(3)?,
             resolver_key: row.get(4)?,
             headers_json: row.get(5)?,
-            meta_text: row.get(6)?,
-            sort_hint: row.get(7)?,
+            referer: row.get(6)?,
+            meta_text: row.get(7)?,
+            sort_hint: row.get(8)?,
         })
     })?;
 
@@ -187,9 +191,11 @@ pub fn list_playback_targets(
 pub fn hash_playback_target(
     target_url: &str,
     headers: Option<&HashMap<String, String>>,
+    referer: Option<&str>,
 ) -> String {
     let mut hasher = DefaultHasher::new();
     target_url.hash(&mut hasher);
+    referer.hash(&mut hasher);
     if let Some(headers) = headers {
         let mut entries: Vec<_> = headers.iter().collect();
         entries.sort_by(|a, b| a.0.cmp(b.0));

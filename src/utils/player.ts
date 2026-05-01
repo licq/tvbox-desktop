@@ -125,6 +125,7 @@ export function shouldFallbackToBrowserHls(error: unknown): boolean {
     'tls handshake eof',
     'connection closed via error',
     'error sending request',
+    'status 0',
     'unexpected eof',
     'connection reset',
     'timed out',

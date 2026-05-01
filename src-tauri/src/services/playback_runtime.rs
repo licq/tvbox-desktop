@@ -216,7 +216,11 @@ fn recent_success_timestamp(
     storage: &Storage,
     target: &PlaybackTarget,
 ) -> Result<Option<i64>, String> {
-    let target_hash = hash_playback_target(&target.target_url, target.headers.as_ref());
+    let target_hash = hash_playback_target(
+        &target.target_url,
+        target.headers.as_ref(),
+        target.referer.as_deref(),
+    );
     let Some(record) = get_playback_health(storage, &target_hash).map_err(|e| e.to_string())? else {
         return Ok(None);
     };
@@ -383,7 +387,11 @@ async fn cached_or_probed_result(
     client: &reqwest::Client,
     target: &PlaybackTarget,
 ) -> Result<PlaybackProbeResult, String> {
-    let target_hash = hash_playback_target(&target.target_url, target.headers.as_ref());
+    let target_hash = hash_playback_target(
+        &target.target_url,
+        target.headers.as_ref(),
+        target.referer.as_deref(),
+    );
     if let Some(probe) = cached_probe_result(storage, &target_hash)? {
         return Ok(probe);
     }
@@ -602,7 +610,11 @@ fn dedupe_presentable_targets(
     let mut deduped = Vec::new();
 
     for candidate in candidates {
-        let key = hash_playback_target(&candidate.target.target_url, candidate.target.headers.as_ref());
+        let key = hash_playback_target(
+            &candidate.target.target_url,
+            candidate.target.headers.as_ref(),
+            candidate.target.referer.as_deref(),
+        );
         if seen.insert(key) {
             deduped.push(candidate);
         }
@@ -665,6 +677,7 @@ fn persist_runtime_targets_for_episode(
                 .headers
                 .as_ref()
                 .and_then(|headers| serde_json::to_string(headers).ok()),
+            referer: candidate.target.referer.clone(),
             meta_text: candidate.target.meta.clone(),
             sort_hint: index as i32,
         })
@@ -887,6 +900,7 @@ mod tests {
         let second_hash = crate::services::storage::playback_cache::hash_playback_target(
             &second.target_url,
             second.headers.as_ref(),
+            second.referer.as_deref(),
         );
         upsert_playback_health(
             &storage,
@@ -1090,6 +1104,22 @@ mod tests {
     }
 
     #[test]
+    fn hashes_playback_targets_with_referer() {
+        let without_referer = crate::services::storage::playback_cache::hash_playback_target(
+            "https://cdn.example.com/index.m3u8",
+            None,
+            None,
+        );
+        let with_referer = crate::services::storage::playback_cache::hash_playback_target(
+            "https://cdn.example.com/index.m3u8",
+            None,
+            Some("https://www.ypanso.com/vod/play/id/1/sid/1/nid/1.html"),
+        );
+
+        assert_ne!(without_referer, with_referer);
+    }
+
+    #[test]
     fn prefers_cached_playable_target_over_failing_candidate() {
         let cached_ok = RuntimeResolvedCandidate {
             target: target(
@@ -1242,6 +1272,7 @@ mod tests {
             target_kind: "direct".to_string(),
             resolver_key: None,
             headers_json: None,
+            referer: None,
             meta_text: None,
             sort_hint: 0,
         };

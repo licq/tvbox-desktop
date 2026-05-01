@@ -87,6 +87,7 @@ describe('provider playback routing', () => {
   it('falls back to browser hls only for transport-style failures', () => {
     expect(shouldFallbackToBrowserHls(new Error('error sending request for url (https://example.com)'))).toBe(true)
     expect(shouldFallbackToBrowserHls(new Error('tls handshake eof'))).toBe(true)
+    expect(shouldFallbackToBrowserHls(new Error('A network error (status 0) occurred while loading manifest'))).toBe(true)
     expect(shouldFallbackToBrowserHls(new Error('playlist request failed: 403 Forbidden'))).toBe(false)
   })
 })

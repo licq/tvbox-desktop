@@ -278,6 +278,7 @@ impl Storage {
                 target_kind TEXT NOT NULL,
                 resolver_key TEXT,
                 headers_json TEXT,
+                referer TEXT,
                 meta_text TEXT,
                 sort_hint INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -286,6 +287,8 @@ impl Storage {
             [],
         )?;
         conn.execute("ALTER TABLE playback_targets ADD COLUMN meta_text TEXT", [])
+            .ok();
+        conn.execute("ALTER TABLE playback_targets ADD COLUMN referer TEXT", [])
             .ok();
 
         conn.execute(
@@ -1940,6 +1943,7 @@ fn playback_target_record(
             .headers
             .as_ref()
             .and_then(|headers| serde_json::to_string(headers).ok()),
+        referer: target.referer.clone(),
         meta_text: target.meta.clone(),
         sort_hint: target.sort_hint,
     }
@@ -1958,9 +1962,10 @@ fn insert_playback_target(
             target_kind,
             resolver_key,
             headers_json,
+            referer,
             meta_text,
             sort_hint
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#,
         rusqlite::params![
             target.episode_id,
@@ -1969,6 +1974,7 @@ fn insert_playback_target(
             target.target_kind,
             target.resolver_key,
             target.headers_json,
+            target.referer,
             target.meta_text,
             target.sort_hint,
         ],
@@ -2038,6 +2044,7 @@ mod tests {
                 target_kind: "direct".to_string(),
                 resolver_key: None,
                 headers_json: None,
+                referer: Some("https://www.ypanso.com/vod/play/id/77/sid/1/nid/1.html".to_string()),
                 meta_text: Some("荐片线路".to_string()),
                 sort_hint: 0,
             }],
@@ -2048,6 +2055,10 @@ mod tests {
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].meta_text.as_deref(), Some("荐片线路"));
         assert_eq!(targets[0].target_kind, "direct");
+        assert_eq!(
+            targets[0].referer.as_deref(),
+            Some("https://www.ypanso.com/vod/play/id/77/sid/1/nid/1.html")
+        );
     }
 
     #[test]
