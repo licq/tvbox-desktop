@@ -9,6 +9,12 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
+  "bundle": {
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.png"
+    ]
+  },
   "app": {
     "windows": [
       {

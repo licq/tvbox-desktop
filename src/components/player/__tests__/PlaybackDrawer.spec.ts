@@ -127,4 +127,26 @@ describe('PlaybackDrawer', () => {
     expect(wrapper.text()).not.toContain('没有可用线路')
     expect(wrapper.text()).not.toContain('当前源没有可用候选线路')
   })
+
+  it('keeps already loaded episode content visible while playback is still resolving', () => {
+    const wrapper = mount(PlaybackDrawer, {
+      props: {
+        sources: attempts[0]!.candidates,
+        currentIndex: 0,
+        failedIndexes: [],
+        status: '正在解析本集线路',
+        unifiedEpisodes,
+        currentNormalizedIndex: 3,
+        itemType: 'series',
+        episodeSourceAttempts: attempts,
+        loading: true,
+      },
+    })
+
+    expect(wrapper.find('.playback-loading').exists()).toBe(false)
+    expect(wrapper.text()).toContain('第3集')
+    expect(wrapper.text()).toContain('本集播放源')
+    expect(wrapper.text()).toContain('非凡线路')
+    expect(wrapper.text()).toContain('量子线路')
+  })
 })
