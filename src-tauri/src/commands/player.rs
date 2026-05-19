@@ -1,6 +1,48 @@
 use crate::models::{PlayHistory, ResolvedPlayback};
 use crate::AppState;
+use serde::{Deserialize, Serialize};
 use tauri::State;
+
+/// Response for segment proxy including Content-Range metadata for hls.js buffer tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SegmentProxyResponse {
+    /// Base64-encoded response body.
+    pub data: String,
+    /// Content-Range header value if the response is a partial content (206), e.g. "bytes 0-1023/2048".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_range: Option<String>,
+    /// HTTP status code of the upstream response.
+    pub status: u16,
+}
+
+#[tauri::command]
+pub async fn fetch_hls_segment(
+    url: String,
+    headers: Option<std::collections::HashMap<String, String>>,
+    referer: Option<String>,
+    range_start: Option<u64>,
+    range_end: Option<u64>,
+) -> Result<SegmentProxyResponse, String> {
+    let range = match (range_start, range_end) {
+        (Some(start), Some(end)) => {
+            Some(format!("bytes={}-{}", start, end))
+        }
+        (Some(start), None) => {
+            Some(format!("bytes={}-", start))
+        }
+        (None, Some(end)) => {
+            Some(format!("bytes=0-{}", end))
+        }
+        (None, None) => None,
+    };
+    crate::services::resolver::fetch_hls_segment_internal(
+        &url,
+        headers.as_ref(),
+        referer.as_deref(),
+        range.as_deref(),
+    )
+    .await
+}
 
 #[tauri::command]
 pub async fn save_play_history(

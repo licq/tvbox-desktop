@@ -1,3 +1,4 @@
+use crate::commands::player::SegmentProxyResponse;
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 
 use crate::services::ad_blocker::HlsAdBlocker;
@@ -710,41 +711,76 @@ async fn proxy_url_with_retry(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
     referer: Option<&str>,
-) -> Result<String, String> {
+) -> Result<crate::commands::player::SegmentProxyResponse, String> {
     let request_headers = build_hls_request_headers(headers, referer);
-    match proxy_url_with_headers(client, url, request_headers.as_ref()).await {
-        Ok(body) => Ok(body),
+    match proxy_url_with_headers(client, url, request_headers.as_ref(), None).await {
+        Ok(resp) => Ok(resp),
         Err(e) if referer.is_some() && looks_like_auth_failure(&e) => {
             let retry_headers = build_hls_request_headers(headers, referer);
-            proxy_url_with_headers(client, url, retry_headers.as_ref()).await
+            proxy_url_with_headers(client, url, retry_headers.as_ref(), None).await
         }
-        Err(e) => Err(e),
+        Err(e) => Err(e.to_string()),
     }
 }
 
-/// Proxy a URL with explicit headers.
-async fn proxy_url_with_headers(
+/// Proxy a URL with explicit headers and optional Range header.
+/// Proxy a URL with explicit headers and optional Range header.
+/// Returns the response body (base64), Content-Range metadata, and status code.
+pub(crate) async fn proxy_url_with_headers(
     client: &reqwest::Client,
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
-) -> Result<String, String> {
+    range: Option<&str>,
+) -> Result<SegmentProxyResponse, String> {
     use base64::Engine;
-    let request = client
-        .get(url)
-        .header(
-            reqwest::header::USER_AGENT,
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        );
+    let mut request = client.get(url).header(
+        reqwest::header::USER_AGENT,
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    );
+    if let Some(range) = range {
+        eprintln!("[proxy_url] Applying Range: {} for {}", range, &url[..url.len().min(80)]);
+        request = request.header(reqwest::header::RANGE, range);
+    }
     let response = apply_request_headers(request, headers)
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("proxy request failed: {status}"));
+    let status = response.status().as_u16();
+
+    // hls.js needs 206 Partial Content for range requests; 416 is Range Not Satisfiable
+    if range.is_some() && status == 416 {
+        return Err(format!("Range header not satisfiable (416) for {}", &url[..url.len().min(80)]));
     }
+
+    // Accept both 200 (no range support) and 206 (partial content)
+    if !(status == 200 || status == 206) {
+        return Err(format!("proxy request failed: HTTP {}", status));
+    }
+
+    let content_range = response
+        .headers()
+        .get("content-range")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
     let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    Ok(SegmentProxyResponse {
+        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        content_range,
+        status,
+    })
+}
+
+/// Internal segment fetch that supports Range header and returns full response metadata.
+pub(crate) async fn fetch_hls_segment_internal(
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+    referer: Option<&str>,
+    range: Option<&str>,
+) -> Result<crate::commands::player::SegmentProxyResponse, String> {
+    let request_headers = build_hls_request_headers(headers, referer);
+    let client = build_client()?;
+    proxy_url_with_headers(&client, url, request_headers.as_ref(), range).await
 }
 
 pub(crate) async fn fetch_hls_manifest_internal(
@@ -757,7 +793,8 @@ pub(crate) async fn fetch_hls_manifest_internal(
     // For non-manifest URLs (segments), use binary proxy
     if !url.contains(".m3u8") {
         let client = build_client()?;
-        return proxy_url_with_retry(&client, url, request_headers.as_ref(), referer).await;
+        let resp = proxy_url_with_retry(&client, url, request_headers.as_ref(), referer).await?;
+        return Ok(resp.data); // base64-encoded body
     }
 
     let client = build_client()?;
