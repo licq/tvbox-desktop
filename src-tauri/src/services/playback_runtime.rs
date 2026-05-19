@@ -1862,6 +1862,10 @@ mod tests {
         );
     }
 
+    // -------------------------------------------------------------------------
+    // Tests for parallel probing concurrency and health-based sorting
+    // -------------------------------------------------------------------------
+
     fn unique_test_dir() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1869,4 +1873,197 @@ mod tests {
             .as_nanos();
         std::env::temp_dir().join(format!("tvbox-playback-runtime-test-{}", nanos))
     }
+
+    /// Verifies the Semaphore(2) actually limits concurrent probe execution.
+    /// Spawns 5 tasks each holding the permit for 50ms; asserts max 2 concurrent.
+    #[tokio::test]
+    async fn parallel_probing_concurrency_limit() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use tokio::sync::Semaphore;
+        use futures::stream::FuturesUnordered;
+        use futures::StreamExt;
+
+        let semaphore = Arc::new(Semaphore::new(2));
+        let max_concurrent = AtomicUsize::new(0);
+        let current_concurrent = AtomicUsize::new(0);
+
+        let tasks: Vec<_> = (0..5u8)
+            .map(|i| {
+                let permit = semaphore.clone();
+                let max_ref = &max_concurrent;
+                let cur_ref = &current_concurrent;
+                async move {
+                    let _guard = permit.acquire().await.expect("semaphore not closed");
+                    let count = cur_ref.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_ref.fetch_max(count, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    cur_ref.fetch_sub(1, Ordering::SeqCst);
+                    i
+                }
+            })
+            .collect();
+
+        let mut futures = FuturesUnordered::new();
+        for t in tasks {
+            futures.push(t);
+        }
+
+        let mut results = Vec::new();
+        while let Some(v) = futures.next().await {
+            results.push(v);
+        }
+
+        assert_eq!(results.len(), 5, "all 5 tasks must complete");
+        assert_eq!(
+            max_concurrent.load(Ordering::SeqCst),
+            2,
+            "at most 2 tasks should run concurrently"
+        );
+    }
+
+    /// Verifies that `sort_targets_by_health` places playable targets before
+    /// failed targets regardless of insertion order.
+    #[test]
+    fn health_sort_orders_playable_before_failed() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        // Cache a "failed" record for target B
+        let b_hash = crate::services::storage::playback_cache::hash_playback_target(
+            "https://cdn.example.com/b/index.m3u8",
+            None,
+            None,
+        );
+        upsert_playback_health(
+            &storage,
+            &b_hash,
+            "failed",
+            false,
+            false,
+            true,
+            Some(404),
+            Some("not found"),
+            1800,
+        )
+        .expect("health should persist");
+
+        // Cache a "playable" record for target A
+        let a_hash = crate::services::storage::playback_cache::hash_playback_target(
+            "https://cdn.example.com/a/index.m3u8",
+            None,
+            None,
+        );
+        upsert_playback_health(
+            &storage,
+            &a_hash,
+            "playable",
+            true,
+            true,
+            true,
+            Some(200),
+            None,
+            3600,
+        )
+        .expect("health should persist");
+
+        // Insert in reversed order: failed first, playable second
+        let targets = vec![
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/b/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/a/index.m3u8",
+            ),
+        ];
+
+        let sorted = sort_targets_by_health(&storage, &targets);
+        assert_eq!(
+            sorted[0].target_url, "https://cdn.example.com/a/index.m3u8",
+            "playable target A must come before failed target B"
+        );
+        assert_eq!(
+            sorted[1].target_url, "https://cdn.example.com/b/index.m3u8",
+            "failed target B must come after playable target A"
+        );
+    }
+
+    /// Verifies that `FuturesUnordered` drains every future: no result is dropped
+    /// even when tasks complete in a different order than they were spawned.
+    #[tokio::test]
+    async fn parallel_probing_collects_all_results() {
+        use futures::stream::FuturesUnordered;
+        use futures::StreamExt;
+
+        let tasks: Vec<_> = (0..5u8)
+            .map(|i| async move {
+                let delay = match i {
+                    0 => 40,
+                    1 => 10,
+                    2 => 30,
+                    3 => 5,
+                    4 => 20,
+                    _ => 0,
+                };
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                i
+            })
+            .collect();
+
+        let mut futures = FuturesUnordered::new();
+        for t in tasks {
+            futures.push(t);
+        }
+
+        let mut results: Vec<u8> = Vec::with_capacity(5);
+        while let Some(v) = futures.next().await {
+            results.push(v);
+        }
+
+        results.sort();
+        assert_eq!(results, vec![0, 1, 2, 3, 4], "all 5 results must be collected");
+    }
+
+    /// Verifies that targets with identical health status preserve their
+    /// insertion order (stable sort).
+    #[test]
+    fn health_sort_is_stable() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        let targets = vec![
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/alpha/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/beta/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/gamma/index.m3u8",
+            ),
+        ];
+
+        let sorted = sort_targets_by_health(&storage, &targets);
+        assert_eq!(
+            sorted[0].target_url, "https://cdn.example.com/alpha/index.m3u8",
+            "first target must retain its position (stable sort)"
+        );
+        assert_eq!(
+            sorted[1].target_url, "https://cdn.example.com/beta/index.m3u8",
+            "second target must retain its position (stable sort)"
+        );
+        assert_eq!(
+            sorted[2].target_url, "https://cdn.example.com/gamma/index.m3u8",
+            "third target must retain its position (stable sort)"
+        );
+    }
+
 }
