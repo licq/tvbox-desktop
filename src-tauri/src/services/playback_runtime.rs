@@ -10,10 +10,100 @@ use crate::services::resolver::{
 use crate::services::storage::{
     playback_cache::{
         get_playback_health, hash_playback_target, list_playback_targets,
-        replace_playback_targets, upsert_playback_health, PlaybackTargetRecord,
+        replace_playback_targets, upsert_playback_health, PlaybackHealthRecord,
+        PlaybackTargetRecord,
     },
     Storage,
 };
+
+/// Health-based sort order for pre-probe prioritization:
+/// (a) playable first, (b) failed-transient second, (c) failed-permanent third, (d) no-record last.
+/// Ordering is stable so targets with the same health status preserve insertion order.
+fn sort_targets_by_health(
+    storage: &Storage,
+    targets: &[PlaybackTarget],
+) -> Vec<PlaybackTarget> {
+    let mut indexed: Vec<(usize, HealthRank, PlaybackTarget)> = Vec::with_capacity(targets.len());
+
+    for (i, target) in targets.iter().enumerate() {
+        let rank = health_rank(storage, target);
+        indexed.push((i, rank, target.clone()));
+    }
+
+    indexed.sort_by(|left, right| {
+        // Primary: health rank (lower = more preferred)
+        left.1.cmp(&right.1)
+            // Stable: preserve insertion order for equal rank
+            .then_with(|| left.0.cmp(&right.0))
+    });
+
+    indexed.into_iter().map(|(_, _, t)| t).collect()
+}
+
+/// Returns the health-based sort priority for a single target.
+/// Uses classify_probe_failure internally to distinguish transient vs permanent failures.
+fn health_rank(storage: &Storage, target: &PlaybackTarget) -> HealthRank {
+    let target_hash = hash_playback_target(
+        &target.target_url,
+        target.headers.as_ref(),
+        target.referer.as_deref(),
+    );
+    let record = match get_playback_health(storage, &target_hash) {
+        Ok(Some(r)) => r,
+        Ok(None) | Err(_) => return HealthRank::NoRecord,
+    };
+
+    if record.status == "playable" {
+        return HealthRank::Playable;
+    }
+
+    // Classify failure kind using the existing failure classification logic
+    let failure_class = classify_health_failure(target, &record);
+    match failure_class {
+        // Dead-link (404/410) and CORS failures are permanent-ish — probe less often
+        ProbeFailureClass::DeadLink | ProbeFailureClass::BrowserCors => {
+            HealthRank::FailedPermanent
+        }
+        // Embedded / external are disabled — treat as permanent
+        ProbeFailureClass::Embedded | ProbeFailureClass::ExternalRequired => {
+            HealthRank::FailedPermanent
+        }
+        // Upstream transient and unknown are more likely to recover
+        ProbeFailureClass::UpstreamTransient | ProbeFailureClass::Unsupported | ProbeFailureClass::Unknown => {
+            HealthRank::FailedTransient
+        }
+    }
+}
+
+/// Classify a failure purely from a cached PlaybackHealthRecord (no live probe needed).
+fn classify_health_failure(_target: &PlaybackTarget, record: &PlaybackHealthRecord) -> ProbeFailureClass {
+    match record.http_status {
+        Some(403 | 404 | 410) => ProbeFailureClass::DeadLink,
+        Some(429 | 500 | 502 | 503 | 504) => ProbeFailureClass::UpstreamTransient,
+        _ => {
+            if !record.cors_ok || record.failure_reason.as_ref().is_some_and(|r| r.to_ascii_lowercase().contains("cors")) {
+                ProbeFailureClass::BrowserCors
+            } else if record.failure_reason.as_ref().is_some_and(|r| {
+                let normalized = r.to_ascii_lowercase();
+                normalized.contains("not desktop playable")
+                    || normalized.contains("external")
+                    || normalized.contains("embedded")
+            }) {
+                ProbeFailureClass::Unsupported
+            } else {
+                ProbeFailureClass::Unknown
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum HealthRank {
+    Playable = 0,
+    FailedTransient = 1,
+    FailedPermanent = 2,
+    NoRecord = 3,
+}
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::info;
 use std::collections::{HashMap, HashSet};
@@ -135,9 +225,21 @@ pub async fn resolve_and_probe_targets(
     let semaphore = Semaphore::new(2);
 
     // Separate Direct targets (probed concurrently) from other kinds (handled sequentially)
-    let (direct_targets, other_targets): (Vec<_>, Vec<_>) = targets
+    let (mut direct_targets, other_targets): (Vec<_>, Vec<_>) = targets
         .into_iter()
         .partition(|t| matches!(t.target_kind, PlaybackTargetKind::Direct));
+
+    // Sort Direct targets by cached health so known-good sources are probed first
+    let sorted_direct = sort_targets_by_health(storage, &direct_targets);
+    let sorted_probe_order: Vec<String> = sorted_direct
+        .iter()
+        .map(|t| t.source_key.clone())
+        .collect();
+    info!(
+        "[probe_parallel] sorted_probe_order sources={}",
+        sorted_probe_order.join(",")
+    );
+    direct_targets = sorted_direct;
 
     // Probe Direct targets concurrently with semaphore(2) limiting
     if !direct_targets.is_empty() {
@@ -788,9 +890,9 @@ mod tests {
         filter_presentable_targets, parse_headers_json, failed_probe_ttl_seconds,
         maybe_cached_targets_for_episode, prioritize_recently_successful_candidates,
         persist_runtime_targets_for_episode, playable_probe_ttl_seconds, probe_ttl_seconds,
-        resolved_failure_status, summarize_runtime_failures, target_kind_label, ProbeFailureClass,
-        resolve_playback_for_input, sort_runtime_candidates, to_resolved_playback,
-        RuntimeResolvedCandidate,
+        resolve_playback_for_input, resolved_failure_status, sort_runtime_candidates,
+        sort_targets_by_health, summarize_runtime_failures, target_kind_label,
+        to_resolved_playback, RuntimeResolvedCandidate, ProbeFailureClass,
     };
     use crate::services::playback_types::{
         PlaybackProbeResult, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
@@ -1528,6 +1630,176 @@ mod tests {
         let probe = PlaybackProbeResult::failed("target kind is not desktop playable", None);
 
         assert_eq!(classify_probe_failure(&target, &probe), ProbeFailureClass::Embedded);
+    }
+
+    #[test]
+    fn sorts_playable_targets_ahead_of_no_record_targets() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        let first_hash =
+            crate::services::storage::playback_cache::hash_playback_target(
+                "https://cdn.example.com/second/index.m3u8",
+                None,
+                None,
+            );
+        upsert_playback_health(
+            &storage,
+            &first_hash,
+            "playable",
+            true,
+            true,
+            true,
+            Some(200),
+            None,
+            3600,
+        )
+        .expect("health should persist");
+
+        let targets = vec![
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/first/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/second/index.m3u8",
+            ),
+        ];
+
+        let sorted = sort_targets_by_health(&storage, &targets);
+        assert_eq!(sorted[0].target_url, "https://cdn.example.com/second/index.m3u8");
+        assert_eq!(sorted[1].target_url, "https://cdn.example.com/first/index.m3u8");
+    }
+
+    #[test]
+    fn sorts_failed_transient_targets_ahead_of_failed_permanent_targets() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        let transient_hash =
+            crate::services::storage::playback_cache::hash_playback_target(
+                "https://cdn.example.com/transient/index.m3u8",
+                None,
+                None,
+            );
+        upsert_playback_health(
+            &storage,
+            &transient_hash,
+            "failed",
+            true,
+            true,
+            false,
+            Some(502),
+            Some("upstream timeout"),
+            600,
+        )
+        .expect("health should persist");
+
+        let dead_hash =
+            crate::services::storage::playback_cache::hash_playback_target(
+                "https://cdn.example.com/dead/index.m3u8",
+                None,
+                None,
+            );
+        upsert_playback_health(
+            &storage,
+            &dead_hash,
+            "failed",
+            false,
+            false,
+            true,
+            Some(404),
+            Some("not found"),
+            1800,
+        )
+        .expect("health should persist");
+
+        let targets = vec![
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/dead/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/transient/index.m3u8",
+            ),
+        ];
+
+        let sorted = sort_targets_by_health(&storage, &targets);
+        assert_eq!(sorted[0].target_url, "https://cdn.example.com/transient/index.m3u8");
+        assert_eq!(sorted[1].target_url, "https://cdn.example.com/dead/index.m3u8");
+    }
+
+    #[test]
+    fn sorts_no_record_targets_after_all_others() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        let known_hash =
+            crate::services::storage::playback_cache::hash_playback_target(
+                "https://cdn.example.com/known/index.m3u8",
+                None,
+                None,
+            );
+        upsert_playback_health(
+            &storage,
+            &known_hash,
+            "playable",
+            true,
+            true,
+            true,
+            Some(200),
+            None,
+            3600,
+        )
+        .expect("health should persist");
+
+        let targets = vec![
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/unknown/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/known/index.m3u8",
+            ),
+        ];
+
+        let sorted = sort_targets_by_health(&storage, &targets);
+        assert_eq!(sorted[0].target_url, "https://cdn.example.com/known/index.m3u8");
+        assert_eq!(sorted[1].target_url, "https://cdn.example.com/unknown/index.m3u8");
+    }
+
+    #[test]
+    fn preserves_insertion_order_for_targets_with_equal_health_rank() {
+        let storage = Storage::new(unique_test_dir()).expect("storage should initialize");
+
+        let targets = vec![
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/alpha/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/beta/index.m3u8",
+            ),
+            target(
+                PlaybackTargetKind::Direct,
+                "jianpian",
+                "https://cdn.example.com/gamma/index.m3u8",
+            ),
+        ];
+
+        let sorted = sort_targets_by_health(&storage, &targets);
+        assert_eq!(sorted[0].target_url, "https://cdn.example.com/alpha/index.m3u8");
+        assert_eq!(sorted[1].target_url, "https://cdn.example.com/beta/index.m3u8");
+        assert_eq!(sorted[2].target_url, "https://cdn.example.com/gamma/index.m3u8");
     }
 
     #[tokio::test]
