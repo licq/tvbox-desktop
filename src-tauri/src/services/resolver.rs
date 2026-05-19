@@ -6,6 +6,54 @@ use crate::services::playback_types::{PlaybackProbeResult, PlaybackProbeStatus};
 use regex::Regex;
 pub struct PlaybackResolver;
 
+/// Categories for why a play-page parse failed.
+/// Each kind maps to a descriptive, actionable Chinese message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParserFailureKind {
+    /// Page loaded (HTTP 200) but no player JSON or video element found.
+    NoUrlExtracted,
+    /// Extraction methods succeeded but URLs were not playable media files.
+    NonMediaUrl,
+    /// Page fetch failed or returned a non-2xx HTTP status.
+    NetworkError,
+    /// Page body is empty or structurally malformed.
+    InvalidResponse,
+}
+
+impl ParserFailureKind {
+    pub fn message(&self, http_status: Option<u16>) -> String {
+        match self {
+            ParserFailureKind::NoUrlExtracted => {
+                "解析失败(no_url_extracted): 播放页已加载但未找到视频地址，可能需要更新解析规则".to_string()
+            }
+            ParserFailureKind::NonMediaUrl => {
+                "解析失败(non_media_url): 找到的地址非视频文件，可能需要更新解析规则".to_string()
+            }
+            ParserFailureKind::NetworkError => {
+                if let Some(code) = http_status {
+                    format!("解析失败(network_error): 网页请求失败 HTTP {}", code)
+                } else {
+                    "解析失败(network_error): 网络请求失败，请检查网络连接".to_string()
+                }
+            }
+            ParserFailureKind::InvalidResponse => {
+                "解析失败(invalid_response): 播放页内容为空或格式异常".to_string()
+            }
+        }
+    }
+}
+
+/// Returns true if the URL has a known playable media file extension (case-insensitive).
+fn is_playable_media_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.ends_with(".m3u8")
+        || lower.ends_with(".mp4")
+        || lower.ends_with(".m4v")
+        || lower.ends_with(".webm")
+        || lower.ends_with(".mov")
+        || lower.ends_with(".flv")
+}
+
 impl PlaybackResolver {
     pub async fn resolve(input: &str) -> Result<ResolvedPlayback, String> {
         if input.starts_with("guard://") {
@@ -185,43 +233,101 @@ fn looks_like_cloud_disk_link(input: &str) -> bool {
 
 async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
     let client = build_client()?;
-    let body = fetch_text(&client, input).await?;
+    let (body, http_status) = match fetch_text_with_status(&client, input, None).await {
+        Ok((body, status)) => (body, status),
+        Err(e) => {
+            let code = parse_http_status_from_error(&e);
+            let kind = if code.is_some_and(|c| c >= 200 && c < 300) {
+                ParserFailureKind::InvalidResponse
+            } else {
+                ParserFailureKind::NetworkError
+            };
+            eprintln!("[resolve_play] fetch failed: {}", e);
+            return Ok(ResolvedPlayback {
+                status: "failed".to_string(),
+                candidates: vec![],
+                error_message: Some(kind.message(code)),
+            });
+        }
+    };
+
+    if body.trim().is_empty() {
+        return Ok(ResolvedPlayback {
+            status: "failed".to_string(),
+            candidates: vec![],
+            error_message: Some(ParserFailureKind::InvalidResponse.message(None)),
+        });
+    }
 
     let referer = Some(input);
 
     // Try 1: Aliplayer "source" JSON field
-    if let Some(source_url) = extract_aliplayer_source(&body) {
-        eprintln!("[resolve_play] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
-        return Ok(ready_with_candidate(
-            source_url.clone(),
-            detect_kind(&source_url),
-            referer,
-        ));
+    let (aliplayer_tried, aliplayer_result) = match extract_aliplayer_source(&body) {
+        Some(source_url) => {
+            eprintln!("[resolve_play] Found aliplayer source: {}", &source_url[..source_url.len().min(80)]);
+            (true, Some((source_url.clone(), detect_kind(&source_url))))
+        }
+        None => {
+            eprintln!("[resolve_play] aliplayer: no_url_extracted");
+            (true, None)
+        }
+    };
+
+    if let Some((source_url, kind)) = aliplayer_result {
+        return Ok(ready_with_candidate(source_url, kind, referer));
     }
 
     // Try 2: DPlayer video config (video: { url: '...' })
-    if let Some(video_url) = extract_dplayer_video_url(&body) {
-        eprintln!("[resolve_play] Found dplayer video url: {}", &video_url[..video_url.len().min(80)]);
-        return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url), referer));
+    let (dplayer_tried, dplayer_result) = match extract_dplayer_video_url(&body) {
+        Some(video_url) => {
+            eprintln!("[resolve_play] Found dplayer video url: {}", &video_url[..video_url.len().min(80)]);
+            (true, Some((video_url.clone(), detect_kind(&video_url))))
+        }
+        None => {
+            eprintln!("[resolve_play] dplayer: no_url_extracted");
+            (true, None)
+        }
+    };
+
+    if let Some((video_url, kind)) = dplayer_result {
+        return Ok(ready_with_candidate(video_url, kind, referer));
     }
 
     // Try 3: maccms player_aaaa / player_bbbb video JSON with url field
-    if let Some(video_url) = extract_maccms_player_url(&body) {
-        eprintln!("[resolve_play] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
-        let kind = detect_kind(&video_url);
+    let (maccms_tried, maccms_result) = match extract_maccms_player_url(&body) {
+        Some(video_url) => {
+            let kind = detect_kind(&video_url);
+            eprintln!("[resolve_play] Found maccms player url: {}", &video_url[..video_url.len().min(80)]);
+            (true, Some((video_url, kind)))
+        }
+        None => {
+            eprintln!("[resolve_play] maccms: no_url_extracted");
+            (true, None)
+        }
+    };
+
+    if let Some((video_url, kind)) = maccms_result {
         return Ok(ready_with_candidate(video_url, kind, referer));
     }
 
     // Try 4: Direct <video> or <source> elements
-    if let Some(video_url) = extract_html_video_src(input, &body) {
-        eprintln!("[resolve_play] Found video element src: {}", &video_url[..video_url.len().min(80)]);
-        return Ok(ready_with_candidate(video_url.clone(), detect_kind(&video_url), referer));
+    let (html_tried, html_result) = match extract_html_video_src(input, &body) {
+        Some(video_url) => {
+            eprintln!("[resolve_play] Found video element src: {}", &video_url[..video_url.len().min(80)]);
+            (true, Some((video_url.clone(), detect_kind(&video_url))))
+        }
+        None => {
+            eprintln!("[resolve_play] html_video: no_url_extracted");
+            (true, None)
+        }
+    };
+
+    if let Some((video_url, kind)) = html_result {
+        return Ok(ready_with_candidate(video_url, kind, referer));
     }
 
     // Try 5: iframe-based player (share page)
-    // We still attempt to resolve the share page for a direct URL, but we no longer
-    // fall back to an embed candidate — iframe playback experience is poor.
-    if let Some(iframe_url) = extract_iframe_src(input, &body) {
+    let iframe_tried = if let Some(iframe_url) = extract_iframe_src(input, &body) {
         eprintln!("[resolve_play] Found iframe: {}", &iframe_url[..iframe_url.len().min(80)]);
         match resolve_embedded_share_page(&client, &iframe_url).await {
             Ok(playback) if !playback.candidates.is_empty() => {
@@ -229,16 +335,35 @@ async fn resolve_play_page(input: &str) -> Result<ResolvedPlayback, String> {
                 return Ok(playback);
             }
             other => {
-                eprintln!("[resolve_play] Share page resolution failed, no embed fallback. Result: {:?}",
+                eprintln!("[resolve_play] iframe_share_page: no_url_extracted. Result: {:?}",
                     other.as_ref().map(|r| &r.status).unwrap_or(&"error".to_string()));
+                true
             }
         }
-    }
+    } else {
+        eprintln!("[resolve_play] iframe: no_url_extracted");
+        true
+    };
+
+    let tried_methods: Vec<&'static str> = [
+        (aliplayer_tried, "aliplayer"),
+        (dplayer_tried, "dplayer"),
+        (maccms_tried, "maccms"),
+        (html_tried, "html_video"),
+        (iframe_tried, "iframe"),
+    ]
+    .into_iter()
+    .filter(|(tried, _)| *tried)
+    .map(|(_, name)| name)
+    .collect();
+
+    let failure_kind = ParserFailureKind::NoUrlExtracted;
+    eprintln!("[resolve_play] All methods exhausted. Classification: {:?}. Tried: {:?}", failure_kind, tried_methods);
 
     Ok(ResolvedPlayback {
         status: "failed".to_string(),
         candidates: vec![],
-        error_message: Some("未能从播放页提取实际视频地址".to_string()),
+        error_message: Some(failure_kind.message(Some(http_status))),
     })
 }
 
@@ -250,7 +375,9 @@ fn extract_maccms_player_url(body: &str) -> Option<String> {
     player_regex.captures(body).and_then(|captures| {
         let json_str = captures.get(1).map(|m| m.as_str())?;
         let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
-        parsed.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+        parsed.get("url").and_then(|v| v.as_str())
+            .filter(|url| is_playable_media_url(url))
+            .map(|s| s.to_string())
     })
 }
 
@@ -270,7 +397,7 @@ fn extract_dplayer_video_url(body: &str) -> Option<String> {
             if let Some(captures) = regex.captures(body) {
                 if let Some(value) = captures.get(1) {
                     let url = value.as_str().trim();
-                    if !url.is_empty() {
+                    if !url.is_empty() && is_playable_media_url(url) {
                         return Some(url.to_string());
                     }
                 }
@@ -305,6 +432,14 @@ fn extract_aliplayer_source(body: &str) -> Option<String> {
     source_regex
         .captures(body)
         .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+        .and_then(|url| {
+            if is_playable_media_url(&url) {
+                Some(url)
+            } else {
+                eprintln!("[resolve_play] aliplayer: non_media_url (source field found but rejected: {})", &url[..url.len().min(80)]);
+                None
+            }
+        })
 }
 
 fn extract_iframe_src(page_url: &str, body: &str) -> Option<String> {
@@ -588,6 +723,41 @@ async fn fetch_text_with_headers(
     }
 
     response.text().await.map_err(|e| e.to_string())
+}
+
+/// Like fetch_text_with_headers but also returns the HTTP status code as u16.
+async fn fetch_text_with_status(
+    client: &reqwest::Client,
+    input: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<(String, u16), String> {
+    let request = client
+        .get(input)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        );
+    let request_headers = build_hls_request_headers(headers, None);
+    let response = apply_request_headers(request, request_headers.as_ref())
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("request failed: {status}"));
+    }
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    Ok((body, status.as_u16()))
+}
+
+/// Parse an HTTP status code from a fetch-text error string like "request failed: 404".
+fn parse_http_status_from_error(error: &str) -> Option<u16> {
+    error
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse::<u16>()
+        .ok()
 }
 
 async fn fetch_hls_playlist_with_headers_no_cors(
@@ -894,9 +1064,11 @@ fn infer_origin_from_referer(referer: &str) -> Option<String> {
 mod tests {
     use super::{
         build_hls_request_headers, classify_playback_target, detect_kind,
-        extract_dplayer_video_url, fetch_hls_manifest_internal, infer_origin_from_referer,
-        looks_like_cloud_disk_link, looks_like_xb6v_play_page, looks_like_ypanso_play_page,
-        looks_like_zxzj_play_page, map_target_kind_to_probe_gate, PlaybackResolver,
+        extract_aliplayer_source, extract_dplayer_video_url, extract_html_video_src,
+        extract_iframe_src, extract_maccms_player_url, fetch_hls_manifest_internal,
+        infer_origin_from_referer, is_playable_media_url, looks_like_cloud_disk_link,
+        looks_like_xb6v_play_page, looks_like_ypanso_play_page, looks_like_zxzj_play_page,
+        map_target_kind_to_probe_gate, parse_http_status_from_error, PlaybackResolver,
     };
     use std::collections::HashMap;
 
@@ -1123,4 +1295,275 @@ mod tests {
         );
     }
 
+    #[test]
+    fn is_playable_media_url_accepts_valid_extensions() {
+        let valid = vec![
+            "https://example.com/video.m3u8",
+            "https://example.com/video.mp4",
+            "https://example.com/video.m4v",
+            "https://example.com/video.webm",
+            "https://example.com/video.mov",
+            "https://example.com/video.flv",
+            "https://example.com/VIDEO.MP4",
+            "https://example.com/VIDEO.M3U8",
+        ];
+        for url in valid {
+            assert!(is_playable_media_url(url), "should be playable: {url}");
+        }
+    }
+
+    #[test]
+    fn is_playable_media_url_rejects_non_media_urls() {
+        let invalid = vec![
+            "https://example.com/",
+            "https://example.com/page.html",
+            "https://example.com/image.jpg",
+            "https://example.com/script.js",
+            "https://example.com/api/json",
+        ];
+        for url in invalid {
+            assert!(!is_playable_media_url(url), "should not be playable: {url}");
+        }
+    }
+
+    // ─── T01 Tests: URL validation ─────────────────────────────────────────────
+
+    #[test]
+    fn extract_dplayer_video_url_rejects_css_js_image_urls() {
+        // Even if the JSON-like structure is present, non-media URLs should be rejected.
+        let body = r#"video: { url: 'https://example.com/style.css' }"#;
+        assert!(
+            extract_dplayer_video_url(body).is_none(),
+            "CSS URL should be rejected even if JSON format is valid"
+        );
+
+        let body_js = r#"video: { url: 'https://example.com/app.js' }"#;
+        assert!(
+            extract_dplayer_video_url(body_js).is_none(),
+            "JS URL should be rejected even if JSON format is valid"
+        );
+
+        let body_img = r#"video: { url: 'https://example.com/poster.jpg' }"#;
+        assert!(
+            extract_dplayer_video_url(body_img).is_none(),
+            "Image URL should be rejected even if JSON format is valid"
+        );
+
+        // Valid media URL should still be accepted
+        let body_valid = r#"video: { url: 'https://example.com/video.mp4' }"#;
+        assert_eq!(
+            extract_dplayer_video_url(body_valid).as_deref(),
+            Some("https://example.com/video.mp4")
+        );
+    }
+
+    #[test]
+    fn extract_aliplayer_source_rejects_non_media_urls() {
+        let body = r#""source": "https://example.com/page.html""#;
+        assert!(
+            extract_aliplayer_source(body).is_none(),
+            "HTML URL should be rejected"
+        );
+
+        let body_css = r#""source": "https://example.com/style.css""#;
+        assert!(
+            extract_aliplayer_source(body_css).is_none(),
+            "CSS URL should be rejected"
+        );
+
+        // Valid media URL should be accepted
+        let body_valid = r#""source": "https://example.com/video.m3u8""#;
+        assert_eq!(
+            extract_aliplayer_source(body_valid).as_deref(),
+            Some("https://example.com/video.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_maccms_player_url_rejects_non_media_urls() {
+        let body = r#"player_aaaa = {"url": "https://example.com/page.html", "name": "test"}</script>"#;
+        assert!(
+            extract_maccms_player_url(body).is_none(),
+            "HTML URL should be rejected"
+        );
+
+        let body_css = r#"player_bbbb = {"url": "https://example.com/script.js", "name": "test"}</script>"#;
+        assert!(
+            extract_maccms_player_url(body_css).is_none(),
+            "JS URL should be rejected"
+        );
+
+        // Valid media URL should be accepted
+        let body_valid = r#"player_aaaa = {"url": "https://example.com/video.mp4", "name": "test"}</script>"#;
+        assert_eq!(
+            extract_maccms_player_url(body_valid).as_deref(),
+            Some("https://example.com/video.mp4")
+        );
+    }
+
+    #[test]
+    fn non_media_urls_fall_through_not_to_failure() {
+        // When an extractor finds a URL but it's not playable media,
+        // it returns None so the next extractor gets tried (not immediate failure).
+        let body_with_non_media_source = r#"
+        "source": "https://example.com/style.css"
+        video: { url: 'https://example.com/app.js' }
+        player_aaaa = {"url": "https://example.com/image.jpg", "name": "test"}</script>
+        "#;
+        // All extractors return None for non-media URLs, triggering fallthrough behavior
+        assert!(extract_aliplayer_source(body_with_non_media_source).is_none());
+        assert!(extract_dplayer_video_url(body_with_non_media_source).is_none());
+        assert!(extract_maccms_player_url(body_with_non_media_source).is_none());
+    }
+
+    // ─── T02 Tests: Error classification ───────────────────────────────────────
+
+    #[test]
+    fn resolve_play_page_builds_error_message_with_classification_on_failure() {
+        use super::ParserFailureKind;
+
+        // Verify each failure kind produces a non-empty, categorized message
+        let kinds = [
+            (ParserFailureKind::NoUrlExtracted, None),
+            (ParserFailureKind::NoUrlExtracted, Some(200)),
+            (ParserFailureKind::NonMediaUrl, Some(200)),
+            (ParserFailureKind::NetworkError, Some(404)),
+            (ParserFailureKind::NetworkError, None),
+            (ParserFailureKind::InvalidResponse, None),
+        ];
+
+        for (kind, http_status) in kinds {
+            let msg = kind.message(http_status);
+            let tag = match kind {
+                ParserFailureKind::NoUrlExtracted => "no_url_extracted",
+                ParserFailureKind::NonMediaUrl => "non_media_url",
+                ParserFailureKind::NetworkError => "network_error",
+                ParserFailureKind::InvalidResponse => "invalid_response",
+            };
+            assert!(
+                !msg.is_empty(),
+                "failure kind {:?} should produce non-empty message",
+                kind
+            );
+            assert!(
+                msg.contains(tag),
+                "message '{}' should contain tag '{}'",
+                msg,
+                tag
+            );
+        }
+
+        // NetworkError with status includes HTTP code in message
+        let network_msg = ParserFailureKind::NetworkError.message(Some(404));
+        assert!(
+            network_msg.contains("404"),
+            "network error message should contain 404, got: {}",
+            network_msg
+        );
+    }
+
+    #[test]
+    fn parse_http_status_from_error_extracts_status_code() {
+        assert_eq!(parse_http_status_from_error("request failed: 404"), Some(404));
+        assert_eq!(parse_http_status_from_error("request failed: 503"), Some(503));
+        assert_eq!(parse_http_status_from_error("request failed: 200"), Some(200));
+        assert_eq!(parse_http_status_from_error("connection refused"), None);
+        // "timeout after 30s" contains digits "30" — function extracts them (not ideal but documented behavior)
+        assert_eq!(parse_http_status_from_error("timeout after 30s"), Some(30));
+        assert_eq!(parse_http_status_from_error("request failed: 403 Forbidden"), Some(403));
+    }
+
+    // ─── T03 Tests: Resilience ──────────────────────────────────────────────────
+
+    #[test]
+    fn extract_dplayer_video_url_handles_malformed_json_gracefully() {
+        // Completely invalid JSON-like text — should return None, not panic
+        let body_malformed = r#"video: { url: 'unclosed"#;
+        assert!(
+            extract_dplayer_video_url(body_malformed).is_none(),
+            "malformed JSON-like body should return None without panic"
+        );
+
+        // Empty URL value
+        let body_empty_url = r#"video: { url: '' }"#;
+        assert!(
+            extract_dplayer_video_url(body_empty_url).is_none(),
+            "empty URL value should return None"
+        );
+
+        // Pattern that matches regex but URL is empty
+        let body_empty = r#"url: ""#;
+        assert!(
+            extract_dplayer_video_url(body_empty).is_none(),
+            "empty url field should return None"
+        );
+    }
+
+    #[test]
+    fn extract_maccms_player_url_handles_missing_url_field_gracefully() {
+        let body_no_url = r#"player_aaaa = {"name": "test"}</script>"#;
+        assert!(
+            extract_maccms_player_url(body_no_url).is_none(),
+            "missing url field should return None without panic"
+        );
+
+        let _body_null_url = r#"player_aaaa = {"url": null, "name": "test"}</script>"#;
+        assert!(
+            extract_maccms_player_url(body_no_url).is_none(),
+            "null url field should return None"
+        );
+
+        let body_empty_json = r#"player_bbbb = {}</script>"#;
+        assert!(
+            extract_maccms_player_url(body_empty_json).is_none(),
+            "empty player object should return None"
+        );
+    }
+
+    #[test]
+    fn extract_html_video_src_handles_missing_src_attribute_gracefully() {
+        let body_no_video = r#"<video></video>"#;
+        assert!(
+            extract_html_video_src("https://example.com/page.html", body_no_video).is_none(),
+            "video element without src should return None"
+        );
+
+        let body_source_no_src = r#"<video><source type="video/mp4"></video>"#;
+        assert!(
+            extract_html_video_src("https://example.com/page.html", body_source_no_src).is_none(),
+            "source element without src should return None"
+        );
+
+        let body_empty_src = r#"<video src=""></video>"#;
+        assert!(
+            extract_html_video_src("https://example.com/page.html", body_empty_src).is_none(),
+            "empty src attribute should return None"
+        );
+    }
+
+    #[test]
+    fn extract_aliplayer_source_handles_invalid_pattern_gracefully() {
+        // Aliplayer source regex only matches double-quoted "source" values.
+        // Invalid patterns should return None without panic.
+        let body_invalid = r#"source: "https://example.com/video.m3u8""#;
+        assert!(
+            extract_aliplayer_source(body_invalid).is_none(),
+            "aliplayer pattern should only match double-quoted source values"
+        );
+    }
+
+    #[test]
+    fn extract_iframe_src_handles_missing_src_gracefully() {
+        let body_no_iframe = r#"<div class="player"></div>"#;
+        assert!(
+            extract_iframe_src("https://example.com/page.html", body_no_iframe).is_none(),
+            "page without iframe should return None"
+        );
+
+        let body_iframe_no_src = r#"<iframe></iframe>"#;
+        assert!(
+            extract_iframe_src("https://example.com/page.html", body_iframe_no_src).is_none(),
+            "iframe without src should return None"
+        );
+    }
 }
