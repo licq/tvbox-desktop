@@ -14,8 +14,11 @@ use crate::services::storage::{
     },
     Storage,
 };
+use futures::stream::{FuturesUnordered, StreamExt};
+use log::info;
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Semaphore;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeResolvedCandidate {
@@ -129,13 +132,54 @@ pub async fn resolve_and_probe_targets(
     force_refresh: bool,
 ) -> Result<Vec<RuntimeResolvedCandidate>, String> {
     let mut resolved = Vec::new();
+    let semaphore = Semaphore::new(2);
 
-    for target in targets {
+    // Separate Direct targets (probed concurrently) from other kinds (handled sequentially)
+    let (direct_targets, other_targets): (Vec<_>, Vec<_>) = targets
+        .into_iter()
+        .partition(|t| matches!(t.target_kind, PlaybackTargetKind::Direct));
+
+    // Probe Direct targets concurrently with semaphore(2) limiting
+    if !direct_targets.is_empty() {
+        let mut futures = FuturesUnordered::new();
+        for target in direct_targets {
+            let permit = semaphore.acquire().await.expect("semaphore not closed");
+            let storage = storage.clone();
+            let client = client.clone();
+            let target_url = target.target_url.clone();
+
+            info!(
+                "[probe_parallel] start target={} url={}",
+                target.source_key, target_url
+            );
+            let start = std::time::Instant::now();
+
+            futures.push(async move {
+                let probe =
+                    cached_or_probed_result(&storage, &client, &target, force_refresh).await;
+                drop(permit); // release permit immediately after probe completes
+                let duration_ms = start.elapsed().as_millis() as u64;
+                let status = probe
+                    .as_ref()
+                    .map(|p| format!("{:?}", p.status))
+                    .unwrap_or_else(|e| format!("error:{}", e));
+                info!(
+                    "[probe_parallel] done target={} url={} status={} duration_ms={}",
+                    target.source_key, target_url, status, duration_ms
+                );
+                (target, probe)
+            });
+        }
+
+        while let Some(result) = futures.next().await {
+            let (target, probe) = result;
+            resolved.push(RuntimeResolvedCandidate { target, probe: probe? });
+        }
+    }
+
+    // Handle Resolvable and other target kinds sequentially
+    for target in other_targets {
         match target.target_kind {
-            PlaybackTargetKind::Direct => {
-                let probe = cached_or_probed_result(storage, client, &target, force_refresh).await?;
-                resolved.push(RuntimeResolvedCandidate { target, probe });
-            }
             PlaybackTargetKind::Resolvable => {
                 let playback = PlaybackResolver::resolve(&target.target_url).await?;
                 resolved.extend(expand_resolved_playback(
@@ -163,6 +207,10 @@ pub async fn resolve_and_probe_targets(
                         probe: PlaybackProbeResult::failed("target kind is not desktop playable", None),
                     });
                 }
+            }
+            PlaybackTargetKind::Direct => {
+                // Already handled in the concurrent branch above
+                unreachable!()
             }
         }
     }
