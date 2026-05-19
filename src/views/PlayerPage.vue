@@ -1632,21 +1632,74 @@ async function initHlsPlayer(source: PlayerSource, forceBrowserHls = false) {
           }
           const requestKind = classifyPlaybackRequest(requestUrl)
           if (requestKind === 'manifest' || requestKind === 'segment') {
-                  invoke<string>('fetch_hls_manifest', { url: requestUrl, headers, referer })
-                    .then((data) => {
-                      const finalData: string | ArrayBuffer = requestKind === 'segment'
-                        ? Uint8Array.from(atob(data), c => c.charCodeAt(0)).buffer
-                        : data
-                const finalLength = typeof finalData === 'string' ? finalData.length : finalData.byteLength
-                stats.loaded = finalLength
-                stats.total = finalLength
-                callbacks.onSuccess({ data: finalData, url: requestUrl, code: 200 }, stats, context, null)
+            // Segment: extract byte range from hls.js context
+            // context.rangeStart / context.rangeEnd are byte offsets (0-indexed, inclusive).
+            // When undefined, fetch the full segment.
+            const rangeStart = context.rangeStart
+            const rangeEnd = context.rangeEnd
+            const hasRange = typeof rangeStart === 'number' || typeof rangeEnd === 'number'
+
+            if (requestKind === 'segment') {
+              const segmentRangeStart = typeof rangeStart === 'number' ? rangeStart : undefined
+              const segmentRangeEnd = typeof rangeEnd === 'number' ? rangeEnd : undefined
+
+              const invokeOptions: Record<string, unknown> = { url: requestUrl, headers, referer }
+              if (segmentRangeStart !== undefined) invokeOptions.range_start = segmentRangeStart
+              if (segmentRangeEnd !== undefined) invokeOptions.range_end = segmentRangeEnd
+
+              invoke<{ data: string; content_range?: string; status: number }>('fetch_hls_segment', invokeOptions)
+                .then((resp) => {
+                  const finalData = Uint8Array.from(atob(resp.data), c => c.charCodeAt(0)).buffer
+                  const finalLength = finalData.byteLength
+                  stats.loaded = finalLength
+                  stats.total = finalLength
+                  // hls.js uses stats.loaded to track buffer progress; report the code it expects.
+                  callbacks.onSuccess({ data: finalData, url: requestUrl, code: resp.status }, stats, context, null)
+                })
+                .catch((err) => {
+                  const errStr = String(err)
+                  // 416 Range Not Satisfiable: fall back to a full segment fetch.
+                  if (errStr.includes('416') || errStr.toLowerCase().includes('range not satisfiable')) {
+                    invoke<{ data: string; content_range?: string; status: number }>('fetch_hls_segment', {
+                      url: requestUrl,
+                      headers,
+                      referer,
+                    })
+                      .then((resp) => {
+                        const finalData = Uint8Array.from(atob(resp.data), c => c.charCodeAt(0)).buffer
+                        const finalLength = finalData.byteLength
+                        stats.loaded = finalLength
+                        stats.total = finalLength
+                        callbacks.onSuccess({ data: finalData, url: requestUrl, code: resp.status }, stats, context, null)
+                      })
+                      .catch((fallbackErr) => {
+                        if (shouldFallbackToBrowserHls(fallbackErr)) {
+                          startNativeHlsPlayback(video, requestUrl, playbackAttempt)
+                          return
+                        }
+                        callbacks.onError({ code: 0, text: String(fallbackErr) }, context, null, stats)
+                      })
+                    return
+                  }
+                  if (shouldFallbackToBrowserHls(err)) {
+                    startNativeHlsPlayback(video, requestUrl, playbackAttempt)
+                    return
+                  }
+                  callbacks.onError({ code: 0, text: errStr }, context, null, stats)
+                })
+              return
+            }
+
+            // Manifest: use fetch_hls_manifest (handles master playlist normalization)
+            invoke<string>('fetch_hls_manifest', { url: requestUrl, headers, referer })
+              .then((data) => {
+                callbacks.onSuccess({ data, url: requestUrl, code: 200 }, stats, context, null)
               })
               .catch((err) => {
-                      if (shouldFallbackToBrowserHls(err)) {
-                        startNativeHlsPlayback(video, requestUrl, playbackAttempt)
-                        return
-                      }
+                if (shouldFallbackToBrowserHls(err)) {
+                  startNativeHlsPlayback(video, requestUrl, playbackAttempt)
+                  return
+                }
                 callbacks.onError({ code: 0, text: String(err) }, context, null, stats)
               })
             return
