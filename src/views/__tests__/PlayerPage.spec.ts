@@ -206,7 +206,10 @@ describe('PlayerPage fullscreen controls', () => {
     canPlaySpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('')
 
     // Mock Fullscreen API for jsdom (not supported by default)
-    const mockElement = document.createElement('div')
+    const mockElement = document.createElement('div') as unknown as HTMLElement & {
+      requestFullscreen: ReturnType<typeof vi.fn>
+      exitFullscreen: ReturnType<typeof vi.fn>
+    }
     mockElement.requestFullscreen = vi.fn().mockResolvedValue(undefined)
     mockElement.exitFullscreen = vi.fn().mockResolvedValue(undefined)
     mockElement.classList.add('fullscreen-element')
