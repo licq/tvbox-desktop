@@ -13,6 +13,7 @@ import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
 import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
 import SearchResultCard from '@/components/detail/SearchResultCard.vue'
+import SearchResultCardSkeleton from '@/components/detail/SearchResultCardSkeleton.vue'
 import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult, UnifiedEpisode } from '@/types'
 import {
   getVodDetailSearchSnapshot,
@@ -628,7 +629,7 @@ function handlePlay(ue: UnifiedEpisode) {
 
         <!-- Search results from sources -->
         <section v-if="loadingSearch" class="space-y-4">
-          <EpisodeGroupSkeleton :count="4" />
+          <SearchResultCardSkeleton v-for="i in 4" :key="i" />
         </section>
 
         <section v-else-if="visibleDedupSearchItems.length" class="source-list space-y-4">
