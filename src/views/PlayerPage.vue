@@ -562,50 +562,10 @@ function handleVolumeChange(event: Event) {
 }
 
 async function toggleFullscreen() {
-  const video = videoRef.value
-  const wrap = videoWrapRef.value
-  if (!video || !wrap) return
-
-  if (!fullscreen.value) {
-    // 进入全屏：视频容器覆盖整个窗口，隐藏其他 UI
-    fullscreen.value = true
-    wrap.style.position = 'fixed'
-    wrap.style.inset = '0'
-    wrap.style.zIndex = '9999'
-    wrap.style.background = '#000'
-    wrap.style.width = '100vw'
-    wrap.style.height = '100vh'
-
-    // 隐藏顶部栏和右侧抽屉
-    const topbar = document.querySelector('.player-topbar') as HTMLElement
-    if (topbar) topbar.style.visibility = 'hidden'
-    const drawer = document.querySelector('.player-stage > :last-child') as HTMLElement
-    if (drawer && drawer.classList.contains('player-drawer')) drawer.style.visibility = 'hidden'
-    document.body.style.overflow = 'hidden'
-
-    // 确保视频全屏显示
-    video.style.width = '100%'
-    video.style.height = '100%'
-
-    fullscreenError.value = ''
+  if (fullscreen.value) {
+    await document.exitFullscreen()
   } else {
-    // 退出全屏：恢复原有样式
-    fullscreen.value = false
-    wrap.style.position = ''
-    wrap.style.inset = ''
-    wrap.style.zIndex = ''
-    wrap.style.background = ''
-    wrap.style.width = ''
-    wrap.style.height = ''
-
-    const topbar = document.querySelector('.player-topbar') as HTMLElement
-    if (topbar) topbar.style.visibility = ''
-    const drawer = document.querySelector('.player-stage > :last-child') as HTMLElement
-    if (drawer && drawer.classList.contains('player-drawer')) drawer.style.visibility = ''
-    document.body.style.overflow = ''
-
-    video.style.width = ''
-    video.style.height = ''
+    await videoWrapRef.value?.requestFullscreen()
   }
 }
 
@@ -659,6 +619,10 @@ function handleKeydown(e: KeyboardEvent) {
       break
     case 'f':
     case 'F':
+      e.preventDefault()
+      toggleFullscreen()
+      break
+    case 'F11':
       e.preventDefault()
       toggleFullscreen()
       break
@@ -1637,7 +1601,6 @@ async function initHlsPlayer(source: PlayerSource, forceBrowserHls = false) {
             // When undefined, fetch the full segment.
             const rangeStart = context.rangeStart
             const rangeEnd = context.rangeEnd
-            const hasRange = typeof rangeStart === 'number' || typeof rangeEnd === 'number'
 
             if (requestKind === 'segment') {
               const segmentRangeStart = typeof rangeStart === 'number' ? rangeStart : undefined

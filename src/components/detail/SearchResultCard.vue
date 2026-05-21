@@ -374,7 +374,7 @@ function formatEpisodeLabel(sourceName: string, episodeLabel: string): string {
 
 .loading-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(3rem, 1fr));
   gap: 0.35rem;
 }
 

@@ -5,6 +5,8 @@ import { useDetailStore } from '@/stores/detail'
 import { useLibraryStore } from '@/stores/library'
 import { usePlayerStore } from '@/stores/player'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import DoubanMetaPanel from '@/components/detail/DoubanMetaPanel.vue'
 import DetailMetaSkeleton from '@/components/detail/DetailMetaSkeleton.vue'
@@ -367,34 +369,48 @@ async function handleCardEpisodePlay(episode: CatalogEpisode, sourceKey: string,
       flag: 'auto',
       playUrl: episode.play_url,
     })
-    console.error('[playback-dbg][voddetail] handleCardEpisodePlay', {
-      title: item.title,
-      episodeId: episode.id,
-      episodeLabel: episode.episode_label,
-      playUrl: episode.play_url,
-      sourceKey: source.source,
-      targetCount: targets.length,
-      firstTargetUrl: targets[0]?.target_url ?? null,
-    })
-    if (targets.length > 0) {
-      const target = targets[0]
-      router.push({
-        name: 'player',
-        params: { mode: 'vod', id: 0 },
-        query: {
-          episode: target.target_url,
-          source: source.source,
-          detailUrl: source.detail_url,
-          title: item.title,
-          episodeLabel: episode.episode_label,
-          episodeReferer: target.referer ?? undefined,
-          episodeHeaders: target.headers ? JSON.stringify(target.headers) : undefined,
-          episodeTargets: JSON.stringify(targets),
-        },
-      })
-    } else {
+    if (targets.length === 0) {
       searchError.value = '播放地址获取失败'
+      return
     }
+    const target = targets[0]
+
+    // Open a standalone player window with all playback data passed via URL query params.
+    // The new window manages its own fullscreen state; main window stays hidden.
+    const playerLabel = `player-${Date.now()}`
+    const query = new URLSearchParams({
+      episode: target.target_url,
+      source: source.source,
+      detailUrl: source.detail_url,
+      title: item.title,
+      episodeLabel: episode.episode_label,
+      episodeTargets: JSON.stringify(targets),
+    })
+    if (target.referer) query.set('episodeReferer', target.referer)
+    if (target.headers) query.set('episodeHeaders', JSON.stringify(target.headers))
+
+    // Hide main window so it doesn't distract while the player is open.
+    await getCurrentWindow().hide()
+
+    const playerUrl = `${window.location.origin}/#/player/vod/0?${query.toString()}`
+    const playerWin = new WebviewWindow(playerLabel, {
+      url: playerUrl,
+      title: `▶ ${item.title} — ${episode.episode_label}`,
+      center: true,
+      width: 1280,
+      height: 720,
+      minWidth: 640,
+      minHeight: 360,
+      maximized: true,
+      resizable: true,
+      decorations: true,
+      visible: true,
+      focus: true,
+    })
+    // When the player window is closed (by user or by navigate-away), restore the main window.
+    playerWin.once('tauri://close-requested', () => {
+      void getCurrentWindow().show()
+    })
   } catch (e) {
     console.error('[VodDetail] provider_play failed:', e)
     searchError.value = '播放地址获取失败'

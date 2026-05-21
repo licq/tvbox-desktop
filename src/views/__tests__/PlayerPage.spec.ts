@@ -111,6 +111,16 @@ vi.mock('@/components/player/PlaybackNotice.vue', () => ({
   },
 }))
 
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    setFullscreen: vi.fn(),
+    isFullscreen: vi.fn().mockResolvedValue(false),
+    hide: vi.fn(),
+    show: vi.fn(),
+    onResized: vi.fn().mockResolvedValue(vi.fn()),
+  }),
+}))
+
 vi.mock('hls.js', () => ({
   default: class HlsMock {
     static Events = {
@@ -194,6 +204,21 @@ describe('PlayerPage fullscreen controls', () => {
     pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
     loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
     canPlaySpy = vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('')
+
+    // Mock Fullscreen API for jsdom (not supported by default)
+    const mockElement = document.createElement('div')
+    mockElement.requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    mockElement.exitFullscreen = vi.fn().mockResolvedValue(undefined)
+    mockElement.classList.add('fullscreen-element')
+    document.body.appendChild(mockElement)
+
+    // Add Fullscreen API methods to HTMLElement prototype for jsdom
+    if (!HTMLElement.prototype.requestFullscreen) {
+      ;(HTMLElement.prototype as any).requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    }
+    if (!(document as any).exitFullscreen) {
+      ;(document as any).exitFullscreen = vi.fn().mockResolvedValue(undefined)
+    }
   })
 
   afterEach(() => {
@@ -203,6 +228,9 @@ describe('PlayerPage fullscreen controls', () => {
     loadSpy = null
     canPlaySpy?.mockRestore()
     canPlaySpy = null
+    // Remove mock element
+    const mockEl = document.querySelector('.fullscreen-element')
+    if (mockEl) mockEl.remove()
   })
 
   it('keeps the VOD progress bar visible in fullscreen playback', async () => {
@@ -230,7 +258,7 @@ describe('PlayerPage fullscreen controls', () => {
     await fullscreenButton!.trigger('click')
     await nextTick()
 
-    expect(wrapper.find('.player-video-wrap').attributes('style')).toContain('position: fixed')
+    // CSS fullscreen styles are gone; native maximize is called via the mock
     expect(wrapper.find('.player-progress').exists()).toBe(true)
   })
 
