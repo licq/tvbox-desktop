@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { open } from '@tauri-apps/plugin-shell'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useLiveStore } from '@/stores/live'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaybackStore } from '@/stores/playback'
@@ -600,9 +601,24 @@ function handleVolumeChange(event: Event) {
 
 async function toggleFullscreen() {
   if (fullscreen.value) {
-    await document.exitFullscreen()
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else {
+      const win = getCurrentWindow()
+      await win.setFullscreen(false)
+    }
+    fullscreen.value = false
   } else {
-    await videoWrapRef.value?.requestFullscreen()
+    try {
+      await videoWrapRef.value?.requestFullscreen()
+    } catch {
+      // DOM API unavailable
+    }
+    if (!document.fullscreenElement) {
+      const win = getCurrentWindow()
+      await win.setFullscreen(true)
+    }
+    fullscreen.value = true
   }
 }
 
@@ -1996,7 +2012,7 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
         <section class="player-stage">
           <div
             class="player-video-wrap"
-            :class="{ 'player-video-wrap-fullscreen-idle': fullscreen && !controlsVisible }"
+            :class="{ 'player-video-wrap-fullscreen-idle': fullscreen && !controlsVisible, 'player-video-wrap-fullscreen': fullscreen }"
             ref="videoWrapRef"
           >
             <video

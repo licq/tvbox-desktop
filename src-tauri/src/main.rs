@@ -27,6 +27,7 @@ fn main() {
             tvbox_lib::commands::player::get_play_history,
             tvbox_lib::commands::player::resolve_playback,
             tvbox_lib::commands::player::fetch_hls_manifest,
+            tvbox_lib::commands::player::fetch_hls_segment,
             tvbox_lib::commands::douban::get_douban_hot,
             tvbox_lib::commands::douban::get_douban_hot_by_id,
             tvbox_lib::commands::douban::fetch_douban_hot,
