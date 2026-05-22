@@ -18,9 +18,7 @@ pub async fn search_all_sources(
     keyword: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<SourceSearchResult>, String> {
-    // Normalize keyword for cache key consistency with frontend (trim + lowercase)
-    let normalized_kw = keyword.trim().to_lowercase();
-    log::info!("[search_all_sources] Command called with keyword: {} (normalized: {})", keyword, normalized_kw);
+    log::info!("[search_all_sources] Command called with keyword: {}", keyword);
     let registry = state.provider_registry.read().await;
     let pairs = registry.all_provider_pairs();
     let storage = state.storage.clone();
@@ -29,7 +27,7 @@ pub async fn search_all_sources(
     let mut handles = Vec::new();
     for (source_key, provider) in pairs {
         let storage = storage.clone();
-        let kw = normalized_kw.clone();
+        let kw = keyword.clone();
         let sk = source_key.clone();
 
         handles.push(tokio::spawn(async move {
