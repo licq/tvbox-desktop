@@ -1,10 +1,52 @@
 use crate::commands::player::SegmentProxyResponse;
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
+
 use crate::services::ad_blocker::HlsAdBlocker;
 use crate::services::playback_types::{PlaybackProbeResult, PlaybackProbeStatus};
 use regex::Regex;
 pub struct PlaybackResolver;
+
+/// Shared HTTP client cached at module level to avoid repeated TLS handshake overhead.
+/// Connection pooling enables reuse of established TCP/TLS connections across segment fetches.
+static HTTP_CLIENT: OnceCell<Arc<reqwest::Client>> = OnceCell::new();
+
+fn get_http_client() -> Result<Arc<reqwest::Client>, String> {
+    HTTP_CLIENT
+        .get_or_try_init(|| {
+            let mut default_headers = reqwest::header::HeaderMap::new();
+            default_headers.insert(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("*/*"),
+            );
+            default_headers.insert(
+                reqwest::header::ACCEPT_LANGUAGE,
+                reqwest::header::HeaderValue::from_static("en-US,en;q=0.9"),
+            );
+            default_headers.insert(
+                reqwest::header::CACHE_CONTROL,
+                reqwest::header::HeaderValue::from_static("no-cache"),
+            );
+            default_headers.insert(
+                reqwest::header::PRAGMA,
+                reqwest::header::HeaderValue::from_static("no-cache"),
+            );
+
+            let client = reqwest::Client::builder()
+                .default_headers(default_headers)
+                .connect_timeout(std::time::Duration::from_secs(20))
+                .timeout(std::time::Duration::from_secs(20))
+                .http1_only()
+                .pool_max_idle_per_host(16)  // Keep connections alive for HLS streaming
+                .no_proxy()
+                .build()
+                .map_err(|e| e.to_string())?;
+            Ok(Arc::new(client))
+        })
+        .cloned()
+}
 
 /// Categories for why a play-page parse failed.
 /// Each kind maps to a descriptive, actionable Chinese message.
@@ -942,6 +984,7 @@ pub(crate) async fn proxy_url_with_headers(
 }
 
 /// Internal segment fetch that supports Range header and returns full response metadata.
+/// Uses a cached HTTP client for connection reuse and faster subsequent requests.
 pub(crate) async fn fetch_hls_segment_internal(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
@@ -949,7 +992,7 @@ pub(crate) async fn fetch_hls_segment_internal(
     range: Option<&str>,
 ) -> Result<crate::commands::player::SegmentProxyResponse, String> {
     let request_headers = build_hls_request_headers(headers, referer);
-    let client = build_client()?;
+    let client = get_http_client()?;
     proxy_url_with_headers(&client, url, request_headers.as_ref(), range).await
 }
 
@@ -962,12 +1005,12 @@ pub(crate) async fn fetch_hls_manifest_internal(
 
     // For non-manifest URLs (segments), use binary proxy
     if !url.contains(".m3u8") {
-        let client = build_client()?;
+        let client = get_http_client()?;
         let resp = proxy_url_with_retry(&client, url, request_headers.as_ref(), referer).await?;
         return Ok(resp.data); // base64-encoded body
     }
 
-    let client = build_client()?;
+    let client = get_http_client()?;
     let body =
         fetch_hls_playlist_with_headers_no_cors_and_retry(&client, url, request_headers.as_ref(), referer).await?;
 
