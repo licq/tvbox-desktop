@@ -181,6 +181,8 @@ const fallbackMeta = computed<DoubanSubjectMeta | null>(() => {
 })
 
 const loadingDouban = ref(false)
+// Request memoization state to avoid duplicate fetches on route changes
+const doubanFetchState = ref<'idle' | 'loading' | 'done'>('idle')
 const searchResults = ref<VodDetailSearchGroup[]>([])
 const loadingSearch = ref(false)
 const searchError = ref<string | null>(null)
@@ -448,6 +450,10 @@ async function loadDetail() {
     }
 
     // Also fetch enriched Douban metadata in background for director/actors/summary
+    // Skip if already fetched or in progress (memoization)
+    if (doubanFetchState.value === 'done' && doubanMeta.value) return
+    if (doubanFetchState.value === 'loading') return
+    doubanFetchState.value = 'loading'
     loadingDouban.value = true
     invoke<DoubanSubjectMeta | null>('fetch_douban_metadata_by_id', {
       douban_id: itemId.value,
@@ -457,16 +463,20 @@ async function loadDetail() {
       console.error('[VodDetail] fetch_douban_metadata_by_id failed:', e)
     }).finally(() => {
       loadingDouban.value = false
+      doubanFetchState.value = 'done'
     })
     return
   }
 
-  // Direct search from home page - use keyword from query param
   if (isSearch.value) {
     const keyword = route.query.keyword as string
     if (keyword) {
       await searchSources(keyword)
       // Try to get Douban metadata for the top panel (use cleaned keyword)
+      // Skip if already fetched or in progress (memoization)
+      if (doubanFetchState.value === 'done' && doubanMeta.value) return
+      if (doubanFetchState.value === 'loading') return
+      doubanFetchState.value = 'loading'
       const cleanKeyword = cleanTitle(keyword)
       loadingDouban.value = true
       invoke<DoubanSubjectMeta | null>('search_douban_subject_by_keyword', { keyword: cleanKeyword })
@@ -478,6 +488,7 @@ async function loadDetail() {
         })
         .finally(() => {
           loadingDouban.value = false
+          doubanFetchState.value = 'done'
         })
     }
     return
@@ -491,6 +502,10 @@ async function loadDetail() {
   await detailStore.fetchDetail(itemId.value)
 
   // Fetch Douban metadata on-demand
+  // Skip if already fetched or in progress (memoization)
+  if (doubanFetchState.value === 'done' && doubanMeta.value) return
+  if (doubanFetchState.value === 'loading') return
+  doubanFetchState.value = 'loading'
   loadingDouban.value = true
   try {
     const meta = await invoke<DoubanSubjectMeta | null>('fetch_douban_subject_metadata', {
@@ -502,10 +517,13 @@ async function loadDetail() {
     doubanMeta.value = null
   } finally {
     loadingDouban.value = false
+    doubanFetchState.value = 'done'
   }
 }
 
 async function searchSources(title: string) {
+  // Reset douban fetch state when title changes (navigating to different search)
+  doubanFetchState.value = 'idle'
   const requestVersion = ++searchRequestVersion.value
   loadingSearch.value = true
   searchError.value = null

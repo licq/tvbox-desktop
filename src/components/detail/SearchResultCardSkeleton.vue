@@ -129,8 +129,7 @@ defineProps<{
   animation: pulse 1.5s ease-in-out infinite;
 }
 .skeleton-source-selector,
-.skeleton-chips,
-.skeleton-episode-grid {
+.skeleton-chips {
   display: flex;
   gap: 0.3rem;
   flex-wrap: wrap;
@@ -147,6 +146,13 @@ defineProps<{
   width: clamp(3.25rem, 8vw, 5rem);
   height: 2.75rem;
   border-radius: 1.1rem;
+}
+
+/* Use CSS Grid to match SearchResultCard's .loading-grid layout */
+.skeleton-episode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(3rem, 1fr));
+  gap: 0.35rem;
 }
 
 @keyframes pulse {
