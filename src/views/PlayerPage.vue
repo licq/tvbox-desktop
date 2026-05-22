@@ -601,14 +601,13 @@ function handleVolumeChange(event: Event) {
 
 async function toggleFullscreen() {
   if (fullscreen.value) {
+    // Exit video element fullscreen only (don't touch Tauri window)
     if (document.fullscreenElement) {
       await document.exitFullscreen()
-    } else {
-      const win = getCurrentWindow()
-      await win.setFullscreen(false)
     }
     fullscreen.value = false
   } else {
+    // Enter video element fullscreen (prefer DOM API, fallback to Tauri)
     try {
       await videoWrapRef.value?.requestFullscreen()
     } catch {
