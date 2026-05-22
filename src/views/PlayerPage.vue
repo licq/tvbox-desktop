@@ -78,6 +78,7 @@ const errorMsg = ref('')
 const pendingAutoplay = ref(false)
 const isInitialLoading = ref(true)
 const playbackPhase = ref<PlaybackEnginePhase>('idle')
+const isSeeking = ref(false)
 
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
@@ -357,6 +358,8 @@ let adCleanupObserver: MutationObserver | null = null
 
 const controlsVisible = ref(true)
 let hideTimer: number | null = null
+let pendingSeekTime: number | null = null
+let seekDebounceTimer: number | null = null
 
 function startAdCleanupObserver() {
   if (adCleanupObserver) {
@@ -547,9 +550,43 @@ function togglePlay() {
   handleUserInteraction()
 }
 
+function debouncedSeek(time: number) {
+  pendingSeekTime = time
+  if (seekDebounceTimer !== null) return
+  seekDebounceTimer = window.setTimeout(() => {
+    seekDebounceTimer = null
+    if (pendingSeekTime !== null) {
+      seek(pendingSeekTime)
+      pendingSeekTime = null
+    }
+  }, 150) // 150ms debounce for smooth seekbar dragging
+}
+
 function seek(time: number) {
-  if (!videoRef.value) return
-  videoRef.value.currentTime = time
+  const video = videoRef.value
+  if (!video) return
+
+  // Clamp time to valid range
+  const clampedTime = Math.max(0, Math.min(time, duration.value || Infinity))
+
+  // If video is in waiting/stalled state, queue the seek for when ready
+  if (video.readyState < 2) { // waiting for data
+    logPlaybackDebug('seek-queued-during-waiting', { time: clampedTime })
+    const onSeekedHandler = () => {
+      video.currentTime = clampedTime
+      logPlaybackDebug('seek-applied-after-waiting', { time: clampedTime })
+    }
+    video.addEventListener('seeked', onSeekedHandler, { once: true })
+    return
+  }
+
+  // If already seeking, let the current seek complete first
+  if (isSeeking.value) {
+    logPlaybackDebug('seek-ignored-already-seeking', { time: clampedTime })
+    return
+  }
+
+  video.currentTime = clampedTime
   handleUserInteraction()
 }
 
@@ -1822,6 +1859,22 @@ function handleVideoPlay() {
   showControls()
 }
 
+
+function handleVideoSeeking() {
+  isSeeking.value = true
+  logPlaybackDebug('handleVideoSeeking', {
+    currentTime: videoRef.value?.currentTime ?? null,
+  })
+}
+
+function handleVideoSeeked() {
+  isSeeking.value = false
+  currentTime.value = videoRef.value?.currentTime ?? currentTime.value
+  logPlaybackDebug('handleVideoSeeked', {
+    currentTime: videoRef.value?.currentTime ?? null,
+  })
+}
+
 function handleVideoPause() {
   updatePlaybackDebugState({
     mediaEvent: 'pause',
@@ -1953,7 +2006,7 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
               @click="togglePlay"
               @canplay="handleCanPlay"
               @play="handleVideoPlay"
-              @pause="handleVideoPause"
+              @pause="handleVideoPause" @seeking="handleVideoSeeking" @seeked="handleVideoSeeked"
             ></video>
 
             <div class="player-vignette-top"></div>
@@ -1980,7 +2033,7 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
                     :value="currentTime"
                     :max="duration || 100"
                     class="player-range"
-                    @input="seek(parseFloat(($event.target as HTMLInputElement).value))"
+                    @input="debouncedSeek(parseFloat(($event.target as HTMLInputElement).value))"
                   />
                   <span>{{ formatTime(duration) }}</span>
                 </div>
