@@ -11,6 +11,7 @@ import EpisodeGroupPanel from '@/components/detail/EpisodeGroupPanel.vue'
 import EpisodeGroupSkeleton from '@/components/detail/EpisodeGroupSkeleton.vue'
 import SearchResultCard from '@/components/detail/SearchResultCard.vue'
 import SearchResultCardSkeleton from '@/components/detail/SearchResultCardSkeleton.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import type { CatalogEpisode, CatalogItemType, DoubanHot, PlaybackTarget, SearchResult, SourceSearchResult, UnifiedEpisode } from '@/types'
 import {
   getVodDetailSearchSnapshot,
