@@ -985,15 +985,47 @@ pub(crate) async fn proxy_url_with_headers(
 
 /// Internal segment fetch that supports Range header and returns full response metadata.
 /// Uses a cached HTTP client for connection reuse and faster subsequent requests.
+/// Checks the segment cache first; if found, returns cached data immediately.
 pub(crate) async fn fetch_hls_segment_internal(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
     referer: Option<&str>,
     range: Option<&str>,
+    segment_cache: Option<&std::sync::Arc<crate::services::segment_cache::SegmentCache>>,
 ) -> Result<crate::commands::player::SegmentProxyResponse, String> {
+    use base64::Engine;
+    
+    // Check cache first (only for full segment fetches without range)
+    if range.is_none() {
+        if let Some(cache) = segment_cache {
+            if let Some(cached) = cache.get(url).await {
+                return Ok(cached);
+            }
+        }
+    }
+    
     let request_headers = build_hls_request_headers(headers, referer);
     let client = get_http_client()?;
-    proxy_url_with_headers(&client, url, request_headers.as_ref(), range).await
+    let result = proxy_url_with_headers(&client, url, request_headers.as_ref(), range).await;
+    
+    // Cache successful full segment responses for future use (fire-and-forget)
+    if range.is_none() {
+        if let (Ok(ref resp), Some(cache)) = (&result, segment_cache) {
+            if resp.status == 200 {
+                // Decode base64 to get the actual size
+                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&resp.data) {
+                    let data = resp.data.clone();
+                    let content_range = resp.content_range.clone();
+                    let status = resp.status;
+                    let url_owned = url.to_string();
+                    // Spawn background task to cache (non-blocking)
+                    cache.put_bg(url_owned, data, content_range, status, bytes.len());
+                }
+            }
+        }
+    }
+    
+    result
 }
 
 pub(crate) async fn fetch_hls_manifest_internal(

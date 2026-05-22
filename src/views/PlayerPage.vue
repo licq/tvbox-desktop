@@ -1755,10 +1755,15 @@ async function initHlsPlayer(source: PlayerSource, forceBrowserHls = false) {
         }
       })
 
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         updatePlaybackDebugState({
           engineEvent: 'manifest_parsed',
           engineError: null,
+        })
+        // Trigger segment prefetch to hide CDN latency for upcoming playback
+        invoke('prefetch_segments', { playlist_url: url, count: 5 }).catch(() => {
+          // Ignore prefetch errors - playback should continue regardless
         })
         void attemptPlayback(false, playbackAttempt)
       })

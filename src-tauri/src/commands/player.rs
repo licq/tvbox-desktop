@@ -22,6 +22,7 @@ pub async fn fetch_hls_segment(
     referer: Option<String>,
     range_start: Option<u64>,
     range_end: Option<u64>,
+    state: State<'_, AppState>,
 ) -> Result<SegmentProxyResponse, String> {
     let range = match (range_start, range_end) {
         (Some(start), Some(end)) => {
@@ -35,11 +36,13 @@ pub async fn fetch_hls_segment(
         }
         (None, None) => None,
     };
+    let segment_cache = Some(&state.segment_cache);
     crate::services::resolver::fetch_hls_segment_internal(
         &url,
         headers.as_ref(),
         referer.as_deref(),
         range.as_deref(),
+        segment_cache,
     )
     .await
 }

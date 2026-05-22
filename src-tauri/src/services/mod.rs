@@ -10,6 +10,8 @@ pub mod storage;
 pub mod tvbox;
 pub mod xb6v;
 
+pub mod segment_cache;
+
 pub use playback_types::{
     rank_targets, PlaybackProbeStatus, PlaybackTarget, PlaybackTargetKind,
 };

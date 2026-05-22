@@ -45,6 +45,9 @@ fn main() {
             tvbox_lib::commands::search::provider_play,
             tvbox_lib::commands::cache::clear_source_search_cache,
             tvbox_lib::commands::cache::clear_douban_search_cache,
+            tvbox_lib::commands::prefetch::prefetch_segments,
+            tvbox_lib::commands::prefetch::clear_segment_cache,
+            tvbox_lib::commands::prefetch::get_segment_cache_stats,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
@@ -53,7 +56,15 @@ fn main() {
             registry.register_working_sources();
             let provider_registry = tokio::sync::RwLock::new(registry);
             let storage_for_prune = storage.clone();
-            app.manage(tvbox_lib::AppState { storage, provider_registry });
+            let segment_cache = std::sync::Arc::new(tvbox_lib::services::segment_cache::SegmentCache::new());
+            let segment_prefetch_worker = match tvbox_lib::services::segment_cache::PrefetchWorker::new(segment_cache.clone()) {
+                Ok(w) => Some(std::sync::Arc::new(w)),
+                Err(e) => {
+                    log::warn!("[startup] Failed to initialize segment prefetch worker: {}", e);
+                    None
+                }
+            };
+            app.manage(tvbox_lib::AppState { storage, provider_registry, segment_cache, segment_prefetch_worker });
             // Prune expired search caches on startup (synchronous, runs on a background thread)
             std::thread::spawn(move || {
                 if let Err(e) = storage_for_prune.prune_expired_search_caches() {

@@ -5,3 +5,5 @@ pub mod player;
 pub mod douban;
 pub mod search;
 pub mod cache;
+
+pub mod prefetch;
