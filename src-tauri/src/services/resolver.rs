@@ -1019,7 +1019,7 @@ pub(crate) async fn fetch_hls_segment_internal(
                     let status = resp.status;
                     let url_owned = url.to_string();
                     // Spawn background task to cache (non-blocking)
-                    cache.put_bg(url_owned, data, content_range, status, bytes.len());
+                    cache.put(url_owned, data, content_range, status, bytes.len()).await;
                 }
             }
         }

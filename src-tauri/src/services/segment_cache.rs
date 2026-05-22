@@ -1,13 +1,13 @@
 //! Segment prefetch cache for hiding CDN rate-limiting latency.
 //!
-//! Uses a bounded channel to batch cache operations, avoiding lock contention
-//! from spawning many concurrent tasks that all need to access the same HashMap.
+//! Uses a simple HashMap with TTL and size limits for caching fetched segments.
+//! Cache operations are serialized through a RwLock for thread-safety.
 
 use base64::Engine;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::RwLock;
 
 /// Maximum cache size in bytes (50MB)
 const MAX_CACHE_SIZE: usize = 50 * 1024 * 1024;
@@ -30,105 +30,27 @@ struct CachedSegment {
     decoded_size: usize,
 }
 
-/// Message to the background cache worker
-enum CacheOp {
-    Put(String, String, Option<String>, u16, usize),
-    Clear,
-}
-
-/// Internal cache state
-struct CacheData {
-    entries: HashMap<String, CachedSegment>,
-    total_size: usize,
-}
-
 /// Segment prefetch cache with bounded size and TTL
 pub struct SegmentCache {
-    /// Internal cache state wrapped in Arc<Mutex<...>> for shared access
-    cache: Arc<CacheOps>,
-}
-
-struct CacheOps {
-    data: Arc<Mutex<CacheData>>,
-    tx: mpsc::Sender<CacheOp>,
+    /// Cached segments keyed by URL
+    entries: Arc<RwLock<HashMap<String, CachedSegment>>>,
+    /// Current total cache size
+    total_size: Arc<RwLock<usize>>,
 }
 
 impl SegmentCache {
     pub fn new() -> Self {
-        let (tx, mut rx) = mpsc::channel(100); // Bounded channel for backpressure
-        
-        let data = Arc::new(Mutex::new(CacheData {
-            entries: HashMap::new(),
-            total_size: 0,
-        }));
-        
-        let data_clone = data.clone();
-        
-        // Spawn background worker to process cache operations sequentially
-        tokio::spawn(async move {
-            while let Some(op) = rx.recv().await {
-                match op {
-                    CacheOp::Put(url, data, content_range, status, decoded_size) => {
-                        Self::process_put(&data_clone, url, data, content_range, status, decoded_size).await;
-                    }
-                    CacheOp::Clear => {
-                        let mut inner = data_clone.lock().await;
-                        inner.entries.clear();
-                        inner.total_size = 0;
-                    }
-                }
-            }
-        });
-        
-        Self { cache: Arc::new(CacheOps { data, tx }) }
-    }
-
-    /// Process a single cache put operation
-    async fn process_put(
-        data: &Arc<Mutex<CacheData>>,
-        url: String,
-        data_str: String,
-        content_range: Option<String>,
-        status: u16,
-        decoded_size: usize,
-    ) {
-        let entry_size = data_str.len() + decoded_size;
-        
-        let mut inner = data.lock().await;
-        
-        // Evict old entries if needed
-        while inner.total_size + entry_size > MAX_CACHE_SIZE && !inner.entries.is_empty() {
-            let oldest_key = inner.entries.iter()
-                .min_by_key(|(_, entry)| entry.cached_at)
-                .map(|(k, _)| k.clone());
-            
-            if let Some(key) = oldest_key {
-                if let Some(entry) = inner.entries.remove(&key) {
-                    inner.total_size -= entry.data.len() + entry.decoded_size;
-                }
-            } else {
-                break;
-            }
+        Self {
+            entries: Arc::new(RwLock::new(HashMap::new())),
+            total_size: Arc::new(RwLock::new(0)),
         }
-        
-        let entry = CachedSegment {
-            data: data_str,
-            content_range,
-            status,
-            cached_at: Instant::now(),
-            decoded_size,
-        };
-        
-        inner.total_size += entry_size;
-        inner.entries.insert(url, entry);
     }
 
     /// Check if a segment is in cache and not expired
     pub async fn get(&self, url: &str) -> Option<crate::commands::player::SegmentProxyResponse> {
-        let inner = self.cache.data.lock().await;
-        let entry = inner.entries.get(url)?;
+        let entries = self.entries.read().await;
+        let entry = entries.get(url)?;
         
-        // Check if expired
         if entry.cached_at.elapsed() > MAX_SEGMENT_AGE {
             return None;
         }
@@ -140,22 +62,57 @@ impl SegmentCache {
         })
     }
 
-    /// Store a segment in the cache (non-blocking)
-    pub fn put_bg(&self, url: String, data: String, content_range: Option<String>, status: u16, decoded_size: usize) {
-        let _ = self.cache.tx.try_send(CacheOp::Put(url, data, content_range, status, decoded_size));
+    /// Store a segment in the cache
+    pub async fn put(&self, url: String, data: String, content_range: Option<String>, status: u16, decoded_size: usize) {
+        let entry_size = data.len() + decoded_size;
+        
+        // First, try to evict if needed
+        {
+            let mut total_size = self.total_size.write().await;
+            let mut entries = self.entries.write().await;
+            
+            while *total_size + entry_size > MAX_CACHE_SIZE && !entries.is_empty() {
+                let oldest_key = entries.iter()
+                    .min_by_key(|(_, entry)| entry.cached_at)
+                    .map(|(k, _)| k.clone());
+                
+                if let Some(key) = oldest_key {
+                    if let Some(entry) = entries.remove(&key) {
+                        *total_size -= entry.data.len() + entry.decoded_size;
+                    }
+                } else {
+                    break;
+                }
+            }
+            
+            let entry = CachedSegment {
+                data,
+                content_range,
+                status,
+                cached_at: Instant::now(),
+                decoded_size,
+            };
+            
+            *total_size += entry_size;
+            entries.insert(url, entry);
+        }
     }
 
     /// Clear all cached segments
     pub async fn clear(&self) {
-        let _ = self.cache.tx.try_send(CacheOp::Clear);
+        let mut entries = self.entries.write().await;
+        let mut total_size = self.total_size.write().await;
+        entries.clear();
+        *total_size = 0;
     }
 
     /// Get cache statistics
     pub async fn stats(&self) -> CacheStats {
-        let inner = self.cache.data.lock().await;
+        let entries = self.entries.read().await;
+        let total_size = self.total_size.read().await;
         CacheStats {
-            entries: inner.entries.len(),
-            total_size_bytes: inner.total_size,
+            entries: entries.len(),
+            total_size_bytes: *total_size,
         }
     }
 }
@@ -172,8 +129,6 @@ pub struct PrefetchWorker {
     client: reqwest::Client,
     /// Segment cache
     cache: Arc<SegmentCache>,
-    /// Currently prefetching URLs to avoid duplicate fetches
-    in_flight: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl PrefetchWorker {
@@ -185,11 +140,7 @@ impl PrefetchWorker {
             .build()
             .map_err(|e| e.to_string())?;
         
-        Ok(Self {
-            client,
-            cache,
-            in_flight: Arc::new(Mutex::new(HashMap::new())),
-        })
+        Ok(Self { client, cache })
     }
 
     /// Parse an HLS playlist and return all segment URLs
@@ -205,36 +156,20 @@ impl PrefetchWorker {
         urls
     }
 
-    /// Prefetch a single segment in the background
-    pub async fn prefetch_segment(&self, url: &str) {
-        if self.cache.get(url).await.is_some() {
-            return;
-        }
-        
-        {
-            let in_flight = self.in_flight.lock().await;
-            if in_flight.contains_key(url) {
-                return;
-            }
-        }
-        
+    /// Prefetch a single segment in the background (spawns a task)
+    pub fn prefetch_segment_bg(&self, url: &str) {
         let url_owned = url.to_string();
-        {
-            let mut in_flight = self.in_flight.lock().await;
-            if in_flight.contains_key(&url_owned) {
-                return;
-            }
-            let _ = in_flight.insert(url_owned.clone(), tokio::spawn(async {}));
-        }
-        
         let client = self.client.clone();
         let cache = self.cache.clone();
-        let in_flight = self.in_flight.clone();
-        let url_for_task = url_owned.clone();
         
-        let url_for_spawn = url_for_task.clone();
         tokio::spawn(async move {
-            let result = client.get(&url_for_task)
+            // Check if already cached
+            if cache.get(&url_owned).await.is_some() {
+                return;
+            }
+            
+            // Fetch the segment
+            let result = client.get(&url_owned)
                 .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
                 .header(reqwest::header::ACCEPT, "*/*")
                 .send()
@@ -251,7 +186,7 @@ impl PrefetchWorker {
                         Ok(bytes) => {
                             let decoded_size = bytes.len();
                             let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                            cache.put_bg(url_for_task, data, content_range, 200, decoded_size);
+                            cache.put(url_owned, data, content_range, 200, decoded_size).await;
                         }
                         Err(e) => {
                             eprintln!("[prefetch] failed to read segment bytes: {}", e);
@@ -265,8 +200,6 @@ impl PrefetchWorker {
                     eprintln!("[prefetch] failed to fetch segment: {}", e);
                 }
             }
-            
-            in_flight.lock().await.remove(&url_for_spawn);
         });
     }
 
@@ -295,7 +228,7 @@ impl PrefetchWorker {
         let end_idx = (start_idx + count).min(urls.len());
         
         for url in urls[start_idx..end_idx].iter() {
-            self.prefetch_segment(url).await;
+            self.prefetch_segment_bg(url);
         }
     }
 }
