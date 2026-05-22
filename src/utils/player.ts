@@ -141,11 +141,24 @@ export function shouldPreferNativeHls(
   referer: string | null | undefined,
   canPlayNativeHls: boolean,
 ): boolean {
-  void referer
   if (!canPlayNativeHls) return false
   if (!url.toLowerCase().includes('.m3u8')) return false
 
   const hasCustomHeaders = headers != null && Object.keys(headers).length > 0
+
+  // Prefer native HLS only if no custom headers AND no cross-origin referer needed.
+  // hls.js proxy is required when referer origin differs from playlist origin.
+  if (referer) {
+    try {
+      const refererUrl = new URL(referer)
+      const playlistUrl = new URL(url)
+      if (refererUrl.origin !== playlistUrl.origin) {
+        return false
+      }
+    } catch {
+      return false
+    }
+  }
 
   return !hasCustomHeaders
 }
