@@ -538,15 +538,16 @@ async function searchSources(title: string) {
         results,
       }))
 
-    loadingSearch.value = false
-
-    // Preload source details in the background so cached cards can render immediately.
+    // Preload source details so real cards have episodes data ready.
+    // Keep skeleton visible until preloading completes to avoid layout shift.
     await Promise.all(dedupSearchItems.value.map(item => preloadAllSources(item)))
     if (requestVersion !== searchRequestVersion.value) return
     setVodDetailSearchSnapshot(normalizeVodDetailSearchKey(title), {
       searchResults: searchResults.value,
       providerDetailEntries: Array.from(providerDetailCache.value.entries()),
     })
+    // Only hide skeleton after preloading completes
+    loadingSearch.value = false
   } catch (e) {
     if (requestVersion !== searchRequestVersion.value) return
     console.error('[VodDetail] searchSources failed:', e)

@@ -33,7 +33,7 @@ defineProps<{
             <div class="skeleton-chip" v-for="i in 3" :key="i"></div>
           </div>
           <div class="skeleton-episode-grid">
-            <div class="skeleton-chip" v-for="i in 8" :key="i"></div>
+            <!-- No episode placeholders to keep skeleton height minimal -->
           </div>
         </template>
       </div>
