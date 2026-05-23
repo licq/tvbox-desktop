@@ -595,6 +595,52 @@ function seek(time: number) {
   handleUserInteraction()
 }
 
+function startHold() {
+  if (mode.value === 'live') return
+  holdTimer = setTimeout(() => {
+    showBrightnessOverlay.value = true
+    dismissTimer = setTimeout(() => {
+      showBrightnessOverlay.value = false
+    }, 3000)
+  }, 200)
+}
+
+function endHold() {
+  if (holdTimer) {
+    clearTimeout(holdTimer)
+    holdTimer = null
+  }
+  if (dismissTimer) {
+    clearTimeout(dismissTimer)
+    dismissTimer = null
+  }
+  showBrightnessOverlay.value = false
+}
+
+function handleBrightnessChange(e: Event) {
+  const target = e.target as HTMLInputElement
+  const value = parseFloat(target.value)
+  brightness.value = value
+  if (videoRef.value) {
+    videoRef.value.style.setProperty('--video-brightness', value.toString())
+  }
+  // Reset dismiss timer on interaction
+  if (dismissTimer) {
+    clearTimeout(dismissTimer)
+    dismissTimer = setTimeout(() => {
+      showBrightnessOverlay.value = false
+    }, 3000)
+  }
+}
+
+function resetBrightness() {
+  brightness.value = 1
+  if (videoRef.value) {
+    videoRef.value.style.setProperty('--video-brightness', '1')
+  }
+  showBrightnessOverlay.value = false
+}
+
 function handleVolumeChange(event: Event) {
   const target = event.target as HTMLInputElement
   volume.value = parseFloat(target.value)
