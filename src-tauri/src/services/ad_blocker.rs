@@ -94,6 +94,9 @@ impl HlsAdBlocker {
             .any(|&pattern| url_lower.contains(pattern))
     }
 
+    // TEMP DISABLE: double DISCONTINUITY detection causes playback freeze
+    const DOUBLE_DISCONTINUITY_ENABLED: bool = false;
+
     /// Detect consecutive double DISCONTINUITY markers that indicate ad insertion.
     ///
     /// When ads are inserted into a stream, the playlist typically shows:
@@ -108,6 +111,9 @@ impl HlsAdBlocker {
     ///
     /// Returns true if `lines[i]` and `lines[i+1]` are both `#EXT-X-DISCONTINUITY`.
     fn is_double_discontinuity(lines: &[&str], i: usize) -> bool {
+        if !Self::DOUBLE_DISCONTINUITY_ENABLED {
+            return false;
+        }
         i + 1 < lines.len()
             && lines[i].contains("#EXT-X-DISCONTINUITY")
             && lines[i + 1].contains("#EXT-X-DISCONTINUITY")
@@ -154,6 +160,11 @@ impl HlsAdBlocker {
                 while i < lines.len() {
                     let current = lines[i].trim();
 
+                    // Hit end of playlist without finding end DISCONTINUITY
+                    if current.is_empty() && i + 1 >= lines.len() {
+                        break;
+                    }
+
                     // Check if this is a single DISCONTINUITY marking end of ad
                     if current.contains("#EXT-X-DISCONTINUITY") {
                         // Skip this DISCONTINUITY and continue with content
@@ -176,6 +187,7 @@ impl HlsAdBlocker {
                     // Skip other tags/empty lines
                     i += 1;
                 }
+                // TEMP: also pass through content when no end marker found
                 continue;
             }
 
