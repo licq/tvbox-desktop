@@ -497,7 +497,12 @@ onMounted(async () => {
 
     if (videoRef.value) {
       videoRef.value.volume = volume.value
+      videoRef.value.addEventListener('mousedown', startHold)
+      videoRef.value.addEventListener('touchstart', startHold)
     }
+    document.addEventListener('mouseup', endHold)
+    document.addEventListener('touchend', endHold)
+    resetBrightness()
 
     progressUpdateInterval = window.setInterval(() => {
       if (!videoRef.value) return
@@ -528,6 +533,11 @@ onUnmounted(() => {
   if (hideTimer) {
     window.clearTimeout(hideTimer)
   }
+  videoRef.value?.removeEventListener('mousedown', startHold)
+  videoRef.value?.removeEventListener('touchstart', startHold)
+  document.removeEventListener('mouseup', endHold)
+  document.removeEventListener('touchend', endHold)
+  endHold()
   detachNativeVideoErrorHandler()
   activePlaybackAttempt = null
 
@@ -1565,6 +1575,7 @@ function markCurrentSourceFailed() {
 
 async function playSource(source: PlayerSource, forceRefresh = false) {
   errorMsg.value = ''
+  resetBrightness()
   const url = source.url
   updatePlaybackDebugState({
     phase: 'source',
