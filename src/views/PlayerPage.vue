@@ -2037,6 +2037,23 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
             <div class="player-vignette-bottom"></div>
 
             <div
+              v-if="showBrightnessOverlay"
+              class="brightness-overlay"
+            >
+              <span class="brightness-icon">☀</span>
+              <input
+                type="range"
+                min="0.5"
+                max="1.5"
+                step="0.05"
+                :value="brightness"
+                class="brightness-slider"
+                @input="handleBrightnessChange"
+              />
+              <span class="brightness-label">{{ Math.round(brightness * 100) }}%</span>
+            </div>
+
+            <div
               class="player-overlay"
               @pointermove="handleOverlayPointerMove"
               @mouseleave="startHideTimer"
