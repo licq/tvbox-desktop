@@ -80,6 +80,10 @@ const pendingAutoplay = ref(false)
 const isInitialLoading = ref(true)
 const playbackPhase = ref<PlaybackEnginePhase>('idle')
 const isSeeking = ref(false)
+const brightness = ref(1) // 1.0 = 100%, range [0.5, 1.5]
+const showBrightnessOverlay = ref(false)
+let holdTimer: ReturnType<typeof setTimeout> | null = null
+let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
 const sources = ref<PlayerSource[]>([])
 const currentSourceIndex = ref(0)
