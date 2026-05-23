@@ -1,6 +1,7 @@
 use crate::commands::player::SegmentProxyResponse;
 use crate::models::{PlaybackCandidate, ResolvedPlayback};
 
+use base64::Engine;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
@@ -993,39 +994,32 @@ pub(crate) async fn fetch_hls_segment_internal(
     range: Option<&str>,
     segment_cache: Option<&std::sync::Arc<crate::services::segment_cache::SegmentCache>>,
 ) -> Result<crate::commands::player::SegmentProxyResponse, String> {
-    use base64::Engine;
-    
-    // Check cache first (only for full segment fetches without range)
-    if range.is_none() {
-        if let Some(cache) = segment_cache {
-            if let Some(cached) = cache.get(url).await {
-                return Ok(cached);
-            }
-        }
-    }
-    
     let request_headers = build_hls_request_headers(headers, referer);
     let client = get_http_client()?;
-    let result = proxy_url_with_headers(&client, url, request_headers.as_ref(), range).await;
-    
-    // Cache successful full segment responses for future use (fire-and-forget)
-    if range.is_none() {
-        if let (Ok(ref resp), Some(cache)) = (&result, segment_cache) {
-            if resp.status == 200 {
-                // Decode base64 to get the actual size
-                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&resp.data) {
-                    let data = resp.data.clone();
-                    let content_range = resp.content_range.clone();
-                    let status = resp.status;
-                    let url_owned = url.to_string();
-                    // Spawn background task to cache (non-blocking)
-                    cache.put(url_owned, data, content_range, status, bytes.len()).await;
-                }
-            }
+
+    // Check segment cache first
+    if let Some(cache) = segment_cache {
+        if let Some(cached) = cache.get(url).await {
+            return Ok(cached);
         }
     }
-    
-    result
+
+    let response = proxy_url_with_headers(&client, url, request_headers.as_ref(), range).await?;
+
+    // Cache the fetched segment for future playback
+    if let Some(cache) = segment_cache {
+        let url_owned = url.to_string();
+        let data = response.data.clone();
+        let content_range = response.content_range.clone();
+        let status = response.status;
+        let decoded_size = base64::engine::general_purpose::STANDARD
+            .decode(&data)
+            .map(|b| b.len())
+            .unwrap_or(0);
+        cache.put(url_owned, data, content_range, status, decoded_size).await;
+    }
+
+    Ok(response)
 }
 
 pub(crate) async fn fetch_hls_manifest_internal(

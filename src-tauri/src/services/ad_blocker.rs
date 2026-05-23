@@ -94,12 +94,35 @@ impl HlsAdBlocker {
             .any(|&pattern| url_lower.contains(pattern))
     }
 
+    /// Detect consecutive double DISCONTINUITY markers that indicate ad insertion.
+    ///
+    /// When ads are inserted into a stream, the playlist typically shows:
+    /// ```text
+    /// #EXTINF:... (content segment)
+    /// #EXT-X-DISCONTINUITY
+    /// #EXT-X-DISCONTINUITY   <- double = ad break starts
+    /// #EXTINF:... (ad segment 1)
+    /// #EXTINF:... (ad segment 2)
+    /// #EXT-X-DISCONTINUITY   <- single = ad break ends, content resumes
+    /// ```
+    ///
+    /// Returns true if `lines[i]` and `lines[i+1]` are both `#EXT-X-DISCONTINUITY`.
+    fn is_double_discontinuity(lines: &[&str], i: usize) -> bool {
+        i + 1 < lines.len()
+            && lines[i].contains("#EXT-X-DISCONTINUITY")
+            && lines[i + 1].contains("#EXT-X-DISCONTINUITY")
+    }
+
     /// Remove ad segments from an HLS playlist.
     ///
     /// Scans the playlist for `#EXTINF:` + URL pairs. When a segment URL matches
     /// the ad blacklist, both the `#EXTINF:` line and the URL line are removed.
     /// Any `#EXT-X-DISCONTINUITY` line immediately preceding a removed ad segment
     /// is also removed.
+    ///
+    /// Also detects consecutive double `#EXT-X-DISCONTINUITY` markers which
+    /// indicate ad insertion points. All segments between double DISCONTINUITY
+    /// and the next single DISCONTINUITY are treated as ad segments.
     ///
     /// Master playlists (containing `#EXT-X-STREAM-INF`) are passed through
     /// unchanged here; embedded variants are cleaned before normalization in
@@ -120,6 +143,41 @@ impl HlsAdBlocker {
 
         while i < lines.len() {
             let line = lines[i];
+
+            // Check for double DISCONTINUITY marker indicating ad start
+            if Self::is_double_discontinuity(&lines, i) {
+                // Skip the double DISCONTINUITY lines
+                i += 2;
+
+                // Now skip all segments until we hit a single DISCONTINUITY (ad end)
+                // or end of playlist
+                while i < lines.len() {
+                    let current = lines[i].trim();
+
+                    // Check if this is a single DISCONTINUITY marking end of ad
+                    if current.contains("#EXT-X-DISCONTINUITY") {
+                        // Skip this DISCONTINUITY and continue with content
+                        i += 1;
+                        break;
+                    }
+
+                    // Skip EXTINF line
+                    if current.starts_with("#EXTINF:") {
+                        i += 1;
+                        continue;
+                    }
+
+                    // Skip non-empty, non-comment lines (these are segment URLs)
+                    if !current.is_empty() && !current.starts_with('#') {
+                        i += 1;
+                        continue;
+                    }
+
+                    // Skip other tags/empty lines
+                    i += 1;
+                }
+                continue;
+            }
 
             if line.starts_with("#EXTINF:") {
                 // Look ahead for the segment URL (next non-comment, non-empty line)
@@ -231,5 +289,83 @@ mod tests {
         let result = HlsAdBlocker::filter_playlist(playlist);
         assert!(result.contains("#EXTM3U"));
         assert!(!result.contains("#EXTINF"));
+    }
+
+    #[test]
+    fn filters_ad_segments_by_double_discontinuity() {
+        // Double DISCONTINUITY marks ad break start
+        let playlist = "#EXTM3U\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg1.ts\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg2.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
+        let result = HlsAdBlocker::filter_playlist(playlist);
+        // Content segments should be preserved
+        assert!(result.contains("cdn.example.com/seg1.ts"));
+        assert!(result.contains("cdn.example.com/seg2.ts"));
+        // Ad segments should be removed
+        assert!(!result.contains("ad_seg1.ts"));
+        assert!(!result.contains("ad_seg2.ts"));
+        // No double DISCONTINUITY in result
+        assert!(!result.contains("#EXT-X-DISCONTINUITY\n#EXT-X-DISCONTINUITY"));
+    }
+
+    #[test]
+    fn double_discontinuity_removes_leading_discontinuity() {
+        // The single DISCONTINUITY before double DISCONTINUITY should be removed
+        // as it was joining content to ad
+        let playlist = "#EXTM3U\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg1.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
+        let result = HlsAdBlocker::filter_playlist(playlist);
+        assert!(!result.contains("#EXT-X-DISCONTINUITY"));
+        assert!(result.contains("cdn.example.com/seg1.ts"));
+        assert!(result.contains("cdn.example.com/seg2.ts"));
+    }
+
+    #[test]
+    fn double_discontinuity_multiple_ad_breaks() {
+        let playlist = "#EXTM3U\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad1.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad2.ts\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad3.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg3.ts\n";
+        let result = HlsAdBlocker::filter_playlist(playlist);
+        // Content preserved
+        assert!(result.contains("cdn.example.com/seg1.ts"));
+        assert!(result.contains("cdn.example.com/seg2.ts"));
+        assert!(result.contains("cdn.example.com/seg3.ts"));
+        // Ads removed
+        assert!(!result.contains("ad1.ts"));
+        assert!(!result.contains("ad2.ts"));
+        assert!(!result.contains("ad3.ts"));
+    }
+
+    #[test]
+    fn double_discontinuity_at_playlist_start() {
+        let playlist = "#EXTM3U\n\
+#EXT-X-DISCONTINUITY\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg1.ts\n\
+#EXT-X-DISCONTINUITY\n\
+#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n";
+        let result = HlsAdBlocker::filter_playlist(playlist);
+        assert!(result.contains("cdn.example.com/seg1.ts"));
+        assert!(!result.contains("ad_seg1.ts"));
     }
 }
