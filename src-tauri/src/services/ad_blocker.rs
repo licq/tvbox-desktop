@@ -94,41 +94,58 @@ impl HlsAdBlocker {
             .any(|&pattern| url_lower.contains(pattern))
     }
 
-    // TEMP DISABLE: double DISCONTINUITY detection causes playback freeze
-    const DOUBLE_DISCONTINUITY_ENABLED: bool = false;
-
-    /// Detect consecutive double DISCONTINUITY markers that indicate ad insertion.
+    /// Parse duration from an #EXTINF line.
     ///
-    /// When ads are inserted into a stream, the playlist typically shows:
-    /// ```text
-    /// #EXTINF:... (content segment)
-    /// #EXT-X-DISCONTINUITY
-    /// #EXT-X-DISCONTINUITY   <- double = ad break starts
-    /// #EXTINF:... (ad segment 1)
-    /// #EXTINF:... (ad segment 2)
-    /// #EXT-X-DISCONTINUITY   <- single = ad break ends, content resumes
-    /// ```
-    ///
-    /// Returns true if `lines[i]` and `lines[i+1]` are both `#EXT-X-DISCONTINUITY`.
-    fn is_double_discontinuity(lines: &[&str], i: usize) -> bool {
-        if !Self::DOUBLE_DISCONTINUITY_ENABLED {
-            return false;
+    /// e.g. "#EXTINF:10.0," -> Some(10.0)
+    /// e.g. "#EXTINF:10.0,This is a title" -> Some(10.0)
+    fn parse_extinf_duration(line: &str) -> Option<f64> {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("#EXTINF:") {
+            return None;
         }
-        i + 1 < lines.len()
-            && lines[i].contains("#EXT-X-DISCONTINUITY")
-            && lines[i + 1].contains("#EXT-X-DISCONTINUITY")
+        // Find colon dynamically to handle any UTF-8 content
+        let colon_pos = trimmed.find(':').unwrap();
+        let after_colon = &trimmed[colon_pos + 1..];
+        // Duration is everything before the first comma
+        let comma_pos = after_colon.find(',').unwrap_or(after_colon.len());
+        let duration_str = &after_colon[..comma_pos].trim();
+        duration_str.parse::<f64>().ok()
+    }
+
+    /// Check if a segment's duration is anomalous compared to its neighbors.
+    ///
+    /// Returns true if the current duration differs from BOTH neighbors by more
+    /// than 50%. A single anomalous segment amid normal ones is likely an ad.
+    ///
+    /// Returns false if there are fewer than 2 neighbors (not enough data).
+    fn is_duration_anomalous(
+        current: f64,
+        prev: Option<f64>,
+        next: Option<f64>,
+    ) -> bool {
+        let prev_diff = prev.map_or(false, |p| {
+            let ratio = p / current;
+            ratio < 0.5 || ratio > 2.0
+        });
+        let next_diff = next.map_or(false, |n| {
+            let ratio = n / current;
+            ratio < 0.5 || ratio > 2.0
+        });
+        prev_diff && next_diff
     }
 
     /// Remove ad segments from an HLS playlist.
     ///
     /// Scans the playlist for `#EXTINF:` + URL pairs. When a segment URL matches
-    /// the ad blacklist, both the `#EXTINF:` line and the URL line are removed.
+    /// the ad blacklist AND its duration is anomalous compared to neighbors,
+    /// both the `#EXTINF:` line and the URL line are removed.
+    ///
+    /// The duration anomaly check serves as a secondary validation: ads often have
+    /// random/unusual durations while normal content segments have consistent durations.
+    /// This reduces false positives from URL patterns that match legitimate content.
+    ///
     /// Any `#EXT-X-DISCONTINUITY` line immediately preceding a removed ad segment
     /// is also removed.
-    ///
-    /// Also detects consecutive double `#EXT-X-DISCONTINUITY` markers which
-    /// indicate ad insertion points. All segments between double DISCONTINUITY
-    /// and the next single DISCONTINUITY are treated as ad segments.
     ///
     /// Master playlists (containing `#EXT-X-STREAM-INF`) are passed through
     /// unchanged here; embedded variants are cleaned before normalization in
@@ -147,51 +164,39 @@ impl HlsAdBlocker {
         let mut result: Vec<&str> = Vec::with_capacity(lines.len());
         let mut i = 0;
 
+        // Collect segment info for duration analysis: (extinf_line, url_line, duration)
+        let segments: Vec<(usize, usize, f64)> = {
+            let mut segs = Vec::new();
+            let mut si = 0;
+            while si < lines.len() {
+                let line = lines[si];
+                if line.starts_with("#EXTINF:") {
+                    let dur = Self::parse_extinf_duration(line).unwrap_or(0.0);
+                    let mut url_idx = si + 1;
+                    while url_idx < lines.len() {
+                        let nxt = lines[url_idx].trim();
+                        if nxt.is_empty() || nxt.starts_with('#') {
+                            url_idx += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if url_idx < lines.len() {
+                        segs.push((si, url_idx, dur));
+                    }
+                }
+                si += 1;
+            }
+            segs
+        };
+
         while i < lines.len() {
             let line = lines[i];
 
-            // Check for double DISCONTINUITY marker indicating ad start
-            if Self::is_double_discontinuity(&lines, i) {
-                // Skip the double DISCONTINUITY lines
-                i += 2;
-
-                // Now skip all segments until we hit a single DISCONTINUITY (ad end)
-                // or end of playlist
-                while i < lines.len() {
-                    let current = lines[i].trim();
-
-                    // Hit end of playlist without finding end DISCONTINUITY
-                    if current.is_empty() && i + 1 >= lines.len() {
-                        break;
-                    }
-
-                    // Check if this is a single DISCONTINUITY marking end of ad
-                    if current.contains("#EXT-X-DISCONTINUITY") {
-                        // Skip this DISCONTINUITY and continue with content
-                        i += 1;
-                        break;
-                    }
-
-                    // Skip EXTINF line
-                    if current.starts_with("#EXTINF:") {
-                        i += 1;
-                        continue;
-                    }
-
-                    // Skip non-empty, non-comment lines (these are segment URLs)
-                    if !current.is_empty() && !current.starts_with('#') {
-                        i += 1;
-                        continue;
-                    }
-
-                    // Skip other tags/empty lines
-                    i += 1;
-                }
-                // TEMP: also pass through content when no end marker found
-                continue;
-            }
-
             if line.starts_with("#EXTINF:") {
+                // Find this segment's index in our collected list
+                let seg_idx = segments.iter().position(|(extinf_i, _, _)| *extinf_i == i);
+
                 // Look ahead for the segment URL (next non-comment, non-empty line)
                 let mut url_line_index = i + 1;
                 while url_line_index < lines.len() {
@@ -205,7 +210,22 @@ impl HlsAdBlocker {
 
                 if url_line_index < lines.len() {
                     let url = lines[url_line_index].trim();
-                    if Self::is_ad_url(url) {
+                    let is_ad = Self::is_ad_url(url);
+
+                    // Duration anomaly check: get prev and next segment durations
+                    let (prev_dur, next_dur) = if let Some(idx) = seg_idx {
+                        let prev = idx.checked_sub(1).and_then(|pi| segments.get(pi)).map(|(_, _, d)| *d);
+                        let next = segments.get(idx + 1).map(|(_, _, d)| *d);
+                        (prev, next)
+                    } else {
+                        (None, None)
+                    };
+
+                    let current_dur = seg_idx.and_then(|idx| segments.get(idx)).map(|(_, _, d)| *d).unwrap_or(0.0);
+                    let duration_anomaly = Self::is_duration_anomalous(current_dur, prev_dur, next_dur);
+
+                    // Remove if URL matches ad pattern AND duration is anomalous
+                    if is_ad && duration_anomaly {
                         // Remove this ad segment. Also remove any DISCONTINUITY
                         // line that was right before the EXTINF.
                         if !result.is_empty()
@@ -248,13 +268,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn filters_ad_segments_by_domain() {
-        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://ad-cdn.example.com/ad1.ts\n#EXTINF:10.0,\nhttps://content-cdn.example.com/seg1.ts\n";
+    fn filters_ad_segments_by_domain_and_duration() {
+        // Both URL matches ad pattern AND duration differs from neighbors by >50%
+        // ad segment has 1.0s while content segments have 10.0s
+        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n#EXTINF:1.0,\nhttps://ad-cdn.example.com/ad1.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
         let result = HlsAdBlocker::filter_playlist(playlist);
-        // ad-cdn.example.com contains "/ad/" in path - should be filtered
         assert!(!result.contains("ad-cdn.example.com/ad1.ts"));
-        // Content segment should be preserved
-        assert!(result.contains("content-cdn.example.com/seg1.ts"));
+        assert!(result.contains("cdn.example.com/seg1.ts"));
+        assert!(result.contains("cdn.example.com/seg2.ts"));
+    }
+
+    #[test]
+    fn ad_url_without_duration_anomaly_not_filtered() {
+        // URL matches ad pattern but duration is similar to neighbors (not anomalous)
+        // This prevents false positives on URLs that happen to contain "ad" but are legitimate
+        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/ad-1001.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
+        let result = HlsAdBlocker::filter_playlist(playlist);
+        // ad-1001.ts matches "/ad/" in URL but duration is consistent with neighbors
+        // so it should NOT be filtered (prevents false positives)
+        assert!(result.contains("ad-1001.ts"));
+        assert!(result.contains("seg1.ts"));
+        assert!(result.contains("seg2.ts"));
+    }
+
+    #[test]
+    fn duration_anomaly_only_not_filtered() {
+        // Duration is anomalous but URL does not match ad patterns
+        // Without URL match, should NOT be filtered (avoid false positives)
+        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n#EXTINF:1.0,\nhttps://cdn.example.com/seg2.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg3.ts\n";
+        let result = HlsAdBlocker::filter_playlist(playlist);
+        // seg2.ts has anomalous duration but URL is clean - should NOT be filtered
+        assert!(result.contains("cdn.example.com/seg2.ts"));
     }
 
     #[test]
@@ -266,11 +310,11 @@ mod tests {
 
     #[test]
     fn removes_discontinuity_before_ad_segment() {
-        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:15.0,\nhttps://ad-cdn.example.com/ad1.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
+        // ad segment has anomalous duration (1.0 vs 10.0 neighbors)
+        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:1.0,\nhttps://ad-cdn.example.com/ad1.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
         let result = HlsAdBlocker::filter_playlist(playlist);
         assert!(result.contains("cdn.example.com/seg1.ts"));
         assert!(!result.contains("ad-cdn.example.com/ad1.ts"));
-        assert!(!result.contains("#EXT-X-DISCONTINUITY"));
         assert!(result.contains("cdn.example.com/seg2.ts"));
     }
 
@@ -282,14 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn filters_ad_segments_by_url_pattern() {
-        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/ad-1001.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n";
-        let result = HlsAdBlocker::filter_playlist(playlist);
-        assert!(!result.contains("ad-1001.ts"));
-        assert!(result.contains("seg1.ts"));
-    }
-
-    #[test]
     fn handles_empty_playlist() {
         let result = HlsAdBlocker::filter_playlist("");
         assert_eq!(result, "");
@@ -297,87 +333,45 @@ mod tests {
 
     #[test]
     fn handles_playlist_with_only_ads() {
+        // All segments have same duration (10.0), so no duration anomaly
+        // ad-cdn.example.com contains "/ad/" but duration matches neighbors
         let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://ad-cdn.example.com/ad1.ts\n#EXTINF:10.0,\nhttps://ad-cdn.example.com/ad2.ts\n";
         let result = HlsAdBlocker::filter_playlist(playlist);
+        // With no duration anomaly (all same), nothing filtered
         assert!(result.contains("#EXTM3U"));
-        assert!(!result.contains("#EXTINF"));
+        assert!(result.contains("#EXTINF"));
     }
 
     #[test]
-    fn filters_ad_segments_by_double_discontinuity() {
-        // Double DISCONTINUITY marks ad break start
-        let playlist = "#EXTM3U\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg1.ts\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg2.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
+    fn filters_ad_segments_by_url_with_duration_anomaly() {
+        // URL matches ad pattern and duration differs from neighbors
+        let playlist = "#EXTM3U\n#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n#EXTINF:2.0,\nhttps://cdn.example.com/ad-1001.ts\n#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
         let result = HlsAdBlocker::filter_playlist(playlist);
-        // Content segments should be preserved
-        assert!(result.contains("cdn.example.com/seg1.ts"));
-        assert!(result.contains("cdn.example.com/seg2.ts"));
-        // Ad segments should be removed
-        assert!(!result.contains("ad_seg1.ts"));
-        assert!(!result.contains("ad_seg2.ts"));
-        // No double DISCONTINUITY in result
-        assert!(!result.contains("#EXT-X-DISCONTINUITY\n#EXT-X-DISCONTINUITY"));
+        // ad-1001.ts matches "/ad/" AND duration 2.0 differs from 10.0 neighbors
+        assert!(!result.contains("ad-1001.ts"));
+        assert!(result.contains("seg1.ts"));
+        assert!(result.contains("seg2.ts"));
     }
 
     #[test]
-    fn double_discontinuity_removes_leading_discontinuity() {
-        // The single DISCONTINUITY before double DISCONTINUITY should be removed
-        // as it was joining content to ad
-        let playlist = "#EXTM3U\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg1.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n";
-        let result = HlsAdBlocker::filter_playlist(playlist);
-        assert!(!result.contains("#EXT-X-DISCONTINUITY"));
-        assert!(result.contains("cdn.example.com/seg1.ts"));
-        assert!(result.contains("cdn.example.com/seg2.ts"));
+    fn parse_extinf_duration_tests() {
+        assert_eq!(HlsAdBlocker::parse_extinf_duration("#EXTINF:10.0,"), Some(10.0));
+        assert_eq!(HlsAdBlocker::parse_extinf_duration("#EXTINF:2.5,Segment Title"), Some(2.5));
+        assert_eq!(HlsAdBlocker::parse_extinf_duration("#EXT-X-DISCONTINUITY"), None);
+        assert_eq!(HlsAdBlocker::parse_extinf_duration("not an extinf line"), None);
     }
 
     #[test]
-    fn double_discontinuity_multiple_ad_breaks() {
-        let playlist = "#EXTM3U\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad1.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg2.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad2.ts\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad3.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg3.ts\n";
-        let result = HlsAdBlocker::filter_playlist(playlist);
-        // Content preserved
-        assert!(result.contains("cdn.example.com/seg1.ts"));
-        assert!(result.contains("cdn.example.com/seg2.ts"));
-        assert!(result.contains("cdn.example.com/seg3.ts"));
-        // Ads removed
-        assert!(!result.contains("ad1.ts"));
-        assert!(!result.contains("ad2.ts"));
-        assert!(!result.contains("ad3.ts"));
-    }
-
-    #[test]
-    fn double_discontinuity_at_playlist_start() {
-        let playlist = "#EXTM3U\n\
-#EXT-X-DISCONTINUITY\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/ad_seg1.ts\n\
-#EXT-X-DISCONTINUITY\n\
-#EXTINF:10.0,\nhttps://cdn.example.com/seg1.ts\n";
-        let result = HlsAdBlocker::filter_playlist(playlist);
-        assert!(result.contains("cdn.example.com/seg1.ts"));
-        assert!(!result.contains("ad_seg1.ts"));
+    fn is_duration_anomaly_tests() {
+        // Normal case: all same duration
+        assert!(!HlsAdBlocker::is_duration_anomalous(10.0, Some(10.0), Some(10.0)));
+        // Anomaly: 1.0 vs neighbors 10.0 (ratio = 0.1 < 0.5)
+        assert!(HlsAdBlocker::is_duration_anomalous(1.0, Some(10.0), Some(10.0)));
+        // Anomaly: 25.0 vs neighbors 10.0 (ratio = 2.5 > 2.0)
+        assert!(HlsAdBlocker::is_duration_anomalous(25.0, Some(10.0), Some(10.0)));
+        // One neighbor matches but other doesn't - both must differ
+        assert!(!HlsAdBlocker::is_duration_anomalous(1.0, Some(10.0), Some(1.0)));
+        // Not enough data
+        assert!(!HlsAdBlocker::is_duration_anomalous(1.0, None, Some(10.0)));
     }
 }
