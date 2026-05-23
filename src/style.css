@@ -1078,6 +1078,36 @@ body::-webkit-scrollbar-track {
     width: 100%;
     aspect-ratio: 16 / 9;
     background: #000;
+    filter: brightness(var(--video-brightness, 1));
+  }
+
+  .brightness-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.85);
+    padding: 16px 24px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 100;
+    pointer-events: auto;
+  }
+
+  .brightness-icon {
+    font-size: 20px;
+  }
+
+  .brightness-slider {
+    width: 150px;
+  }
+
+  .brightness-label {
+    font-size: 12px;
+    color: #fff;
+    min-width: 40px;
   }
 
   .player-vignette-top,
