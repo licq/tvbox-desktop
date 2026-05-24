@@ -47,11 +47,10 @@ impl YpansoScraper {
         Ok(self.parse_detail_page(&body, ids))
     }
 
-    pub async fn play(&self, _flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
-        // Fetch the play page and extract the real video source from the player_aaaa JSON
+    pub async fn play(&self, flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
         let body = self.base.fetch_text(play_url).await?;
-        let video_url = extract_ypanso_player_url(&body)
-            .unwrap_or_else(|| play_url.to_string());
+        let (video_url, line_name) = extract_ypanso_player_url(&body)
+            .unwrap_or_else(|| (play_url.to_string(), None));
 
         Ok(vec![PlaybackTarget {
             episode_id: None,
@@ -61,7 +60,7 @@ impl YpansoScraper {
             resolver_key: None,
             headers: None,
             sort_hint: 0,
-            meta: None,
+            meta: line_name,
             referer: Some(play_url.to_string()),
         }])
     }
@@ -231,10 +230,10 @@ impl Default for YpansoScraper {
     fn default() -> Self { Self::new() }
 }
 
-/// Extract the actual video URL from a ypanso play page.
 /// Ypanso uses maccms (Apple CMS) which embeds a `player_aaaa` JSON object
-/// with the real video source URL in a `url` field.
-fn extract_ypanso_player_url(body: &str) -> Option<String> {
+/// with the real video source URL in a `url` field and an optional `name` field
+/// for the line name (e.g. "高清线路", "标清").
+fn extract_ypanso_player_url(body: &str) -> Option<(String, Option<String>)> {
     // (?s) enables dotall mode so `.` matches newlines – the player_aaaa JSON may span multiple lines.
     // Use the same relaxed pattern as resolver::extract_maccms_player_url to handle:
     // - spaces around the equals sign (player_aaaa = {...})
@@ -243,7 +242,9 @@ fn extract_ypanso_player_url(body: &str) -> Option<String> {
     player_regex.captures(body).and_then(|captures| {
         let json_str = captures.get(1).map(|m| m.as_str())?;
         let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
-        parsed.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+        let url = parsed.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())?;
+        let name = parsed.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        Some((url, name))
     })
 }
 
@@ -282,8 +283,8 @@ mod tests {
             "encrypt": 0
         }</script>"#;
         assert_eq!(
-            extract_ypanso_player_url(html).as_deref(),
-            Some("https://cdn.example.com/video.m3u8")
+            extract_ypanso_player_url(html).as_ref(),
+            Some(&("https://cdn.example.com/video.m3u8".to_string(), Some("高清线路".to_string())))
         );
     }
 
@@ -291,8 +292,8 @@ mod tests {
     fn extracts_player_url_from_single_line_json() {
         let html = r#"<script>var player_aaaa={"url":"https://cdn.example.com/video.mp4","name":"标清"}</script>"#;
         assert_eq!(
-            extract_ypanso_player_url(html).as_deref(),
-            Some("https://cdn.example.com/video.mp4")
+            extract_ypanso_player_url(html).as_ref(),
+            Some(&("https://cdn.example.com/video.mp4".to_string(), Some("标清".to_string())))
         );
     }
 
@@ -313,8 +314,8 @@ mod tests {
         // Some maccms themes format the assignment with spaces
         let html = r#"<script>var player_aaaa = {"url":"https://cdn.example.com/video.m3u8","name":"高清"}</script>"#;
         assert_eq!(
-            extract_ypanso_player_url(html).as_deref(),
-            Some("https://cdn.example.com/video.m3u8")
+            extract_ypanso_player_url(html).as_ref(),
+            Some(&("https://cdn.example.com/video.m3u8".to_string(), Some("高清".to_string())))
         );
     }
 
@@ -323,8 +324,8 @@ mod tests {
         // Some maccms themes use player_bbbb instead of player_aaaa
         let html = r#"<script>var player_bbbb={"url":"https://cdn.example.com/video.mp4","name":"标清"}</script>"#;
         assert_eq!(
-            extract_ypanso_player_url(html).as_deref(),
-            Some("https://cdn.example.com/video.mp4")
+            extract_ypanso_player_url(html).as_ref(),
+            Some(&("https://cdn.example.com/video.mp4".to_string(), Some("标清".to_string())))
         );
     }
 }
