@@ -1499,6 +1499,12 @@ function resolvePreferredEpisodeSourceIndex(unifiedEpisode: UnifiedEpisode) {
   return 0
 }
 
+function playNextEpisode() {
+  if (nextEpisode.value) {
+    playUnifiedEpisode(nextEpisode.value, undefined, true)
+  }
+}
+
 async function switchToEpisode(unifiedEpisode: UnifiedEpisode) {
   const preferredSourceIndex = resolvePreferredEpisodeSourceIndex(unifiedEpisode)
   const preferredSource = unifiedEpisode.sources[preferredSourceIndex] ?? unifiedEpisode.sources[0]
