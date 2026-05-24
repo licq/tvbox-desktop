@@ -92,6 +92,10 @@ const currentUnifiedEpisode = ref<UnifiedEpisode | null>(null)
 const currentUnifiedSourceIndex = ref(0)
 const playbackSession = ref<EpisodePlaybackSession | null>(null)
 const currentEpisodeSourceAttempts = computed(() => playbackSession.value?.sourceAttempts ?? [])
+const currentLineName = computed(() => {
+  const attempt = currentEpisodeSourceAttempts.value.find(a => a.status === 'playing')
+  return attempt?.source.lineName ?? null
+})
 let sessionFailoverPromise: Promise<void> | null = null
 let lastSessionFailureKey: string | null = null
 let sessionGeneration = 0
@@ -2161,6 +2165,7 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
                     <button class="action-button action-button-secondary" type="button" @click="toggleFullscreen">
                       {{ fullscreen ? '退出全屏' : '全屏' }}
                     </button>
+                    <span v-if="currentLineName" class="line-name-badge">{{ currentLineName }}</span>
                     <button
                       v-if="hasNextEpisode"
                       class="action-button action-button-secondary"
@@ -2213,3 +2218,13 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
     </div>
   </div>
 </template>
+
+<style scoped>
+.line-name-badge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  background: rgba(255,255,255,0.1);
+  border-radius: 0.25rem;
+  color: var(--text-secondary);
+}
+</style>
