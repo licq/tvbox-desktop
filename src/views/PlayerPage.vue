@@ -186,6 +186,17 @@ const currentNormalizedIndex = computed(() => {
   return undefined
 })
 
+const hasNextEpisode = computed(() => {
+  if (itemType.value === 'movie') return false
+  const nextIdx = (currentNormalizedIndex.value ?? -1) + 1
+  return nextIdx < unifiedEpisodes.value.length
+})
+
+const nextEpisode = computed(() => {
+  if (!hasNextEpisode.value) return null
+  return unifiedEpisodes.value.find(e => e.normalizedIndex === currentNormalizedIndex.value + 1) ?? null
+})
+
 async function loadSourceDetail() {
   playbackSession.value = null
   invalidateSessionFailover()
