@@ -194,7 +194,7 @@ const hasNextEpisode = computed(() => {
 
 const nextEpisode = computed(() => {
   if (!hasNextEpisode.value) return null
-  return unifiedEpisodes.value.find(e => e.normalizedIndex === currentNormalizedIndex.value + 1) ?? null
+  return unifiedEpisodes.value.find(e => e.normalizedIndex === (currentNormalizedIndex.value ?? -1) + 1) ?? null
 })
 
 async function loadSourceDetail() {
