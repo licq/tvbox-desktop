@@ -202,6 +202,7 @@ export interface CatalogEpisodeGroup {
 export interface UnifiedEpisodeSource {
   sourceKey: string
   sourceName: string
+  lineName?: string
   episode: CatalogEpisode
 }
 
