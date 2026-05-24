@@ -2161,6 +2161,14 @@ function handleVideoError(event: Event, playbackAttempt: PlaybackAttemptContext)
                     <button class="action-button action-button-secondary" type="button" @click="toggleFullscreen">
                       {{ fullscreen ? '退出全屏' : '全屏' }}
                     </button>
+                    <button
+                      v-if="hasNextEpisode"
+                      class="action-button action-button-secondary"
+                      type="button"
+                      @click="playNextEpisode"
+                    >
+                      下一集 →
+                    </button>
                   </div>
 
                   <div v-if="fullscreenError" style="color: #f87171; font-size: 0.75rem; margin-top: 4px;">
