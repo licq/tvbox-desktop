@@ -37,6 +37,7 @@ export function mergeEpisodes(
         sources: [{
           sourceKey: g.source_name,
           sourceName: g.source_name,
+          lineName: (ep as any).meta ?? undefined,
           episode: ep,
         }],
       }))
@@ -55,6 +56,7 @@ export function mergeEpisodes(
           sources: [{
             sourceKey: group.source_name,
             sourceName: group.source_name,
+            lineName: (ep as any).meta ?? undefined,
             episode: ep,
           }],
         })
@@ -66,6 +68,7 @@ export function mergeEpisodes(
         existing.sources.push({
           sourceKey: group.source_name,
           sourceName: group.source_name,
+          lineName: (ep as any).meta ?? undefined,
           episode: ep,
         })
       } else {
@@ -75,6 +78,7 @@ export function mergeEpisodes(
           sources: [{
             sourceKey: group.source_name,
             sourceName: group.source_name,
+            lineName: (ep as any).meta ?? undefined,
             episode: ep,
           }],
         })
