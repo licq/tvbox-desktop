@@ -157,7 +157,7 @@ const currentSource = computed(() => props.sources[props.currentIndex] ?? null)
           type="button"
           @click="emit('switchEpisodeSource', attempt.source.sourceKey)"
         >
-          <span class="source-row-label">{{ attempt.source.sourceName }}</span>
+          <span class="source-row-label">{{ attempt.source.lineName || attempt.source.sourceName }}</span>
           <span v-if="attemptDisplayLabel(attempt)" class="source-row-meta">
             {{ attemptDisplayLabel(attempt) }}
           </span>
