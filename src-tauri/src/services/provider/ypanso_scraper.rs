@@ -47,7 +47,7 @@ impl YpansoScraper {
         Ok(self.parse_detail_page(&body, ids))
     }
 
-    pub async fn play(&self, flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
+    pub async fn play(&self, _flag: &str, play_url: &str) -> Result<Vec<PlaybackTarget>, ProviderError> {
         let body = self.base.fetch_text(play_url).await?;
         let (video_url, line_name) = extract_ypanso_player_url(&body)
             .unwrap_or_else(|| (play_url.to_string(), None));
