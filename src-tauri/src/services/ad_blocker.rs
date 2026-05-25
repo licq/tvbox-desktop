@@ -202,42 +202,44 @@ impl HlsAdBlocker {
         while i < lines.len() {
             let line = lines[i];
 
-            // Check for double DISCONTINUITY marker indicating ad break start
-            if Self::is_double_discontinuity(&lines, i) {
-                // Skip the double DISCONTINUITY lines
-                i += 2;
-
-                // Skip all segments until single DISCONTINUITY (ad end) or end
-                while i < lines.len() {
-                    let current = lines[i].trim();
-
-                    // Hit end of playlist without finding end marker
-                    if current.is_empty() && i + 1 >= lines.len() {
-                        break;
-                    }
-
-                    if current.contains("#EXT-X-DISCONTINUITY") {
-                        // Skip this single DISCONTINUITY and continue
-                        i += 1;
-                        break;
-                    }
-
-                    // Skip EXTINF line
-                    if current.starts_with("#EXTINF:") {
-                        i += 1;
-                        continue;
-                    }
-
-                    // Skip non-empty, non-comment lines (segment URLs)
-                    if !current.is_empty() && !current.starts_with('#') {
-                        i += 1;
-                        continue;
-                    }
-
-                    i += 1;
-                }
-                continue;
-            }
+            // Note: Double DISCONTINUITY detection is DISABLED because it causes false
+            // positives on legitimate content that has consecutive DISCONTINUITY markers.
+            // The URL+duration dual filter below is sufficient for ad detection.
+            // if Self::is_double_discontinuity(&lines, i) {
+            //     // Skip the double DISCONTINUITY lines
+            //     i += 2;
+            //
+            //     // Skip all segments until single DISCONTINUITY (ad end) or end
+            //     while i < lines.len() {
+            //         let current = lines[i].trim();
+            //
+            //         // Hit end of playlist without finding end marker
+            //         if current.is_empty() && i + 1 >= lines.len() {
+            //             break;
+            //         }
+            //
+            //         if current.contains("#EXT-X-DISCONTINUITY") {
+            //             // Skip this single DISCONTINUITY and continue
+            //             i += 1;
+            //             break;
+            //         }
+            //
+            //         // Skip EXTINF line
+            //         if current.starts_with("#EXTINF:") {
+            //             i += 1;
+            //             continue;
+            //         }
+            //
+            //         // Skip non-empty, non-comment lines (segment URLs)
+            //         if !current.is_empty() && !current.starts_with('#') {
+            //             i += 1;
+            //             continue;
+            //         }
+            //
+            //         i += 1;
+            //     }
+            //     continue;
+            // }
 
             if line.starts_with("#EXTINF:") {
                 // Find this segment's index in our collected list
